@@ -4,9 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration } from './disposable-integration';
 
 const mocks = vi.hoisted(() => ({
-  pool: vi.fn(), query: vi.fn(), spawn: vi.fn(),
+  pool: vi.fn(), query: vi.fn(), spawn: vi.fn(), context: vi.fn(), evidence: vi.fn(), closure: vi.fn(),
   api: { validateTarget: vi.fn(), createBranch: vi.fn(), rotateOwnerCredentials: vi.fn(),
-    getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), deleteBranch: vi.fn() },
+    getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), reconcileCreation: vi.fn(), deleteBranch: vi.fn() },
+}));
+vi.mock('./qualification-profile', async importOriginal => ({
+  ...await importOriginal<typeof import('./qualification-profile')>(),
+  createQualificationContext: mocks.context, validateQualificationArtifacts: mocks.evidence,
 }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocks.pool }));
 vi.mock('./disposable-neon-api', async importOriginal => ({
@@ -26,7 +30,7 @@ vi.mock('./integration-artifacts', () => ({
 }));
 vi.mock('./integration-child-process', () => ({
   spawnIntegrationChild: mocks.spawn, stopIntegrationChildTree: vi.fn(),
-  verifyIntegrationChildTreeClosed: vi.fn(async () => 'child-close'),
+  verifyIntegrationChildTreeClosed: mocks.closure,
 }));
 
 const environment: NodeJS.ProcessEnv = {
@@ -43,6 +47,9 @@ const run = (output = vi.fn()) => runDisposableIntegration({ environment, gitSha
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.context.mockResolvedValue({ profile: 'full', runId: 'generated-run' });
+  mocks.evidence.mockResolvedValue({ profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0, reportDigest: 'a'.repeat(64) });
+  mocks.closure.mockResolvedValue('child-close');
   mocks.api.createBranch.mockResolvedValue(branch);
   mocks.api.ownedReceipts.mockReturnValue([branch]);
   mocks.query.mockImplementation(async (sql: string) => {
@@ -87,11 +94,12 @@ describe('disposable runner owner credential redaction', () => {
     const output = vi.fn();
     const result = await run(output);
     expect(result.passed).toBe(true);
+    expect(mocks.closure.mock.invocationCallOrder[0]).toBeLessThan(mocks.evidence.mock.invocationCallOrder[0]);
     expect(mocks.pool).toHaveBeenCalledWith(expect.objectContaining({ connectionString: uri }));
     expect(mocks.spawn).toHaveBeenCalledOnce();
     expect(output.mock.calls.flat().join('')).toBe(
       'safe stdout decoded=[REDACTED] url=[REDACTED_DATABASE_URL]\nsafe stderr encoded=[REDACTED]');
-    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch);
+    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch, expect.any(AbortSignal));
   });
 
   it.each(['fictional%ZZpassword', 'fictional%E0%A4password'])
@@ -104,9 +112,26 @@ describe('disposable runner owner credential redaction', () => {
     expect(result.receipt).toMatchObject({ tests: 'not-run', failures: ['provision'], branchDeletionVerified: true });
     expect(mocks.pool).not.toHaveBeenCalled();
     expect(mocks.spawn).not.toHaveBeenCalled();
-    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch);
+    expect(mocks.api.deleteBranch).toHaveBeenCalledWith(expect.anything(), branch, expect.any(AbortSignal));
     expect(output).not.toHaveBeenCalled();
     expect(JSON.stringify(result.receipt)).not.toContain(password);
     expect(JSON.stringify(result.receipt)).not.toContain(uri);
   });
+});
+
+it.each(['invalid-evidence', 'unverified-closure'] as const)('rejects zero-exit child after %s while retaining parent cleanup', async failure => {
+  mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional'));
+  if (failure === 'invalid-evidence') mocks.evidence.mockRejectedValue(new Error('missing acknowledgment'));
+  else mocks.closure.mockRejectedValue(new Error('descendant remains'));
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { pid: 12345 });
+    setImmediate(() => child.emit('close', 0, null)); return child;
+  });
+  const result = await run();
+  expect(result.passed).toBe(false); expect(result.receipt.tests).toBe('failed');
+  if (failure === 'invalid-evidence') {
+    expect(result.receipt.testEvidenceFailure).toBe('missing-or-invalid');
+    expect(result.receipt.schemaCleanupVerified).toBe(true);
+  } else { expect(mocks.evidence).not.toHaveBeenCalled(); expect(result.receipt.schemaCleanupVerified).toBe(false); }
+  expect(mocks.api.deleteBranch).toHaveBeenCalled();
 });

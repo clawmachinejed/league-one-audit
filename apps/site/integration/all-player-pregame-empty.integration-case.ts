@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createProjectionStore } from '../lib/projection-store';
 import type { AllPlayerJobFence } from '../lib/projections/adapters/neon/contracts';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery } from './neon-integration-harness';
-import { registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
+import { enrollIntegrationSeason } from './administration-enrollment-fixture';
 
 const key = 'all-player-ingestion:sleeper';
 const period = { season: 2197, seasonType: 'reg', week: 17 } as const;
@@ -14,13 +14,21 @@ let previousJob: Record<string, unknown> | undefined;
 let fence: AllPlayerJobFence;
 let kickoff: string;
 let gameId: string;
+let nonnullDataLeagueId: string;
+let initialNullPregameProof: Readonly<{ runtimeRole: string; eligibleCount: number; refusedUnchanged: boolean }> | undefined;
 
 async function counts() {
   return (await ownerQuery(`SELECT (SELECT count(*) FROM all_player_stat_contents)::integer AS contents,
     (SELECT count(*) FROM all_player_stat_entries)::integer AS entries,
     (SELECT count(*) FROM all_player_stat_observations)::integer AS observations,
     (SELECT count(*) FROM all_player_score_sets)::integer AS score_sets,
-    (SELECT count(*) FROM current_all_player_score_sets)::integer AS pointers`))[0];
+    (SELECT count(*) FROM all_player_scores)::integer AS scores,
+    (SELECT count(*) FROM all_player_score_verifications)::integer AS verifications,
+    (SELECT jsonb_agg(to_jsonb(row) ORDER BY provider,season,season_type,week,scoring_profile_id,scorer_version)
+      FROM current_all_player_score_sets row) AS pointers,
+    (SELECT jsonb_agg(to_jsonb(row) ORDER BY id) FROM all_player_league_acceptances row) AS acceptances,
+    (SELECT jsonb_agg(to_jsonb(row) ORDER BY league_season_id,provider,season,season_type,week,scorer_version)
+      FROM current_all_player_league_scores row) AS league_heads`))[0];
 }
 function diagnostic() {
   const now = new Date().toISOString();
@@ -41,10 +49,31 @@ describe('018 verified empty pregame outcome under the real SQL ownership guard'
   beforeAll(async () => {
     previousJob = (await ownerQuery<{ job: Record<string, unknown> }>(
       'SELECT to_jsonb(job) AS job FROM projection_jobs job WHERE job_key=$1', [key]))[0]?.job;
-    await registerEnrolledIntegrationSeason(ownerQuery, { leagueKey: '018-pregame', season: period.season,
+    // Defer ordinary membership until a genuine marked request proves that
+    // unadopted DATA with NULL and non-NULL profiles cannot complete pregame.
+    await store.registerLeagueSeason({ leagueKey: '018-pregame', leagueName: '018 Pregame', season: period.season,
       sleeperLeagueId: '018-pregame-league', scoringRules: { pass_td: 4 } });
+    const official = await store.registerLeagueSeason({ mode: 'official-data', leagueKey: '037-null-pregame',
+      leagueName: 'Official-only pregame prerequisite', season: period.season, sleeperLeagueId: '037-null-pregame' });
+    if (official.kind !== 'stored' || official.value.scoringProfileId !== null) throw new Error('Missing NULL fixture identity.');
+    // Owner metadata is a prerequisite, not acquisition or accepted data proof.
+    await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+      VALUES($1,'sleeper',false,'public-data-intake-v1')`, [official.value.leagueId]);
+    await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [official.value.leagueId, period.season]);
+    const nonnull = await store.registerLeagueSeason({ leagueKey: '040-nonnull-pregame',
+      leagueName: 'Unadopted nonnull DATA pregame', season: period.season,
+      sleeperLeagueId: '040-nonnull-pregame', scoringRules: { pass_td: 8 } });
+    if (nonnull.kind !== 'stored' || !nonnull.value.scoringProfileId) throw new Error('Missing nonnull DATA identity.');
+    nonnullDataLeagueId = nonnull.value.leagueId;
+    await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+      VALUES($1,'sleeper',false,'public-data-intake-v1')`, [nonnullDataLeagueId]);
+    await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [nonnullDataLeagueId, period.season]);
   });
   beforeEach(async () => {
+    // Inherited owner job reset isolates cases. These are per-invocation role,
+    // data and accounting proofs, NOT uninterrupted hourly-budget qualification.
     await ownerQuery('DELETE FROM projection_jobs WHERE job_key=$1', [key]);
     await ownerQuery(`INSERT INTO league_period_authorities
       (league_key,default_season,default_season_type,default_week,active_season,active_season_type,
@@ -63,6 +92,23 @@ describe('018 verified empty pregame outcome under the real SQL ownership guard'
     if (claim.kind !== 'acquired') throw new Error('Isolated claim unavailable');
     fence = claim.fence;
     expect(await store.markAllPlayerRequest({ fence, period })).toBe(true);
+    expect((await connection.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    if (!initialNullPregameProof) {
+      const [membership] = await ownerQuery(`SELECT count(*)::integer AS total,
+        count(*) FILTER(WHERE enrollment.evidence <> 'public-data-intake-v1' OR EXISTS(
+          SELECT 1 FROM league_administration_enrollments parent WHERE parent.league_id=enrollment.league_id
+            AND parent.active AND parent.evidence='account-onboarding-v1'
+            AND enrollment.season=ANY(parent.data_adopted_seasons)))::integer AS eligible
+        FROM league_administration_enrollment_seasons enrollment WHERE season=$1 AND provider='sleeper'`, [period.season]);
+      expect(membership).toEqual({ total: 2, eligible: 0 });
+      const job = await ownerQuery('SELECT * FROM projection_jobs WHERE job_key=$1', [key]);
+      const before = await counts();
+      expect(await finish()).toBe(false);
+      expect(await counts()).toEqual(before);
+      expect(await ownerQuery('SELECT * FROM projection_jobs WHERE job_key=$1', [key])).toEqual(job);
+      initialNullPregameProof = { runtimeRole: 'league_one_runtime', eligibleCount: 0, refusedUnchanged: true };
+      await enrollIntegrationSeason(ownerQuery, ['018-pregame'], period.season);
+    }
   });
   afterAll(async () => {
     try {
@@ -72,9 +118,98 @@ describe('018 verified empty pregame outcome under the real SQL ownership guard'
     } finally { await connection.close(); }
   });
 
-  it('records no-data honestly, retains the consumed global slot, writes no observations or pointers, and is not due again', async () => {
+  it('reports the initial genuine restricted LOGIN all-DATA/NULL zero-eligible pregame refusal', () => {
+    // Mandatory first-beforeEach proof, independent of test-name selection/order.
+    expect(initialNullPregameProof).toEqual({ runtimeRole: 'league_one_runtime', eligibleCount: 0, refusedUnchanged: true });
+  });
+  it('completes mixed configured plus DATA/NULL pregame without changing consumed request accounting or stored data', async () => {
     const before = await counts();
+    const accounting = await ownerQuery(`SELECT payload->'requestStarts' AS starts,payload->'requestGeneration' AS generation,
+      payload->'period' AS period,payload->'lastWeeklyRequestAt' AS weekly FROM projection_jobs WHERE job_key=$1`, [key]);
+    const finisher = await createPinnedIntegrationDatabase('runtime');
+    const adopter = await createPinnedIntegrationDatabase('owner');
+    const runtime = createProjectionStore(finisher.database);
+    let pendingFinish: Promise<unknown> | undefined;
+    let pendingAdoption: Promise<unknown> | undefined;
+    const job = () => ownerQuery('SELECT * FROM projection_jobs WHERE job_key=$1', [key]);
+    const waitForParentLock = async (query: typeof finisher.database.query, pid: number,
+      mode: 'ShareLock' | 'RowExclusiveLock') => {
+      let waiting = false;
+      for (let attempt = 0; attempt < 80 && !waiting; attempt += 1) {
+        waiting = (await query<{ waiting: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND relation='public.league_administration_enrollments'::regclass
+            AND mode=$2 AND NOT granted) AS waiting`, [pid, mode]))[0].waiting;
+        if (!waiting) await delay(25);
+      }
+      expect(waiting, `The ${mode} request must actually wait on DATA adoption.`).toBe(true);
+    };
+    const startFinish = (currentFence = fence) => runtime.finishAllPlayerJob({ fence: currentFence,
+      outcome: 'no-statistics-yet', diagnostic: diagnostic() }).then(value => ({ value }), error => ({ error }));
+    try {
+      expect((await finisher.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      const finisherPid = (await finisher.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      const adopterPid = (await adopter.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      const beforeRace = await job();
+      // Adoption commits first: completion waits for the uncommitted parent,
+      // then refuses the newly included league's absent period authority.
+      await adopter.database.query('BEGIN');
+      await adopter.database.query(`UPDATE league_administration_enrollments SET active=true,evidence='account-onboarding-v1',
+        data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1`, [nonnullDataLeagueId, period.season]);
+      pendingFinish = startFinish();
+      await waitForParentLock(adopter.database.query, finisherPid, 'ShareLock');
+      await adopter.database.query('COMMIT');
+      expect(await pendingFinish).toEqual({ value: false }); pendingFinish = undefined;
+      expect(await job()).toEqual(beforeRace); expect(await counts()).toEqual(before);
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [nonnullDataLeagueId]);
+
+      // Completion wins: the adopting writer must wait until the completion
+      // transaction ends. Rollback preserves this genuinely marked test fence.
+      await finisher.database.query('BEGIN');
+      expect(await startFinish()).toEqual({ value: true });
+      pendingAdoption = adopter.database.query(`UPDATE league_administration_enrollments SET active=true
+        WHERE league_id=$1`, [nonnullDataLeagueId]).then(value => ({ value }), error => ({ error }));
+      await waitForParentLock(finisher.database.query, adopterPid, 'RowExclusiveLock');
+      await finisher.database.query('ROLLBACK');
+      expect(await pendingAdoption).toHaveProperty('value'); pendingAdoption = undefined;
+      expect(await job()).toEqual(beforeRace); expect(await counts()).toEqual(before);
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [nonnullDataLeagueId]);
+
+      // An initially valid lease/deadline can expire during the parent wait.
+      // These owner-set negative prerequisites never fabricate acquisition or a request.
+      for (const expiry of ['deadline', 'lease'] as const) {
+        const at = new Date(Date.now() + 3_000).toISOString();
+        const limitedFence = expiry === 'deadline' ? { ...fence, deadlineAt: at } : { ...fence, leaseUntil: at };
+        if (expiry === 'deadline') await ownerQuery(`UPDATE projection_jobs
+          SET payload=jsonb_set(payload,'{deadlineAt}',to_jsonb($2::text)) WHERE job_key=$1`, [key, at]);
+        else await ownerQuery('UPDATE projection_jobs SET lease_until=$2::timestamptz WHERE job_key=$1', [key, at]);
+        const beforeExpiry = await job();
+        await adopter.database.query('BEGIN');
+        await adopter.database.query('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [nonnullDataLeagueId]);
+        pendingFinish = startFinish(limitedFence);
+        await waitForParentLock(adopter.database.query, finisherPid, 'ShareLock');
+        await delay(Math.max(0, Date.parse(at) - Date.now() + 50));
+        await adopter.database.query('ROLLBACK');
+        expect(await pendingFinish, `${expiry} expiry after the lock wait must refuse unchanged`).toEqual({ value: false });
+        pendingFinish = undefined;
+        expect(await job()).toEqual(beforeExpiry); expect(await counts()).toEqual(before);
+        if (expiry === 'deadline') await ownerQuery(`UPDATE projection_jobs
+          SET payload=jsonb_set(payload,'{deadlineAt}',to_jsonb($2::text)) WHERE job_key=$1`, [key, fence.deadlineAt]);
+        else await ownerQuery('UPDATE projection_jobs SET lease_until=$2::timestamptz WHERE job_key=$1', [key, fence.leaseUntil]);
+      }
+      expect(await job()).toEqual(beforeRace);
+    } finally {
+      // Release the blocker before joining the corresponding queued statement.
+      if (pendingFinish) { await adopter.database.query('ROLLBACK'); await pendingFinish; }
+      await finisher.database.query('ROLLBACK');
+      if (pendingAdoption) await pendingAdoption;
+      await adopter.database.query('ROLLBACK');
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [nonnullDataLeagueId]);
+      await finisher.close(); await adopter.close();
+    }
     expect(await finish()).toBe(true);
+    expect(await ownerQuery(`SELECT payload->'requestStarts' AS starts,payload->'requestGeneration' AS generation,
+      payload->'period' AS period,payload->'lastWeeklyRequestAt' AS weekly FROM projection_jobs WHERE job_key=$1`, [key])).toEqual(accounting);
     expect(await counts()).toEqual(before);
     const state = await store.readAllPlayerJobState();
     expect(state).toMatchObject({ state: 'completed', workerId: null, leaseUntil: null });
@@ -83,7 +218,55 @@ describe('018 verified empty pregame outcome under the real SQL ownership guard'
     const next = await store.acquireAllPlayerJob({ mode: 'recurring', period, workerId: '018-peer',
       leaseSeconds: 60, deadlineAt: new Date(Date.now() + 55_000).toISOString() });
     expect(next.kind).toBe('not-due');
-  });
+  }, 30_000);
+
+  it.each(['ordinary-missing-authority', 'invalid-marker', 'missing-source', 'wrong-source', 'wrong-season-source'] as const)(
+    'keeps %s intended and refuses legacy pregame completion without data or accounting changes', async (kind) => {
+      // Owner-created negative metadata only; actual completion uses the runtime
+      // LOGIN and the same genuinely marked fence from this case's beforeEach.
+      const leagueId = randomUUID(); const seasonId = randomUUID();
+      const leagueKey = `037-pregame-${kind}-${randomUUID()}`;
+      const externalId = `${leagueKey}-source`;
+      const evidence = kind === 'ordinary-missing-authority' ? 'isolated fixture season approval'
+        : kind === 'invalid-marker' ? 'public-data-intake-v1 ' : 'public-data-intake-v1';
+      await ownerQuery('INSERT INTO leagues(id,league_key,name) VALUES($1,$2,$2)', [leagueId, leagueKey]);
+      await ownerQuery('INSERT INTO league_seasons(id,league_id,season,scoring_profile_id) VALUES($1,$2,$3,NULL)', [seasonId, leagueId, period.season]);
+      const sourceSeason = kind === 'wrong-season-source' ? randomUUID() : seasonId;
+      if (kind === 'wrong-season-source') await ownerQuery('INSERT INTO league_seasons(id,league_id,season,scoring_profile_id) VALUES($1,$2,$3,NULL)', [sourceSeason, leagueId, period.season - 1]);
+      if (kind !== 'missing-source') await ownerQuery(`INSERT INTO league_source_connections(league_season_id,provider,external_league_id)
+        VALUES($1,$2,$3)`, [sourceSeason, kind === 'wrong-source' ? 'synthetic-other-provider' : 'sleeper', externalId]);
+      // Missing/wrong-source DATA is intended only after exact-season account
+      // adoption; ordinary and near-match markers retain their legacy guards.
+      const adopted = evidence === 'public-data-intake-v1';
+      await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence,data_adopted_seasons)
+        VALUES($1,'sleeper',$2,$3,$4::integer[])`, [leagueId, adopted,
+        adopted ? 'account-onboarding-v1' : 'public-data-intake-v1', adopted ? [period.season] : []]);
+      await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2,'sleeper',$3)`, [leagueId, period.season, evidence]);
+      try {
+        const before = await counts();
+        const job = await ownerQuery('SELECT * FROM projection_jobs WHERE job_key=$1', [key]);
+        expect(await finish()).toBe(false);
+        expect(await counts()).toEqual(before);
+        expect(await ownerQuery('SELECT * FROM projection_jobs WHERE job_key=$1', [key])).toEqual(job);
+      } finally {
+        // Append valid prerequisite connection/authority for following cases.
+        // Immutable membership markers and old source evidence are never edited.
+        // Other-season native IDs stay distinct; no annual lineage is inferred.
+        const correctedExternalId = kind === 'wrong-season-source' ? `${externalId}-current` : externalId;
+        await ownerQuery(`INSERT INTO league_source_connection_history(league_season_id,provider,external_league_id,evidence)
+          SELECT $1::uuid,'sleeper',$2,'isolated fixture explicit historical connection'
+          WHERE NOT EXISTS(SELECT 1 FROM league_source_connections WHERE league_season_id=$1 AND provider='sleeper')`,
+        [seasonId, correctedExternalId]);
+        await ownerQuery(`INSERT INTO league_source_connections(league_season_id,provider,external_league_id)
+          VALUES($1,'sleeper',$2) ON CONFLICT(league_season_id,provider) DO NOTHING`, [seasonId, correctedExternalId]);
+        await ownerQuery(`INSERT INTO league_period_authorities SELECT (jsonb_populate_record(NULL::league_period_authorities,
+          to_jsonb(original)||jsonb_build_object('league_key',$1::text,'source_external_league_id',$2::text,
+            'source_revision','037-corrected-negative-prerequisite','verified_at',clock_timestamp(),
+            'source_observed_at',clock_timestamp()))).* FROM league_period_authorities original WHERE league_key='018-pregame'`,
+        [leagueKey, correctedExternalId]);
+      }
+    });
   it.each(['array', 'null', 'invalid-json', 'unreadable'])('refuses a %s response presented as normal pregame emptiness', async (shape) => {
     const value = diagnostic(); value.responseEvidence.bodyShape = shape;
     expect(await finish(value)).toBe(false);

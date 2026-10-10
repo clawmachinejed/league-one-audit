@@ -18,6 +18,35 @@ export type AdministrationScope = Readonly<{
   season: number;
 }>;
 
+/** An enrolled mapping read before acquisition, never reconstructed after fetch. */
+export type AdministrationSourceMapping = Readonly<{
+  connectionId: string;
+  leagueSeasonId: string;
+  revisionId: string;
+  generation: number;
+  scope: AdministrationScope;
+}>;
+export type AdministrationWriteFence = Readonly<{
+  jobKey: string; workerId: string; generation: number; deadlineAt: string;
+}>;
+export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }> & (
+  | Readonly<{ kind: 'identity'; username: string }>
+  | Readonly<{ kind: 'leagues'; userId: string; season: number }>
+  | Readonly<{ kind: 'bootstrap' | 'core' | 'users'; externalLeagueId: string; season: number }>
+  | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
+);
+/** DB-issued causality evidence, separate from the provider document and its clocks.
+ * The maintained transport receives this before HTTP; writers never add it later.
+ * It attests the trusted collector's ordering, not a malicious SQL writer's HTTP. */
+export type PublicCaptureWitness = Readonly<{
+  version: 'public-network-capture-v1';
+  work: PublicIntakeWork;
+  fence: AdministrationWriteFence;
+  dispatchNonce: string;
+  mapping: AdministrationSourceMapping | null;
+  attempts: Readonly<Record<string, Readonly<{ id: string; nonce: string }>>>;
+}>;
+
 export type AdministrationProvenance = Readonly<{
   origin: 'network' | 'cache' | 'bootstrap';
   requestStartedAt: string | null;
@@ -25,6 +54,8 @@ export type AdministrationProvenance = Readonly<{
   /** Null when a cache cannot prove when the provider document was observed. */
   sourceObservedAt: string | null;
   checkedAt: string;
+  /** Original pre-HTTP capability; never changes provider content identity. */
+  acquisition?: PublicCaptureWitness;
 }>;
 
 export type AdministrationEnvelope = Readonly<{
@@ -167,12 +198,15 @@ export type NormalizedAdministrationObservation = Readonly<{
   value: NormalizedAdministrationValue | null;
   /** Independently qualified projection of the same raw roster; never changes v1 values/hashes. */
   teamManagers?: import('../aggregator/team-managers').TeamManagersNormalization;
+  /** Separately opted-in field evidence; never changes complete-primary v1 normalization. */
+  teamManagerEvidence?: import('../aggregator/team-managers').TeamManagerEvidenceNormalization;
   leagueSettings?: import('../aggregator/league-settings').LeagueSettingsNormalization;
 }>;
 
 export type AdministrationNormalizationExpectations = Readonly<{
   /** Use only a separately validated complete league observation. */
   expectedRosterCount?: number;
+  managerEvidenceVersion?: 'v2';
 }>;
 
 /** An explicit component binding is separate from when its source document was checked. */
@@ -201,4 +235,13 @@ export type CanonicalSeasonSourceIdentity = Readonly<{
   season: number;
   provider: 'sleeper';
   externalLeagueId: string;
+}>;
+/** A retained official document from an existing collector, never a page read. */
+export type CapturedAdministrationDocument = Readonly<{
+  family: AdministrationFamily; week: number | null; payload: unknown;
+  requestStartedAt: string; requestCompletedAt: string;
+  completeness?: 'complete' | 'partial';
+  origin?: 'network' | 'cache' | 'bootstrap';
+  sourceObservedAt?: string | null;
+  acquisition?: PublicCaptureWitness;
 }>;

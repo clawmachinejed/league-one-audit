@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const mocked = vi.hoisted(() => ({ prepare: vi.fn(), clean: vi.fn(), safe: vi.fn(), clock: vi.fn(), owner: vi.fn(), artifacts: vi.fn() }));
 vi.mock('./neon-integration-harness', () => ({ prepareIntegrationDatabase: mocked.prepare,
@@ -9,6 +9,9 @@ vi.mock('./integration-artifacts', () => ({ initializeIntegrationArtifactDirecto
 vi.mock('./collection-capacity-supervision', () => ({ assertCapacityOwner: mocked.owner, CAPACITY_OWNER_ENV: 'FIXTURE_UNUSED_PROOF' }));
 import standardSetup from './global-setup';
 import capacitySetup from './collection-capacity.global-setup';
+
+const originalExitCode = process.exitCode;
+afterEach(() => { process.exitCode = originalExitCode; vi.unstubAllEnvs(); });
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -37,4 +40,14 @@ it('closes standard ownership if artifact directory initialization fails before 
   expect(mocked.prepare).toHaveBeenCalledOnce();
   expect(mocked.clean).toHaveBeenCalledOnce();
   expect(mocked.clock).not.toHaveBeenCalled();
+});
+
+it('rejects a partial supervisor context before preparing any database', async () => {
+  vi.stubEnv('PROJECTION_INTEGRATION_QUALIFICATION_CONTEXT', '{}');
+  await expect(standardSetup()).rejects.toThrow();
+  expect(mocked.prepare).not.toHaveBeenCalled();
+});
+it('makes standalone teardown failure set a failing process status even when the runner ignores close errors', async () => {
+  const cleanup = await standardSetup(); mocked.clean.mockRejectedValue(new Error('failed cleanup'));
+  await expect(cleanup()).rejects.toThrow('failed cleanup'); expect(process.exitCode).toBe(1);
 });

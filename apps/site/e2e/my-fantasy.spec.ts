@@ -32,21 +32,30 @@ async function pageIntroGeometry(page: Page) {
   const intro = page.locator('#main-content [data-page-intro]:visible');
   await expect(intro).toHaveCount(1);
   await expect(intro).toBeVisible();
-  const title = await intro.evaluate(element => {
-    const heading = element.querySelector('h1')!;
-    const season = element.querySelector('p')!;
+  const readTitle = () => intro.evaluate(element => {
+    const heading = element.querySelector('h1');
+    const season = element.querySelector('p');
+    // Streaming may replace the resolved handle before this callback runs.
+    // Detached nodes have empty computed styles and are not layout evidence.
+    if (!element.isConnected || !heading?.isConnected || !season?.isConnected) return null;
     const style = getComputedStyle(heading);
     const seasonStyle = getComputedStyle(season);
     const headingBox = heading.getBoundingClientRect();
     const seasonBox = season.getBoundingClientRect();
-    return { typography: { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
-      letterSpacing: style.letterSpacing, seasonSize: seasonStyle.fontSize, seasonLineHeight: seasonStyle.lineHeight },
+    if (headingBox.width <= 0 || headingBox.height <= 0 || seasonBox.width <= 0 || seasonBox.height <= 0) return null;
+    const typography = { fontSize: style.fontSize, lineHeight: style.lineHeight, fontWeight: style.fontWeight,
+      letterSpacing: style.letterSpacing, seasonSize: seasonStyle.fontSize, seasonLineHeight: seasonStyle.lineHeight };
+    if (Object.values(typography).some(value => !value)) return null;
+    return { typography,
     top: headingBox.top, left: headingBox.left, seasonGap: seasonBox.top - headingBox.bottom,
     seasonBottom: seasonBox.bottom, seasonText: season.textContent };
   });
+  let title: Awaited<ReturnType<typeof readTitle>> = null;
+  await expect.poll(async () => { title = await readTitle(); return title !== null; },
+    'Read heading geometry from the connected visible page').toBe(true);
   const selector = await page.getByRole('combobox', { name: 'Matchup week', exact: true }).boundingBox();
   expect(selector).not.toBeNull();
-  return { ...title, selectorTop: selector!.y, selectorRight: selector!.x + selector!.width };
+  return { ...title!, selectorTop: selector!.y, selectorRight: selector!.x + selector!.width };
 }
 
 async function expectFantasyWeek(page: Page, week: number) {
@@ -203,8 +212,9 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
     weeks: {} as Partial<Record<LeagueKey, number>>,
     boxRequests: [] as Array<{ league: LeagueKey; season: string | null; week: number; queryKeys: string[] }>,
     providerRequests: [] as string[], accountRequests: [] as string[] };
-  await page.clock.install({ time: new Date('2026-09-13T16:00:00.000Z') });
-  await page.clock.pauseAt(new Date('2026-09-13T16:01:00.000Z'));
+  const fixtureTime = new Date('2026-09-13T16:01:00.000Z');
+  await page.clock.install({ time: fixtureTime });
+  await page.clock.setFixedTime(fixtureTime);
   await page.addInitScript(preferences => {
     for (const [key, value] of preferences) {
       // Reloading must retain later choices made through the existing My Team controls.
@@ -323,6 +333,9 @@ async function openFantasyFixture(page: Page, options: { staleInitialRefresh?: b
   });
   await page.goto('/my-fantasy', { waitUntil: 'networkidle' });
   await expect(serverHeading(page)).toHaveText(initialServerHeading, { timeout: 20_000 });
+  // Let delayed client chunks finish mounting before freezing React's startup timers.
+  await page.clock.pauseAt(fixtureTime);
+  await page.clock.setSystemTime(fixtureTime);
   await page.clock.runFor(61_000);
   for (const league of leagues) {
     await expectSelectedScores(card(page, league), league, savedTeams[league]);

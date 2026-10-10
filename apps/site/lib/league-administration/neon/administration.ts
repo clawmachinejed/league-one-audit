@@ -154,12 +154,13 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
         ...(acceptance ? { rosterAcceptance: acceptance } : {}),
         ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
+        ...(managerEvidenceAcceptance ? { teamManagerEvidenceAcceptance: managerEvidenceAcceptance } : {}),
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
         ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
         ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}) })]);

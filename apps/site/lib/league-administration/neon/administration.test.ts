@@ -1,9 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
+import { runPublicIntakeStep } from '../public-intake';
+import { createPublicIntakeStore } from './public-intake';
+import { createLeagueAdministrationStore } from '../store';
+import { LEAGUE_SETTINGS_POLICY, LEAGUE_SETTINGS_FIELDS, leagueSettingsScope } from '../../aggregator/league-settings';
+import type { AdministrationWriteFence, NormalizedAdministrationObservation, PublicCaptureWitness } from '../contracts';
+import type { PublicIntakeWork } from '../public-intake-contracts';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import { normalizeAdministrationObservation } from '../normalize';
 import { createLeagueAdministrationMethods } from './administration';
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/cache', () => ({ unstable_cache: (fn: unknown) => fn }));
 
 function database(respond: (sql: string, parameters: readonly unknown[]) => readonly DatabaseRow[]): DatabaseClient {
   return { enabled: true, async query<Row extends DatabaseRow>(sql: string, parameters: readonly unknown[] = []) {
@@ -123,5 +131,172 @@ describe('administration Neon adapter boundaries', () => {
     const fence = { jobKey: 'job', workerId: 'worker', generation: 2, deadlineAt: row.checked_at };
     await store.recordObservation(input, fence);
     expect(captured?.writeFence).toEqual(fence);
+  });
+});
+
+
+it('serializes sibling v2 evidence into the same atomic writer while preserving the v1 input', async () => {
+  const input = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+    normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope, family: 'rosters', week: null,
+    completeness: 'complete', payload: [{ roster_id: 1, owner_id: 0, co_owners: ['co'] }],
+    provenance: { origin: 'network', requestStartedAt: row.request_started_at, requestCompletedAt: row.request_completed_at,
+      sourceObservedAt: row.source_observed_at, checkedAt: row.checked_at } }, { expectedRosterCount: 1, managerEvidenceVersion: 'v2' });
+  const players = { attempt: { id: 'players', scopeId: 'players', ordinal: 1, expectedGeneration: 0 } };
+  const managers = { attempt: { id: 'managers', scopeId: 'managers', ordinal: 1, expectedGeneration: 0 } };
+  const evidence = { attempt: { id: 'evidence', scopeId: 'evidence', ordinal: 1, expectedGeneration: 0 } };
+  const query = vi.fn((_sql: string, parameters: readonly unknown[]) => {
+    expect(JSON.parse(String(parameters[0]))).toEqual({ ...input, rosterAcceptance: players,
+      teamManagerAcceptance: managers, teamManagerEvidenceAcceptance: evidence });
+    return [{ result: { status: 'rejected', teamManagerEvidenceAcceptance: { status: 'accepted', receiptId: 'receipt', acceptedGeneration: 1 } } }];
+  });
+  const result = await createLeagueAdministrationMethods(database(query)).recordObservation(input, undefined, undefined,
+    players, managers, undefined, undefined, undefined, undefined, undefined, evidence);
+  expect(query).toHaveBeenCalledOnce();
+  expect(result.teamManagerEvidenceAcceptance).toMatchObject({ status: 'accepted' });
+});
+
+
+describe('official-only bootstrap and typed settings through the existing worker', () => {
+  it.each(['absent', 'null', 'empty'] as const)('preserves all three native field states (%s) and later scoring without profile activation', async state => {
+    const requestId = randomUUID(); const leagueId = randomUUID();
+    const native = '98765432109876543210';
+    const mapping = { connectionId: randomUUID(), leagueSeasonId: randomUUID(), revisionId: randomUUID(), generation: 1,
+      scope: { leagueKey: 'sleeper-' + native, provider: 'sleeper' as const, externalLeagueId: native, season: 2026 } };
+    let payload: Record<string, unknown> = { league_id: native, season: '2026', sport: 'nfl', name: 'Preconfiguration', total_rosters: 1 };
+    if (state !== 'absent') payload = { ...payload, settings: state === 'null' ? null : {},
+      scoring_settings: state === 'null' ? null : {}, roster_positions: state === 'null' ? null : [] };
+    const originalPayload = structuredClone(payload);
+    let work: PublicIntakeWork = { requestId, revision: 2, kind: 'bootstrap', externalLeagueId: native, season: 2026 };
+    let registered = false;
+    const checkpoints: Record<string, unknown>[] = [];
+    const writes: (NormalizedAdministrationObservation & Record<string, unknown>)[] = [];
+    const events: string[] = [];
+    const receipt = () => ({ status: 'accepted', receiptId: randomUUID(), acceptedGeneration: 1 });
+    let settingsRow: DatabaseRow | undefined;
+    let admittedFence: AdministrationWriteFence | undefined;
+    let dispatchNonce = '';
+    let reserved: Record<string, { id: string; nonce: string }> = {};
+    let issuedWitness: PublicCaptureWitness | undefined;
+    const query = vi.fn(async (sql: string, parameters: readonly unknown[] = []): Promise<readonly DatabaseRow[]> => {
+      if (sql.includes('public-data-intake:next')) return [{ result: work }];
+      if (sql.includes('public-data-intake:admit-dispatch')) {
+        expect(JSON.parse(String(parameters[0]))).toEqual(work);
+        admittedFence = JSON.parse(String(parameters[1])) as AdministrationWriteFence;
+        dispatchNonce = randomUUID(); reserved = {}; issuedWitness = undefined;
+        return [{ admitted: true }];
+      }
+      if (sql.includes('public-data-intake:capture-witness')) {
+        expect(JSON.parse(String(parameters[0]))).toEqual(work);
+        expect(JSON.parse(String(parameters[2]))).toEqual(admittedFence);
+        expect(parameters[1] === null ? null : JSON.parse(String(parameters[1])))
+          .toEqual(work.kind === 'bootstrap' ? null : mapping);
+        expect(Object.keys(reserved).sort()).toEqual(work.kind === 'bootstrap' ? [] : ['managers', 'players', 'settings']);
+        events.push('capture-witness');
+        issuedWitness = { version: 'public-network-capture-v1', work: { ...work }, fence: admittedFence!,
+          dispatchNonce, mapping: work.kind === 'bootstrap' ? null : mapping, attempts: structuredClone(reserved) };
+        return [{ witness: issuedWitness }];
+      }
+      if (sql.includes('public-data-intake:recover')) return [];
+      if (sql.includes('public-data-intake:resolve-registration')) return registered ? [{
+        league_key: mapping.scope.leagueKey, season: 2026, league_id: leagueId, league_season_id: mapping.leagueSeasonId }] : [];
+      if (sql.includes('public-data-intake:checkpoint')) {
+        const checkpoint = JSON.parse(String(parameters[1])) as Record<string, unknown>; checkpoints.push(checkpoint);
+        expect(checkpoint).not.toHaveProperty('failed'); expect(checkpoint).not.toHaveProperty('diagnostic');
+        if (work.kind === 'bootstrap') expect(checkpoint.acquisition).toEqual(issuedWitness);
+        work = { requestId, revision: work.revision + 1, kind: 'core', externalLeagueId: native, season: 2026 }; return [];
+      }
+      if (sql.includes('read-source-mapping')) return [{ connection_id: mapping.connectionId, league_season_id: mapping.leagueSeasonId,
+        revision_id: mapping.revisionId, mapping_generation: 1, league_key: mapping.scope.leagueKey,
+        season: 2026, provider: 'sleeper', external_league_id: native }];
+      if (sql.includes('begin-roster-capture')) {
+        events.push('reserve-rosters');
+        reserved.players = { id: String(parameters[1]), nonce: randomUUID() };
+        reserved.managers = { id: String(parameters[5]), nonce: randomUUID() };
+        return [{ players: { id: parameters[1], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 },
+          managers: { id: parameters[5], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 } }];
+      }
+      if (sql.includes('begin-league-settings')) {
+        events.push('reserve-settings');
+        reserved.settings = { id: String(parameters[1]), nonce: randomUUID() };
+        return [{ result: { id: parameters[1], scopeId: randomUUID(), ordinal: 1, expectedGeneration: 0 } }];
+      }
+      if (sql.includes('record-observation')) {
+        const input = JSON.parse(String(parameters[0])) as NormalizedAdministrationObservation & Record<string, unknown>;
+        writes.push(input); expect(input.status).toBe('accepted'); expect(input.sourceMapping).toEqual(mapping);
+        expect(issuedWitness).toBeDefined();
+        expect(input.envelope.provenance.acquisition).toEqual(issuedWitness);
+        expect(input.writeFence).toEqual(admittedFence);
+        const observationId = randomUUID();
+        if (input.envelope.family === 'league') {
+          const accepted = receipt(); const contentId = randomUUID();
+          settingsRow = { identity: { scope: leagueSettingsScope(mapping), policy: LEAGUE_SETTINGS_POLICY }, generation: 1,
+            source_mapping_revision_id: mapping.revisionId, source_mapping: mapping, league_id: leagueId,
+            league_season_id: mapping.leagueSeasonId, provider: 'sleeper', external_league_id: native,
+            normalizer_version: input.envelope.normalizerVersion, completeness: 'complete', receipt_id: accepted.receiptId,
+            attempt_id: (input.leagueSettingsAcceptance as { attempt: { id: string } }).attempt.id,
+            legacy_observation_id: observationId, ordinal: 1, provenance: input.envelope.provenance,
+            payload: input.envelope.payload, normalized_value: input.value, content_id: contentId,
+            configuration_content_id: contentId, content_hash: input.contentHash, semantic_hash: input.semanticHash,
+            configuration_version_id: randomUUID(), population_evidence: null, expected_team_count: null,
+            coverage: { periodIds: [], interval: null, entitySet: 'full', fields: LEAGUE_SETTINGS_FIELDS,
+              pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] } };
+          return [{ result: { status: 'changed', observationId, leagueSettingsAcceptance: accepted } }];
+        }
+        const leagueWrite = writes.at(-2)!;
+        expect(input.rosterAcceptance).toMatchObject({ population: { contentHash: leagueWrite.contentHash,
+          envelope: leagueWrite.envelope } });
+        return [{ result: { status: 'changed', observationId, rosterAcceptance: receipt(), teamManagerAcceptance: receipt() } }];
+      }
+      if (sql.includes('read-accepted-league-settings')) return settingsRow ? [settingsRow] : [];
+      throw new Error('Unexpected database path: ' + sql.slice(0, 70));
+    });
+    const queryAfterLock = vi.fn(async (sql: string, parameters: readonly unknown[], lock: {
+      statement: string; parameters?: readonly unknown[]; verifyAfter?: { statement: string };
+    }) => {
+      expect(sql).toContain('/* projection-store:register-league-season-official-data */');
+      expect(parameters.slice(0, 2)).toEqual([null, null]);
+      expect(lock.statement).toContain('guard_public_data_intake');
+      expect(JSON.parse(String(lock.parameters?.[1]))).toMatchObject({ reserveCollection: true });
+      expect(lock.verifyAfter?.statement).toContain('guard_public_data_intake');
+      registered = true;
+      return [[], [{ league_id: leagueId, league_season_id: mapping.leagueSeasonId, scoring_profile_id: null }]];
+    });
+    const client = { enabled: true, query, queryAfterLock } as unknown as DatabaseClient;
+    const administration = createLeagueAdministrationStore(client);
+    const intake = createPublicIntakeStore(client);
+    const jobs = { acquireJob: vi.fn(async () => ({ kind: 'acquired' as const, attempt: 1,
+      leaseUntil: new Date(Date.now() + 25_000).toISOString() })), completeJob: vi.fn(async () => true), failJob: vi.fn(async () => true) };
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      expect(issuedWitness).toBeDefined();
+      const path = String(url); events.push(path.endsWith('/rosters') ? 'fetch-rosters' : 'fetch-league');
+      expect(path).toMatch(new RegExp('/league/' + native + '(/rosters)?$'));
+      return new Response(JSON.stringify(path.endsWith('/rosters')
+        ? [{ roster_id: 1, owner_id: '55', co_owners: [], players: [], starters: [], reserve: [], taxi: [] }] : payload));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      // Real producer/normalizer/registrar/writer/reader; storage behavior is simulated, not PostgreSQL proof.
+      expect(await runPublicIntakeStep(requestId, { intake, administration, jobs }, new AbortController().signal))
+        .toMatchObject({ status: 'progress', resource: 'bootstrap', providerRequests: 1 });
+      expect(queryAfterLock).toHaveBeenCalledOnce();
+      expect(checkpoints[0]).toMatchObject({ leagueId, leagueSeasonId: mapping.leagueSeasonId, payload: originalPayload });
+      expect(events).toEqual(['capture-witness', 'fetch-league']);
+      events.length = 0;
+      expect(await runPublicIntakeStep(requestId, { intake, administration, jobs }, new AbortController().signal))
+        .toMatchObject({ status: 'progress', resource: 'core', providerRequests: 2 });
+      expect(events).toEqual(['reserve-rosters', 'reserve-settings', 'capture-witness', 'fetch-league', 'fetch-rosters']);
+      const read = await administration.readAcceptedLeagueSettings(mapping);
+      expect(read).toMatchObject({ status: 'available', leagueId, leagueSeasonId: mapping.leagueSeasonId,
+        value: { nativeSettings: { fields: { state } }, scoring: { rules: { state } }, slots: { state } } });
+      const previous = structuredClone(writes[0]);
+      payload = { ...payload, scoring_settings: { rec: 0, penalty: -2, unsupported_bonus: 1.25 } };
+      expect(await runPublicIntakeStep(requestId, { intake, administration, jobs }, new AbortController().signal))
+        .toMatchObject({ status: 'progress', resource: 'core', providerRequests: 2 });
+      expect(await administration.readAcceptedLeagueSettings(mapping)).toMatchObject({ status: 'available', value: {
+        scoring: { rules: { state: 'known', value: payload.scoring_settings } } } });
+      expect(writes[0]).toEqual(previous); expect(writes[2].contentHash).not.toBe(previous.contentHash);
+      expect(queryAfterLock).toHaveBeenCalledOnce(); // Later official evidence never invokes season/profile registration.
+      expect(fetcher).toHaveBeenCalledTimes(5); expect(jobs.failJob).not.toHaveBeenCalled();
+    } finally { vi.unstubAllGlobals(); }
   });
 });

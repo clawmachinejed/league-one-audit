@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocked = vi.hoisted(() => ({ pool: vi.fn(), query: vi.fn(), end: vi.fn(),
+const mocked = vi.hoisted(() => ({ neon: vi.fn(), httpQuery: vi.fn(), transaction: vi.fn(), pool: vi.fn(), query: vi.fn(), end: vi.fn(),
   connect: vi.fn(), sessionQuery: vi.fn(), release: vi.fn(), readdir: vi.fn(), readFile: vi.fn(),
   acquireOwnership: vi.fn(), releaseOwnership: vi.fn() }));
-vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
+vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool, neon: mocked.neon }));
 vi.mock('node:fs/promises', () => ({ readdir: mocked.readdir, readFile: mocked.readFile }));
 vi.mock('./integration-database-ownership', () => ({
   INTEGRATION_OWNER_ENV: 'PROJECTION_INTEGRATION_OWNER_PROOF',
@@ -15,12 +15,15 @@ import {
   assertSafeIntegrationDatabase,
   cleanIntegrationDatabase,
   createIndependentDatabase,
+  createReceiptDiagnosticReader,
+  ReceiptDiagnosticReadError,
   createPinnedIntegrationDatabase,
   integrationEnvironment,
   prepareIntegrationDatabase,
   withAccountActor,
   withAuthRole,
   type IntegrationEnvironment,
+  type ReceiptDiagnosticParameters,
 } from './neon-integration-harness';
 
 // Fictional targets only. This suite must never instantiate a real database client.
@@ -97,7 +100,7 @@ beforeEach(() => {
   }] }));
 });
 
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 function mockAccountProvisioning(options: { ownerRole?: string; canSetRole?: boolean; includeAuth?: boolean } = {}) {
   mocked.readdir.mockResolvedValue(['001_fixture.sql', '020_account_foundation.sql',
@@ -616,6 +619,70 @@ describe('built-in protection for retained integration targets', () => {
 });
 
 describe('existing isolated integration harness safety', () => {
+  it('does not connect for an already cancelled identity probe or cleanup', async () => {
+    const signal = AbortSignal.abort(new Error('qualification cancelled'));
+    await expect(assertSafeIntegrationDatabase(fixture, signal)).rejects.toThrow('qualification cancelled');
+    await expect(cleanIntegrationDatabase({ signal })).rejects.toThrow('qualification cancelled');
+    expect(mocked.pool).not.toHaveBeenCalled();
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.query).not.toHaveBeenCalled();
+  });
+  it('releases probe pools without reaching reset after cancellation during an identity query', async () => {
+    const controller = new AbortController();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const result = await original(statement, user);
+      controller.abort(new Error('probe deadline'));
+      return result;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('probe deadline');
+    expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+    expect(mocked.end).toHaveBeenCalled();
+    expect(mocked.query.mock.calls.every(([statement]) => statement.includes('shobj_description'))).toBe(true);
+  });
+  it('releases late ownership without starting a reset after cancellation during acquisition', async () => {
+    const controller = new AbortController();
+    const original = mocked.acquireOwnership.getMockImplementation()!;
+    mocked.acquireOwnership.mockImplementation(async environment => {
+      const session = await original(environment);
+      controller.abort(new Error('ownership deadline'));
+      return session;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('ownership deadline');
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+    expect(mocked.query.mock.calls.every(([statement]) => statement.includes('shobj_description'))).toBe(true);
+  });
+  it('does not issue the next reset statement after an already-issued statement exceeds the deadline', async () => {
+    const controller = new AbortController();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement: string, user: string) => {
+      const result = await original(statement, user);
+      if (statement === 'DROP SCHEMA IF EXISTS website_auth CASCADE') controller.abort(new Error('cleanup deadline'));
+      return result;
+    });
+    await expect(cleanIntegrationDatabase({ signal: controller.signal })).rejects.toThrow('cleanup deadline');
+    expect(mocked.query.mock.calls.filter(([statement]) => !statement.includes('shobj_description')).map(([statement]) => statement))
+      .toEqual(['DROP SCHEMA IF EXISTS website_auth CASCADE']);
+    expect(mocked.releaseOwnership).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])('rolls back a rejected postcondition with caller transaction=%s', async nested => {
+    const session = nested ? await createPinnedIntegrationDatabase('runtime') : createIndependentDatabase();
+    if (nested) await session.database.query('BEGIN');
+    const original = mocked.sessionQuery.getMockImplementation()!;
+    mocked.sessionQuery.mockImplementation(async (statement: string, parameters: unknown[]) => {
+      if (statement === 'assert-live') throw new Error('expired fence after identity wait');
+      return original(statement, parameters);
+    });
+    await expect(session.database.queryAfterLock!('identity', [2], { statement: 'guard', parameters: [1],
+      verifyAfter: { statement: 'assert-live', parameters: [3] } })).rejects.toThrow('expired fence');
+    const statements = mocked.sessionQuery.mock.calls.map(([statement]) => statement);
+    expect(statements).toEqual(nested ? ['BEGIN', 'SHOW transaction_isolation', 'SAVEPOINT all_player_locked_batch_1',
+      'guard', 'identity', 'assert-live', 'ROLLBACK TO SAVEPOINT all_player_locked_batch_1', 'RELEASE SAVEPOINT all_player_locked_batch_1']
+      : ['BEGIN ISOLATION LEVEL READ COMMITTED', 'guard', 'identity', 'assert-live', 'ROLLBACK']);
+    expect(mocked.sessionQuery).toHaveBeenCalledWith('assert-live', [3]);
+    if (nested) await session.database.query('ROLLBACK');
+    await session.close();
+  });
   it.each([false, true])('pins an independent locked transaction through completion (failure=%s)', async (failure) => {
     const session = createIndependentDatabase();
     const statements: string[] = [];
@@ -767,4 +834,117 @@ describe('existing isolated integration harness safety', () => {
     expect(integrationEnvironment()).toEqual(fixture);
     expect(mocked.pool).not.toHaveBeenCalled();
   });
+});
+
+const receiptParameters: ReceiptDiagnosticParameters = ['11111111-1111-4111-8111-111111111111',
+  '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333', '{}', '{}', 1, 0];
+const receiptRow = { request_started_after_reservation: false, request_start_minus_reservation_ms: -0.001,
+  request_start_minus_reservation_clamped: false };
+function mockedReceiptHttp() {
+  mocked.httpQuery.mockImplementation((query, params) => ({ query, params }));
+  mocked.transaction.mockResolvedValue([[{ diagnostic_statement_timeout: '1s' }], [receiptRow]]);
+  mocked.neon.mockReturnValue({ query: mocked.httpQuery, transaction: mocked.transaction });
+}
+it('lazily binds the fixed receipt HTTP read to one guarded runtime target and a read-only transaction', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  expect(mocked.neon).not.toHaveBeenCalled();
+  vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', ownerUrl);
+  const signal = new AbortController().signal;
+  expect(await reader(receiptParameters, signal)).toEqual([receiptRow]);
+  expect(mocked.neon).toHaveBeenCalledExactlyOnceWith(runtimeUrl);
+  expect(mocked.pool).not.toHaveBeenCalled();
+  expect(mocked.httpQuery).toHaveBeenCalledTimes(2);
+  expect(mocked.httpQuery.mock.calls[0]).toEqual(["SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout"]);
+  const [query, parameters] = mocked.httpQuery.mock.calls[1];
+  expect(parameters).toEqual(receiptParameters);
+  expect(query).toContain('receipt.id=$1::uuid AND attempt.id=$2::uuid AND attempt.scope_id=$3::uuid');
+  expect(query).toContain('attempt.source_mapping=$4::jsonb AND scope.identity=$5::jsonb');
+  expect(query).toContain('LIMIT 1'); expect(query).toContain('requested_at>=reserved_at');
+  expect(query).toContain('extract(epoch FROM (requested_at-reserved_at))*1000');
+  expect(query).toContain('greatest(-60000,least(60000,milliseconds))::double precision');
+  expect(query).not.toMatch(/(?:UPDATE|INSERT|DELETE|FOR UPDATE|clock_timestamp)/u);
+  expect(mocked.transaction).toHaveBeenCalledWith(mocked.httpQuery.mock.results.map(result => result.value),
+    { readOnly: true, fetchOptions: { signal } });
+});
+it('refuses wrong role, wrong target, unsafe names, TLS and denylisted diagnostic identities before HTTP', () => {
+  mockedReceiptHttp();
+  for (const url of [ownerUrl, runtimeUrl.replace('/projection_test?', '/another_test?'), runtimeUrl.replace('sslmode=require', 'sslmode=disable')]) {
+    vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', url);
+    expect(() => createReceiptDiagnosticReader()).toThrow();
+  }
+  vi.stubEnv('PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL', runtimeUrl);
+  vi.stubEnv('PROJECTION_INTEGRATION_PRODUCTION_DENYLIST', 'projection_test');
+  expect(() => createReceiptDiagnosticReader()).toThrow();
+  configureEnvironment(); vi.stubEnv('PRODUCTION_DATABASE_URL', runtimeUrl);
+  expect(() => createReceiptDiagnosticReader()).toThrow();
+  expect(mocked.neon).not.toHaveBeenCalled(); expect(mocked.pool).not.toHaveBeenCalled();
+});
+it('performs no HTTP for an already aborted read and rejects malformed or oversized batch results', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  await expect(reader(receiptParameters, AbortSignal.abort())).rejects.toThrow();
+  expect(mocked.neon).not.toHaveBeenCalled();
+  for (const results of [[], [[]], [[], []], [[{ diagnostic_statement_timeout: 'wrong' }], []],
+    [[{ diagnostic_statement_timeout: '1000' }], [receiptRow]], [[{ diagnostic_statement_timeout: '0' }], [receiptRow]],
+    [[{ diagnostic_statement_timeout: '1s' }], [receiptRow, receiptRow]], [[{ diagnostic_statement_timeout: '1s' }], {}]]) {
+    mocked.transaction.mockResolvedValueOnce(results);
+    await expect(reader(receiptParameters, new AbortController().signal)).rejects.toMatchObject({ receiptBoundary: 'result-validation', message: 'Invalid bounded diagnostic transaction result.' });
+  }
+});
+it('tags only diagnostic-owned transaction boundaries and retains no raw driver cause', async () => {
+  mockedReceiptHttp(); const reader = createReceiptDiagnosticReader();
+  for (const original of [Object.assign(new Error('fictional private driver data'), { code: '42501' }), new SyntaxError('fictional private body'),
+    Object.assign(new Error('fictional private abort'), { name: 'AbortError' }),
+    Object.defineProperties({}, { code: { get() { throw new Error('fictional private getter'); } }, name: { get() { throw new Error('fictional private getter'); } } })]) {
+    mocked.transaction.mockRejectedValueOnce(original);
+    const error = await reader(receiptParameters, new AbortController().signal).catch(error => error);
+    expect(error).toBeInstanceOf(ReceiptDiagnosticReadError);
+    expect(error).toMatchObject({ receiptBoundary: 'transaction', message: 'Bounded diagnostic transaction failed.' });
+    expect(error).not.toHaveProperty('cause');
+    expect(JSON.stringify(error)).not.toContain('fictional private');
+    if (original instanceof Error && 'code' in original) expect(error.code).toBe('42501');
+    if (original instanceof Error && original.name === 'AbortError') expect(error.name).toBe('AbortError');
+  }
+});
+it.each([-0.001, 0, 0.001])('retains the installed-driver receipt with PostgreSQL-normalized 1s timeout and %s ms comparison after fixture restoration', async difference => {
+  const actual = await vi.importActual<typeof import('@neondatabase/serverless')>('@neondatabase/serverless');
+  mocked.neon.mockImplementation(actual.neon);
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ results: [
+    { fields: [{ name: 'diagnostic_statement_timeout', dataTypeID: 25 }], rows: [['1s']], command: 'SELECT', rowCount: 1 },
+    { fields: [{ name: 'request_started_after_reservation', dataTypeID: 16 },
+      { name: 'request_start_minus_reservation_ms', dataTypeID: 701 },
+      { name: 'request_start_minus_reservation_clamped', dataTypeID: 16 }], rows: [[difference >= 0 ? 't' : 'f', String(difference), 'f']], command: 'SELECT', rowCount: 1 },
+  ] })));
+  vi.stubGlobal('fetch', fetch);
+  const reader = createReceiptDiagnosticReader();
+  const providerFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Synthetic provider fixture only.'));
+  // The SQL case restores its provider fixture before draining receipt evidence.
+  providerFetch.mockRestore();
+  const signal = new AbortController().signal;
+  expect(await reader(receiptParameters, signal)).toEqual([{ ...receiptRow,
+    request_started_after_reservation: difference >= 0, request_start_minus_reservation_ms: difference }]);
+  expect(fetch).toHaveBeenCalledOnce();
+  const [, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(request.signal).toBe(signal);
+  expect(request.headers).toMatchObject({ 'Neon-Batch-Read-Only': 'true', 'Neon-Connection-String': runtimeUrl });
+  const queries = JSON.parse(request.body as string).queries;
+  expect(queries).toHaveLength(2);
+  expect(queries[0].query).toBe("SELECT pg_catalog.set_config('statement_timeout','1000',true) AS diagnostic_statement_timeout");
+  expect(queries[1].query).toContain('WHERE receipt.id=$1::uuid');
+  expect(queries[1].params).toEqual(receiptParameters.map(String));
+  expect(mocked.pool).not.toHaveBeenCalled();
+});
+it.each(['fetch', 'body'] as const)('consumes late installed-driver %s rejection after shared cancellation without claiming remote cancellation', async stage => {
+  const actual = await vi.importActual<typeof import('@neondatabase/serverless')>('@neondatabase/serverless');
+  mocked.neon.mockImplementation(actual.neon);
+  const pending = Promise.withResolvers<never>(), controller = new AbortController();
+  const fetch = vi.fn(() => stage === 'fetch' ? pending.promise : Promise.resolve({ ok: true, json: () => pending.promise }));
+  vi.stubGlobal('fetch', fetch);
+  const outcome = createReceiptDiagnosticReader()(receiptParameters, controller.signal).then(() => 'complete', () => 'failed');
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+  controller.abort();
+  const [, request] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+  expect(request.signal?.aborted).toBe(true);
+  pending.reject(new Error('fictional late transport failure'));
+  expect(await outcome).toBe('failed');
+  expect(mocked.pool).not.toHaveBeenCalled();
 });

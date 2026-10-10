@@ -145,17 +145,17 @@ describe('projection-store public behavior characterization', () => {
     }
   });
 
-  it('keeps all 77 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 78 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(77);
+    expect(extraction.operations).toHaveLength(78);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(77);
+    expect(new Set(markers).size).toBe(78);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -171,6 +171,7 @@ describe('projection-store public behavior characterization', () => {
     });
 
     expect(fake.calls).toHaveLength(1);
+    expect(fake.calls[0].statement).toContain('/* projection-store:register-league-season */');
     expect(fake.calls[0].parameters).toEqual([
       'c1c9c42b1fbb7c97d6f1c9eae8379d82fb1d07e00c60011202a688afe250aa57',
       '{"pass_td":6,"pass_yd":0.04}',

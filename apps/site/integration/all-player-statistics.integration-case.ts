@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   createProjectionStore,
   type PersistenceOutcome,
@@ -18,6 +19,7 @@ import { runSyntheticCompleteCapacity } from './all-player-synthetic-capacity';
 import { enrollIntegrationSeason, registerEnrolledIntegrationSeason } from './administration-enrollment-fixture';
 import { verifyEnrolledPublication } from './enrolled-publication-fixture';
 import { rulesHash } from '../lib/projections/adapters/neon/database-values';
+import { readEnrollmentInventory } from '../lib/league-administration/neon/enrollment';
 import {
   createIndependentDatabase,
   createPinnedIntegrationDatabase,
@@ -55,6 +57,7 @@ describe('all-player statistics foundation', () => {
   let parityExternalGameId = 'integration-all-player-game';
   let fence: AllPlayerJobFence;
   let forgedObservationSequence = 0;
+  let initialNullPopulationProof: Readonly<{ runtimeRole: string; membershipCount: number; intendedCount: number; refusedAtomically: boolean }> | undefined;
 
   async function addForgedSetVerifications(scoreSetIds: readonly string[], sourceObservationId: string) {
     // A separate immutable observation avoids conflicting with the original
@@ -120,7 +123,6 @@ describe('all-player statistics foundation', () => {
       leagueKey: 'league2', leagueName: 'All Player Two', season: DATABASE_SEASON,
       sleeperLeagueId: 'all-player-integration-two', scoringRules: { pass_td: 6 },
     }));
-    await enrollIntegrationSeason(ownerQuery, ['league1', 'league2'], DATABASE_SEASON);
     leagueSeasonIds = [leagueOne.leagueSeasonId, leagueTwo.leagueSeasonId];
     profileIds = [leagueOne.scoringProfileId, leagueTwo.scoringProfileId];
     await ownerQuery(`INSERT INTO league_period_authorities (
@@ -183,6 +185,49 @@ describe('all-player statistics foundation', () => {
     }]));
     gameId = games[0].gameId;
     wrongWeekGameId = games[1].gameId;
+
+    // R037 authored / unexecuted. Use the FIRST genuine marked 2199 request.
+    // Configured seasons exist but have not yet been enrolled. Only this exact
+    // DATA/NULL membership is intended input; no second admission or job reset.
+    const runtimeRole = String((await database.database.query('SELECT session_user AS role'))[0].role);
+    expect(runtimeRole).toBe('league_one_runtime');
+    const officialOnly = stored(await store.registerLeagueSeason({ mode: 'official-data',
+      leagueKey: 'all-null-initial-publication', leagueName: 'All NULL initial negative prerequisite',
+      sleeperLeagueId: 'all-null-initial-publication', season: DATABASE_SEASON }));
+    expect(officialOnly.scoringProfileId).toBeNull();
+    // Owner creates enrollment metadata only, never an accepted result or credit.
+    await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+      VALUES($1,'sleeper',false,'public-data-intake-v1')`, [officialOnly.leagueId]);
+    await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [officialOnly.leagueId, DATABASE_SEASON]);
+    const [membership] = await ownerQuery<{ total: number; intended: number }>(`SELECT count(*)::integer AS total,
+      count(*) FILTER (WHERE NOT EXISTS(SELECT 1 FROM league_seasons season JOIN league_source_connections connection
+        ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
+        WHERE enrollment.evidence='public-data-intake-v1' AND season.league_id=enrollment.league_id
+          AND season.season=enrollment.season AND season.scoring_profile_id IS NULL))::integer AS intended
+      FROM league_administration_enrollment_seasons enrollment WHERE season=$1 AND provider='sleeper'`, [DATABASE_SEASON]);
+    expect(membership).toEqual({ total: 1, intended: 0 });
+    const input = await batch(observation(1, 'all-null-initial-negative', '2026-09-15T00:00:00.000Z'));
+    // Snapshot AFTER real scorer/parity prerequisites so the rejected atomic
+    // writer must leave data, pointer history AND request accounting unchanged.
+    const snapshotSql = `SELECT jsonb_build_object(
+      'contents',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_contents row),
+      'entries',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_content_id,ordinal),'[]') FROM all_player_stat_entries row),
+      'observations',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_observations row),
+      'sets',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_score_sets row),
+      'scores',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_score_set_id,ordinal),'[]') FROM all_player_scores row),
+      'verifications',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_observation_id,all_player_score_set_id),'[]') FROM all_player_score_verifications row),
+      'pointers',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY scoring_profile_id),'[]') FROM current_all_player_score_sets row),
+      'leagueHeads',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY league_season_id),'[]') FROM current_all_player_league_scores row),
+      'job',(SELECT to_jsonb(row) FROM projection_jobs row WHERE job_key=$1)) AS state`;
+    const before = await ownerQuery(snapshotSql, [fence.jobKey]);
+    await expect(store.recordAllPlayerBatch(input)).rejects.toMatchObject({ code: 'P0001',
+      message: 'all-player score batch does not cover the canonical league scoring profiles' });
+    expect(await ownerQuery(snapshotSql, [fence.jobKey])).toEqual(before);
+    initialNullPopulationProof = { runtimeRole, membershipCount: membership.total,
+      intendedCount: membership.intended, refusedAtomically: true };
+    // Existing configured fixture begins only after the exact negative succeeds.
+    await enrollIntegrationSeason(ownerQuery, ['league1', 'league2'], DATABASE_SEASON);
   });
 
   afterAll(async () => database.close());
@@ -356,6 +401,13 @@ describe('all-player statistics foundation', () => {
         .map((point) => `${point.providerExternalId}\u001f${String(point.points)}`).join('\n')).digest('hex')}`,
     };
   }
+
+  it('refuses all-DATA/NULL publication atomically under the first genuine restricted LOGIN admission', () => {
+    // This named result reports the mandatory beforeAll proof; filtering other
+    // cases never bypasses its real role, candidate, error or snapshot assertions.
+    expect(initialNullPopulationProof).toEqual({ runtimeRole: 'league_one_runtime',
+      membershipCount: 1, intendedCount: 0, refusedAtomically: true });
+  });
 
   it('reads canonical profiles, identities, game context, and runtime database identity', async () => {
     await expect(store.readAllPlayerLeagueProfiles({
@@ -546,6 +598,166 @@ describe('all-player statistics foundation', () => {
       profileIds = saved.profileIds; profileWeights = saved.profileWeights;
       try { await transaction.database.query('ROLLBACK'); } finally { await transaction.close(); }
     }
+  });
+
+  it('keeps configured publication ready through a genuine runtime replay after exact DATA/NULL enrollment', async () => {
+    // Owner creates only immutable enrollment
+    // metadata; the same restricted LOGIN runs the maintained batch writer.
+    expect((await database.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
+    const key = 'official-only-mixed-publication';
+    const registration = stored(await store.registerLeagueSeason({ mode: 'official-data', leagueKey: key,
+      leagueName: key, season: DATABASE_SEASON, sleeperLeagueId: key }));
+    expect(registration.scoringProfileId).toBeNull();
+    await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+      VALUES($1,'sleeper',false,'public-data-intake-v1')`, [registration.leagueId]);
+    await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+      VALUES($1,$2,'sleeper','public-data-intake-v1')`, [registration.leagueId, DATABASE_SEASON]);
+    const profiles = await database.database.query('SELECT id,rules_hash,rules FROM scoring_profiles WHERE id=ANY($1::uuid[]) ORDER BY id', [profileIds]);
+    const pointers = () => database.database.query('SELECT * FROM current_all_player_score_sets WHERE season=$1 ORDER BY scoring_profile_id', [DATABASE_SEASON]);
+    const before = await pointers();
+    const ready = await ownerQuery(`SELECT public.all_player_score_set_is_publication_ready(
+      pointer.all_player_score_set_id,$2::jsonb,pointer.all_player_stat_observation_id) AS ready
+      FROM current_all_player_score_sets pointer WHERE season=$1 ORDER BY scoring_profile_id`, [DATABASE_SEASON, JSON.stringify([...profileIds].sort())]);
+    expect(ready).toHaveLength(profileIds.length);
+    expect(ready.every(row => row.ready === true)).toBe(true);
+    // Readiness intentionally stays owner-only; no EXECUTE grant or SET ROLE.
+    await expect(database.database.query('SELECT public.all_player_score_set_is_publication_ready($1::uuid,$2::jsonb,$3::uuid)',
+      [before[0].all_player_score_set_id, JSON.stringify([...profileIds].sort()), before[0].all_player_stat_observation_id]))
+      .rejects.toThrow(/permission denied/iu);
+    const replay = await batch(observation(1, 'etag:integration-one', '2026-09-15T00:00:01.000Z'));
+    const result = stored(await store.recordAllPlayerBatch(replay));
+    expect(result.scoreSets.every(set => set.pointerOutcome === 'verified')).toBe(true);
+    expect(await pointers()).toEqual(before);
+    expect(await database.database.query('SELECT id,rules_hash,rules FROM scoring_profiles WHERE id=ANY($1::uuid[]) ORDER BY id', [profileIds])).toEqual(profiles);
+    expect((await database.database.query('SELECT scoring_profile_id FROM league_seasons WHERE id=$1', [registration.leagueSeasonId]))[0])
+      .toEqual({ scoring_profile_id: null });
+    expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1', [registration.leagueSeasonId])).toEqual([]);
+
+    // Baseline 7d81 reproduced both exact P0001 failures. The same runtime
+    // population now remains publication-ready with unadopted DATA profiles.
+    const inventory = await readEnrollmentInventory(database.database, DATABASE_SEASON);
+    expect(inventory.entries.map(entry => entry.intended.leagueKey).sort()).toEqual(['league1', 'league2']);
+    expect(inventory.entries.every(entry => entry.status === 'ready')).toBe(true);
+    const publicationSnapshot = async () => (await ownerQuery<{ state: Record<string, unknown> }>(`SELECT jsonb_build_object(
+      'contents',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_contents row),
+      'entries',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_content_id,ordinal),'[]') FROM all_player_stat_entries row),
+      'observations',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_observations row),
+      'sets',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_score_sets row),
+      'scores',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_score_set_id,ordinal),'[]') FROM all_player_scores row),
+      'verifications',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_observation_id,all_player_score_set_id),'[]') FROM all_player_score_verifications row),
+      'pointers',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY provider,season,season_type,week,scoring_profile_id,scorer_version),'[]') FROM current_all_player_score_sets row),
+      'acceptances',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_league_acceptances row),
+      'leagueHeads',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY league_season_id,provider,season,season_type,week,scorer_version),'[]') FROM current_all_player_league_scores row),
+      'job',(SELECT to_jsonb(row) FROM projection_jobs row WHERE job_key=$1)) AS state`, [fence.jobKey]))[0].state;
+    const accounting = () => ownerQuery(`SELECT payload->'requestStarts' AS starts,payload->'requestGeneration' AS generation,
+      payload->'period' AS period,payload->'lastWeeklyRequestAt' AS weekly FROM projection_jobs WHERE job_key=$1`, [fence.jobKey]);
+    let adoptedLeagueId = '';
+    for (const scenario of [{ name: 'shared', weight: 4 }, { name: 'distinct', weight: 8 }] as const) {
+      const dataKey = `unadopted-data-nonnull-${scenario.name}`;
+      const data = stored(await store.registerLeagueSeason({ leagueKey: dataKey, leagueName: dataKey,
+        season: DATABASE_SEASON, sleeperLeagueId: dataKey, scoringRules: { pass_td: scenario.weight } }));
+      expect(data.scoringProfileId).toBeTruthy();
+      expect(profileIds.includes(data.scoringProfileId)).toBe(scenario.name === 'shared');
+      // Owner seeds enrollment metadata only; actual publication uses a real
+      // restricted LOGIN with its genuinely marked request and complete parity.
+      await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+        VALUES($1,'sleeper',false,'public-data-intake-v1')`, [data.leagueId]);
+      await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2,'sleeper','public-data-intake-v1')`, [data.leagueId, DATABASE_SEASON]);
+      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON)).toEqual(inventory);
+      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON, { leagueKey: dataKey })).toEqual({ entries: [] });
+      expect((await database.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      // Preserve the exact fresh baseline workload as a successful runtime
+      // statement; rollback keeps later fixture histories and pointers intact.
+      const fresh = await batch(observation(1, dataKey,
+        scenario.name === 'shared' ? '2026-09-15T00:00:04.000Z' : '2026-09-15T00:00:05.000Z'));
+      const beforeFresh = await publicationSnapshot();
+      const capture = await createPinnedIntegrationDatabase('runtime');
+      try {
+        await capture.database.query('BEGIN');
+        expect((await capture.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+          .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+        const published = stored(await createProjectionStore(capture.database).recordAllPlayerBatch(fresh));
+        expect(published.scoreSets).toHaveLength(profileIds.length);
+        expect(published.scoreSets.every(set => set.pointerOutcome === 'advanced' || set.pointerOutcome === 'verified')).toBe(true);
+        expect(await capture.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1',
+          [data.leagueSeasonId])).toEqual([]);
+      } finally {
+        try { await capture.database.query('ROLLBACK'); } finally { await capture.close(); }
+      }
+      expect(await publicationSnapshot()).toEqual(beforeFresh);
+      const beforeReplay = await publicationSnapshot(); const beforeAccounting = await accounting();
+      expect(stored(await store.recordAllPlayerBatch(replay)).scoreSets.every(set => set.pointerOutcome === 'verified')).toBe(true);
+      // Successful replay may refresh job.lastPublication; material history and
+      // consumed request accounting must remain byte-for-byte equivalent.
+      expect({ ...await publicationSnapshot(), job: null }).toEqual({ ...beforeReplay, job: null });
+      expect(await accounting()).toEqual(beforeAccounting);
+      expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1',
+        [data.leagueSeasonId])).toEqual([]);
+      if (scenario.name === 'distinct') adoptedLeagueId = data.leagueId;
+    }
+
+    const publisher = await createPinnedIntegrationDatabase('runtime');
+    const adopter = await createPinnedIntegrationDatabase('owner');
+    let adoption: Promise<unknown> | undefined;
+    let publication: Promise<unknown> | undefined;
+    try {
+      await publisher.database.query('BEGIN');
+      expect((await publisher.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      expect(stored(await createProjectionStore(publisher.database).recordAllPlayerBatch(replay)).scoreSets
+        .every(set => set.pointerOutcome === 'verified')).toBe(true);
+      const pid = (await adopter.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      adoption = adopter.database.query(`UPDATE league_administration_enrollments SET active=true,evidence='account-onboarding-v1',
+        data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1`, [adoptedLeagueId, DATABASE_SEASON]);
+      const settled = Promise.allSettled([adoption]);
+      let waiting = false;
+      for (let attempt = 0; attempt < 60 && !waiting; attempt += 1) {
+        waiting = (await publisher.database.query<{ waiting: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND relation='public.league_administration_enrollments'::regclass
+            AND mode='RowExclusiveLock' AND NOT granted) AS waiting`, [pid]))[0].waiting;
+        if (!waiting) await delay(25);
+      }
+      expect(waiting, 'Adoption must wait for the publication transaction parent SHARE lock.').toBe(true);
+      await publisher.database.query('ROLLBACK');
+      const outcome = (await settled)[0]; if (outcome.status === 'rejected') throw outcome.reason;
+      adoption = undefined;
+      // Reverse the race: publication reaches SHARE while adoption is still
+      // uncommitted, then must read the newly included profile after its wait.
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [adoptedLeagueId]);
+      const beforeRefusal = await publicationSnapshot();
+      const publisherPid = (await publisher.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      await adopter.database.query('BEGIN');
+      await adopter.database.query(`UPDATE league_administration_enrollments SET active=true,evidence='account-onboarding-v1',
+        data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1`, [adoptedLeagueId, DATABASE_SEASON]);
+      publication = createProjectionStore(publisher.database).recordAllPlayerBatch(replay)
+        .then(value => ({ value }), error => ({ error }));
+      waiting = false;
+      for (let attempt = 0; attempt < 60 && !waiting; attempt += 1) {
+        waiting = (await adopter.database.query<{ waiting: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND relation='public.league_administration_enrollments'::regclass
+            AND mode='ShareLock' AND NOT granted) AS waiting`, [publisherPid]))[0].waiting;
+        if (!waiting) await delay(25);
+      }
+      expect(waiting, 'Publication must reach SHARE before the adopter commits.').toBe(true);
+      await adopter.database.query('COMMIT');
+      expect(await publication).toMatchObject({ error: { code: 'P0001',
+        message: 'all-player score batch does not cover the canonical league scoring profiles' } });
+      publication = undefined;
+      expect((await readEnrollmentInventory(database.database, DATABASE_SEASON)).entries
+        .some(entry => entry.intended.leagueId === adoptedLeagueId && entry.status === 'ready')).toBe(true);
+      expect(await publicationSnapshot()).toEqual(beforeRefusal);
+    } finally {
+      // Release the blocker before awaiting either queued session.
+      if (publication) { await adopter.database.query('ROLLBACK'); await publication; }
+      await publisher.database.query('ROLLBACK');
+      if (adoption) await adoption.catch(() => undefined);
+      await adopter.database.query('ROLLBACK');
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [adoptedLeagueId]);
+      await publisher.close(); await adopter.close();
+    }
+    expect(await readEnrollmentInventory(database.database, DATABASE_SEASON)).toEqual(inventory);
   });
 
   it('derives player total points and PPG from current pointers with profile isolation', async () => {
@@ -2104,4 +2316,125 @@ describe('all-player statistics foundation', () => {
         [JSON.stringify(priorJob)]);
     }
   }, 120_000);
+
+  it('owner-only readiness refuses all-DATA/NULL copied negative prerequisites without publication', async () => {
+    // R037 AUTHORED / UNEXECUTED, OWNER-ONLY NEGATIVE PREREQUISITES.
+    // Copy a previously genuine complete candidate into an empty synthetic
+    // season with consistent games/raw rows/scores/verification. This transaction
+    // is rolled back; no accepted head, result, lease or request credit is made.
+    // Runtime zero-population refusal is proved separately by the initial 2199
+    // writer case, never by this owner-only readiness boolean.
+    const period = { season: 2191, seasonType: 'reg' as const, week: 1 };
+    const owner = await createPinnedIntegrationDatabase('owner');
+    const candidate = { content: randomUUID(), observation: randomUUID(), scoreSet: randomUUID() };
+    let ownerOpen = false;
+    const configuredPointers = await ownerQuery('SELECT * FROM current_all_player_score_sets WHERE season=$1 ORDER BY scoring_profile_id', [DATABASE_SEASON]);
+    try {
+      expect(await owner.database.query('SELECT * FROM league_administration_enrollment_seasons WHERE season=$1', [period.season])).toEqual([]);
+      const [template] = await owner.database.query(`SELECT pointer.all_player_stat_observation_id AS observation_id,
+        pointer.all_player_score_set_id AS score_set_id,score_set.all_player_stat_content_id AS content_id,
+        score_set.scoring_profile_id,verification.coverage
+        FROM current_all_player_score_sets pointer JOIN all_player_score_sets score_set ON score_set.id=pointer.all_player_score_set_id
+        JOIN all_player_score_verifications verification ON verification.all_player_score_set_id=score_set.id
+          AND verification.all_player_stat_observation_id=pointer.all_player_stat_observation_id
+        WHERE pointer.season=$1 ORDER BY pointer.scoring_profile_id LIMIT 1`, [DATABASE_SEASON]);
+      if (!template) throw new Error('The all-NULL negative case requires a previously genuine complete fixture candidate.');
+      const expected = (template.coverage as Record<string, unknown>).expected_scoring_profile_ids;
+      // Establish that the copied source satisfies current readiness first;
+      // owner copies below change period/IDs only for the zero-member negative.
+      expect(await owner.database.query(`SELECT public.all_player_score_set_is_publication_ready($1,$2::jsonb,$3) AS ready`,
+        [template.score_set_id, JSON.stringify(expected), template.observation_id])).toEqual([{ ready: true }]);
+      await owner.database.query('BEGIN'); ownerOpen = true;
+      await owner.database.query(`INSERT INTO all_player_stat_contents SELECT (jsonb_populate_record(NULL::all_player_stat_contents,
+        to_jsonb(original)||jsonb_build_object('id',$2::uuid,'season',$3::smallint,
+          'coverage',jsonb_set(original.coverage,'{periodInventoryEvidence,effectivePeriod}',$4::jsonb)))).*
+        FROM all_player_stat_contents original WHERE id=$1`, [template.content_id, candidate.content, period.season, JSON.stringify(period)]);
+      const games = await owner.database.query(`SELECT DISTINCT game.* FROM nfl_games game
+        JOIN all_player_stat_entries entry ON entry.nfl_game_id=game.id WHERE entry.all_player_stat_content_id=$1`, [template.content_id]);
+      const gameIds: Record<string, string> = {};
+      for (const game of games) {
+        const id = randomUUID(); gameIds[String(game.id)] = id;
+        await owner.database.query(`INSERT INTO nfl_games SELECT (jsonb_populate_record(NULL::nfl_games,
+          $1::jsonb||jsonb_build_object('id',$2::uuid,'season',$3::smallint))).*`, [JSON.stringify(game), id, period.season]);
+      }
+      await owner.database.query(`INSERT INTO all_player_stat_entries SELECT (jsonb_populate_record(NULL::all_player_stat_entries,
+        to_jsonb(original)||jsonb_build_object('all_player_stat_content_id',$2::uuid,
+          'nfl_game_id',CASE WHEN original.nfl_game_id IS NULL THEN NULL ELSE ($3::jsonb->>original.nfl_game_id::text)::uuid END,
+          'eligibility_evidence',CASE WHEN original.eligibility_evidence ? 'effectivePeriod'
+            THEN jsonb_set(original.eligibility_evidence,'{effectivePeriod}',$4::jsonb) ELSE original.eligibility_evidence END))).*
+        FROM all_player_stat_entries original WHERE all_player_stat_content_id=$1 ORDER BY ordinal`,
+      [template.content_id, candidate.content, JSON.stringify(gameIds), JSON.stringify(period)]);
+      await owner.database.query(`INSERT INTO all_player_stat_observations SELECT (jsonb_populate_record(NULL::all_player_stat_observations,
+        to_jsonb(original)||jsonb_build_object('id',$2::uuid,'all_player_stat_content_id',$3::uuid,'season',$4::smallint))).*
+        FROM all_player_stat_observations original WHERE id=$1`, [template.observation_id, candidate.observation, candidate.content, period.season]);
+      await owner.database.query(`INSERT INTO all_player_score_sets SELECT (jsonb_populate_record(NULL::all_player_score_sets,
+        to_jsonb(original)||jsonb_build_object('id',$2::uuid,'all_player_stat_content_id',$3::uuid,'season',$4::smallint))).*
+        FROM all_player_score_sets original WHERE id=$1`, [template.score_set_id, candidate.scoreSet, candidate.content, period.season]);
+      await owner.database.query(`INSERT INTO all_player_scores SELECT (jsonb_populate_record(NULL::all_player_scores,
+        to_jsonb(original)||jsonb_build_object('all_player_score_set_id',$2::uuid,'all_player_stat_content_id',$3::uuid,
+          'nfl_game_id',CASE WHEN original.nfl_game_id IS NULL THEN NULL ELSE ($4::jsonb->>original.nfl_game_id::text)::uuid END))).*
+        FROM all_player_scores original WHERE all_player_score_set_id=$1 ORDER BY ordinal`,
+      [template.score_set_id, candidate.scoreSet, candidate.content, JSON.stringify(gameIds)]);
+      await owner.database.query(`INSERT INTO all_player_score_verifications SELECT (jsonb_populate_record(NULL::all_player_score_verifications,
+        to_jsonb(original)||jsonb_build_object('all_player_stat_observation_id',$3::uuid,'all_player_score_set_id',$4::uuid))).*
+        FROM all_player_score_verifications original WHERE all_player_stat_observation_id=$1 AND all_player_score_set_id=$2`,
+      [template.observation_id, template.score_set_id, candidate.observation, candidate.scoreSet]);
+      // No copied pointer exists, so historical publication cannot bypass the
+      // current-alias guard. Assert EVERY preceding readiness condition directly
+      // before interpreting false as the zero-population owner predicate.
+      expect(await owner.database.query(`SELECT
+        NOT EXISTS(SELECT 1 FROM all_player_scores score WHERE score.all_player_score_set_id=candidate.id
+          AND NOT EXISTS(SELECT 1 FROM external_scoring_entity_ids mapping JOIN scoring_entities entity
+            ON entity.id=mapping.scoring_entity_id AND entity.kind=score.entity_kind
+            WHERE mapping.provider=candidate.provider AND mapping.entity_kind=score.entity_kind
+              AND mapping.external_id=score.provider_external_id AND mapping.scoring_entity_id=score.scoring_entity_id
+              AND mapping.mapping_status='verified' AND mapping.valid_from<=clock_timestamp()
+              AND (mapping.valid_to IS NULL OR mapping.valid_to>clock_timestamp()))) AS aliases_complete,
+        (candidate.quality='complete' AND candidate.scored_entity_count=content.entry_count
+          AND candidate.parity_comparison_count>0 AND candidate.parity_mismatch_count=0
+          AND verification.coverage @> '{"complete":true,"identity_complete":true,"scoring_rules_complete":true}'::jsonb
+          AND verification.coverage->>'scoring_rules_hash'=profile.rules_hash
+          AND verification.coverage->'expected_scoring_profile_ids'=$3::jsonb
+          AND btrim(COALESCE(verification.coverage->>'all_player_source_revision',''))<>''
+          AND COALESCE(verification.coverage->>'score_batch_fingerprint','') ~ '^sha256:[0-9a-f]{64}$'
+          AND jsonb_typeof(verification.coverage->'parity_observation_ids')='array'
+          AND jsonb_typeof(verification.coverage->'parity_observation_evidence')='object'
+          AND jsonb_typeof(verification.coverage->'parity_expected_entity_count')='number'
+          AND COALESCE(verification.coverage->>'parity_fingerprint','') ~ '^sha256:[0-9a-f]{64}$'
+          AND public.all_player_scoring_contract_supported(candidate.provider,candidate.scorer_version,profile.rules)) AS shape_complete,
+        (candidate.scored_entity_count=(SELECT count(*) FROM all_player_scores score WHERE score.all_player_score_set_id=candidate.id)
+          AND candidate.eligible_game_count=COALESCE((SELECT sum(score.eligible_game_count) FROM all_player_scores score WHERE score.all_player_score_set_id=candidate.id),0)
+          AND NOT EXISTS(SELECT 1 FROM all_player_scores score WHERE score.all_player_score_set_id=candidate.id
+            AND score.eligible_game_count=1 AND score.nfl_game_id IS NULL)) AS physical_complete
+        FROM all_player_score_sets candidate JOIN all_player_stat_contents content ON content.id=candidate.all_player_stat_content_id
+        JOIN scoring_profiles profile ON profile.id=candidate.scoring_profile_id
+        JOIN all_player_score_verifications verification ON verification.all_player_score_set_id=candidate.id
+          AND verification.all_player_stat_observation_id=$2 WHERE candidate.id=$1`,
+      [candidate.scoreSet, candidate.observation, JSON.stringify(expected)]))
+        .toEqual([{ aliases_complete: true, shape_complete: true, physical_complete: true }]);
+      const key = 'all-null-publication-prerequisite';
+      const registration = stored(await createProjectionStore(owner.database).registerLeagueSeason({ mode: 'official-data',
+        leagueKey: key, leagueName: key, sleeperLeagueId: key, season: period.season }));
+      expect(registration.scoringProfileId).toBeNull();
+      await owner.database.query(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
+        VALUES($1,'sleeper',false,'public-data-intake-v1')`, [registration.leagueId]);
+      await owner.database.query(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
+        VALUES($1,$2,'sleeper','public-data-intake-v1')`, [registration.leagueId, period.season]);
+      expect(await owner.database.query(`SELECT public.all_player_score_set_is_publication_ready($1,$2::jsonb,$3) AS ready`,
+        [candidate.scoreSet, JSON.stringify(expected), candidate.observation])).toEqual([{ ready: false }]);
+      const [membership] = await owner.database.query(`SELECT count(*)::integer AS total,
+        count(*) FILTER (WHERE NOT EXISTS(SELECT 1 FROM league_seasons season JOIN league_source_connections connection
+          ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
+          WHERE enrollment.evidence='public-data-intake-v1' AND season.league_id=enrollment.league_id
+            AND season.season=enrollment.season AND season.scoring_profile_id IS NULL))::integer AS intended
+        FROM league_administration_enrollment_seasons enrollment WHERE season=$1 AND provider='sleeper'`, [period.season]);
+      expect(membership).toEqual({ total: 1, intended: 0 });
+      expect(await owner.database.query('SELECT * FROM current_all_player_score_sets WHERE season=$1', [period.season])).toEqual([]);
+      expect(await owner.database.query('SELECT * FROM current_all_player_league_scores WHERE season=$1', [period.season])).toEqual([]);
+      expect(await owner.database.query('SELECT * FROM current_all_player_score_sets WHERE season=$1 ORDER BY scoring_profile_id', [DATABASE_SEASON])).toEqual(configuredPointers);
+    } finally {
+      if (ownerOpen) await owner.database.query('ROLLBACK');
+      await owner.close();
+    }
+  });
 });

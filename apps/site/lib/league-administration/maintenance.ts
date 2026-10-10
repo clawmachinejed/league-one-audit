@@ -8,6 +8,7 @@ import { getOfficialLeagueAdministration, getOfficialMatchupObservation, getOffi
 import type { LeagueRegistryPort } from '../projections/ports/league-registry';
 import { captureAdministrationSourceMapping, recordCapturedAdministration } from './runtime';
 import { createLeagueAdministrationStore } from './store';
+import type { PublicIntakeSelection } from './public-intake-runtime';
 
 const HOUR_MS = 3_600_000;
 export const ADMINISTRATION_MAINTENANCE_JOB = 'league-administration-maintenance';
@@ -33,7 +34,10 @@ export function administrationMaintenanceSelection(now: Date, leagueCount: numbe
  * At minute 30 one global hourly claim selects one league and one period (at most five GETs),
  * or every fourth turn its finite season metadata inventory (at most 31 GETs including core).
  * No page-triggered writes, Tank01 calls, extra cron or historical-week fanout. */
-export async function runAdministrationMaintenance(registry: LeagueRegistryPort, invocationStartedAt: number) {
+export async function runAdministrationMaintenance(registry: LeagueRegistryPort, invocationStartedAt: number,
+  publicIntake?: PublicIntakeSelection) {
+  // Existing callers retain the original path and never query the additive schema.
+  if (publicIntake) return (await import('./public-intake-runtime')).runSelectedPublicIntake(publicIntake, invocationStartedAt);
   const now = new Date(invocationStartedAt);
   if (!Number.isFinite(now.getTime()) || now.getUTCMinutes() !== 30) return { status: 'not-due' } as const;
   const remaining = Math.min(20_000, invocationStartedAt + 48_000 - Date.now());

@@ -27,6 +27,7 @@ describe('disposable test configuration', () => {
     expect(integrationChildEnvironment({ PATH: 'bin', SystemRoot: 'Windows', CI: '1',
       NEON_TEST_API_KEY: 'secret', DATABASE_URL: 'secret', NODE_OPTIONS: '--inspect',
       PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: 'untrusted-parent-path',
+      PROJECTION_INTEGRATION_QUALIFICATION_CONTEXT: 'untrusted-parent-context',
       VERCEL_TOKEN: 'secret', TANK01_API_KEY: 'secret', UNKNOWN_SECRET: 'secret' }))
       .toEqual({ PATH: 'bin', SystemRoot: 'Windows', CI: '1', NODE_ENV: 'test' });
   });

@@ -1,4 +1,5 @@
 import 'server-only';
+import { publicCaptureForRequest, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
 
 import { cache } from 'react';
 import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
@@ -194,8 +195,80 @@ const readAdministration = cache(async (
   return readOfficialAdministration(leagueId, family, week, revalidate);
 });
 
-async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal): Promise<unknown> {
+// DATA acquisition resource limits, not Sleeper limits or a coverage guarantee.
+// Bytes are the actual response.body bytes after fetch content decoding. Values
+// count the parsed root, containers and scalar values (not object member names);
+// the root has depth 1. Native JSON.parse has byte-bounded input; the subsequent
+// iterative checks bound work entering the existing normalizers and capture seal.
+const PUBLIC_CAPTURE_MAX_BYTES = 8 * 1024 * 1024;
+const PUBLIC_CAPTURE_MAX_VALUES = 250_000;
+const PUBLIC_CAPTURE_MAX_DEPTH = 64;
+
+function assertPublicCaptureStructure(payload: unknown): void {
+  const pending = [{ value: payload, depth: 1 }];
+  let values = 1;
+  while (pending.length) {
+    const { value, depth } = pending.pop()!;
+    if (value === null || typeof value !== 'object') continue;
+    const keys = Array.isArray(value) ? null : Object.keys(value);
+    const children = keys ? keys.length : (value as unknown[]).length;
+    // Count before pushing children so the traversal's own stack stays bounded.
+    if (children > PUBLIC_CAPTURE_MAX_VALUES - values) throw new Error('Public DATA response value limit exceeded.');
+    if (children && depth >= PUBLIC_CAPTURE_MAX_DEPTH) throw new Error('Public DATA response depth limit exceeded.');
+    values += children;
+    for (let index = 0; index < children; index++) {
+      pending.push({ value: keys ? (value as Record<string, unknown>)[keys[index]] : (value as unknown[])[index], depth: depth + 1 });
+    }
+  }
+}
+
+async function readPublicCaptureJson(response: Response, signal: AbortSignal): Promise<unknown> {
+  const reader = response.body?.getReader();
+  // Keep the existing JSON syntax failure for a successful response with no body.
+  if (!reader) { signal.throwIfAborted(); return JSON.parse(''); }
+  let ended = false, failure: unknown;
+  // A single listener closes pending reads without retaining a promise reaction
+  // per chunk. Stream cancellation settles reads before its source acknowledges.
+  const onAbort = () => { void reader.cancel(signal.reason).catch(() => undefined); };
+  let bytes = new Uint8Array(16 * 1024), length = 0;
+  try {
+    signal.throwIfAborted();
+    signal.addEventListener('abort', onAbort, { once: true });
+    while (true) {
+      const chunk = await reader.read();
+      signal.throwIfAborted();
+      if (chunk.done) { ended = true; break; }
+      if (chunk.value.byteLength > PUBLIC_CAPTURE_MAX_BYTES - length) throw new Error('Public DATA response byte limit exceeded.');
+      const required = length + chunk.value.byteLength;
+      if (required > bytes.byteLength) {
+        const grown = new Uint8Array(Math.min(PUBLIC_CAPTURE_MAX_BYTES, Math.max(required, bytes.byteLength * 2)));
+        grown.set(bytes.subarray(0, length));
+        bytes = grown;
+      }
+      bytes.set(chunk.value, length);
+      length = required;
+    }
+    // Decode once after the bounded read: split UTF-8 code points, BOM handling
+    // and replacement of malformed bytes retain Response.json() semantics.
+    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes.subarray(0, length)));
+    assertPublicCaptureStructure(payload);
+    return payload;
+  } catch (error) {
+    failure = error;
+    throw error;
+  } finally {
+    signal.removeEventListener('abort', onAbort);
+    // Cancelling closes pending reads immediately; an underlying source may never
+    // acknowledge cancellation, so it cannot extend the existing request deadline.
+    if (!ended) void reader.cancel(failure).catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal,
+  requestPolicy?: Readonly<{ redirect: 'error'; boundedPublicCapture: true }>): Promise<unknown> {
   const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const family = sleeperEndpointFamily(path);
   if (revalidate > 0) recordProviderCache('sleeper', family, 'framework-managed');
   const finished = startProviderHttp('sleeper', family, revalidate > 0 ? 'framework-managed' : 'bypass');
@@ -203,19 +276,22 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?:
   try {
     response = await fetch(`${API}${path}`, {
       ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      signal: requestSignal,
       headers: { Accept: 'application/json' },
+      ...(requestPolicy ? { redirect: requestPolicy.redirect } : {}),
     });
   } catch (error) {
     finished('unavailable');
     throw error;
   }
   if (!response.ok) {
+    if (requestPolicy?.boundedPublicCapture) void response.body?.cancel().catch(() => undefined);
     finished('unavailable');
     throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
   }
   try {
-    const result: unknown = await response.json();
+    const result: unknown = requestPolicy?.boundedPublicCapture
+      ? await readPublicCaptureJson(response, requestSignal) : await response.json();
     finished('available');
     return result;
   } catch (error) {
@@ -239,6 +315,11 @@ export async function getSleeperUserIdentity(userId: string, signal?: AbortSigna
 }> {
   if (!/^[a-zA-Z0-9_]{1,100}$/u.test(userId)) throw new Error('Invalid Sleeper username.');
   const value = await fetchJson(`/user/${encodeURIComponent(userId)}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserIdentity(value, userId);
+}
+
+/** One identity parser shared by existing callers and retained backend acquisition. */
+export function normalizeSleeperUserIdentity(value: unknown, userId: string) {
   if (!isRecord(value) || typeof value.user_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(value.user_id)
     || (/^[1-9]\d{0,31}$/u.test(userId) && value.user_id !== userId) || typeof value.username !== 'string'
     || !value.username.trim() || value.username.length > 100) throw new Error('Sleeper identity is unavailable.');
@@ -255,10 +336,14 @@ export async function getSleeperUserLeagues(
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !/^\d{4}$/u.test(season)) throw new Error('Invalid discovery source.');
   signal?.throwIfAborted();
   const rows = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, CORE_CACHE_SECONDS, signal);
+  return normalizeSleeperUserLeagues(rows, season, new Date().toISOString(), signal);
+}
+
+/** Preserve the complete requested season scope; derived coverage never filters official leagues. */
+export function normalizeSleeperUserLeagues(rows: unknown, season: string, assessedAt: string, signal?: AbortSignal) {
   if (!Array.isArray(rows) || rows.length > 1_000) throw new Error('Sleeper league discovery is unavailable.');
   const leagues = new Map<string, { id: string; name: string; season: string; avatar?: string | null; capabilities?: LeagueCapabilityReport }>();
   const settingsConflicts = new Set<string>();
-  const assessedAt = new Date().toISOString();
   for (const row of rows) {
     signal?.throwIfAborted();
     if (!isRecord(row) || typeof row.league_id !== 'string' || !/^[1-9]\d{0,31}$/u.test(row.league_id)
@@ -278,6 +363,52 @@ export async function getSleeperUserLeagues(
     leagues.set(league.id, league);
   }
   return [...leagues.values()];
+}
+
+/** Explicit backend collection uses the same transport without cache age ambiguity,
+ * redirects or implicit retry. Each invocation makes at most one upstream GET. */
+export async function capturePublicSleeperIdentity(username: string, signal: AbortSignal, witness?: PublicCaptureWitness) {
+  if (!/^[a-zA-Z0-9_]{1,100}$/u.test(username)) throw new Error('Invalid Sleeper username.');
+  const acquisition = publicCaptureForRequest(witness, 'identity', username);
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(`/user/${encodeURIComponent(username)}`, 0, signal, { redirect: 'error', boundedPublicCapture: true });
+  const requestCompletedAt = new Date().toISOString();
+  try { return sealPublicCapture({ payload, value: normalizeSleeperUserIdentity(payload, username), requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
+  catch { return sealPublicCapture({ payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
+}
+
+export async function capturePublicSleeperLeagueList(userId: string, season: number, signal: AbortSignal, witness?: PublicCaptureWitness) {
+  if (!/^[1-9]\d{0,31}$/u.test(userId) || !Number.isInteger(season) || season < 1920 || season > 2200) {
+    throw new Error('Invalid discovery source.');
+  }
+  const acquisition = publicCaptureForRequest(witness, 'leagues', userId, season);
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, 0, signal, { redirect: 'error', boundedPublicCapture: true });
+  const requestCompletedAt = new Date().toISOString();
+  try { return sealPublicCapture({ payload, value: normalizeSleeperUserLeagues(payload, String(season), requestCompletedAt, signal),
+    requestStartedAt, requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition); }
+  catch { return sealPublicCapture({ payload, value: null, diagnostic: 'invalid-source' as const, requestStartedAt, requestCompletedAt,
+    ...(acquisition ? { acquisition } : {}) }, acquisition); }
+}
+
+export function capturePublicSleeperCore(leagueId: string, family: 'matchups', signal: AbortSignal,
+  nativeWeek: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
+export function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users',
+  signal: AbortSignal, nativeWeek?: undefined, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
+export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'matchups',
+  signal: AbortSignal, nativeWeek?: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument> {
+  if (!/^[1-9]\d{0,31}$/u.test(leagueId)) throw new Error('Invalid Sleeper league identity.');
+  if (family === 'matchups' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < 1 || Number(nativeWeek) > 18
+    : !['league', 'rosters', 'users'].includes(family) || nativeWeek !== undefined) throw new Error('Invalid public capture period.');
+  signal.throwIfAborted();
+  const acquisition = publicCaptureForRequest(witness, family, leagueId, nativeWeek ?? null);
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson(administrationPath(leagueId, family, nativeWeek ?? null), 0, signal, { redirect: 'error', boundedPublicCapture: true });
+  const requestCompletedAt = new Date().toISOString();
+  return sealPublicCapture({ family, week: nativeWeek ?? null, payload, requestStartedAt, requestCompletedAt,
+    origin: 'network' as const, sourceObservedAt: requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition);
 }
 
 async function fetchExternalJson(url: string, revalidate = SCHEDULE_CACHE_SECONDS): Promise<unknown> {

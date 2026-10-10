@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { inspect } from 'node:util';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocked = vi.hoisted(() => ({ pool: vi.fn() }));
 vi.mock('@neondatabase/serverless', () => ({ Pool: mocked.pool }));
@@ -78,7 +78,125 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
+
 describe('shared destructive integration ownership', () => {
+  it('fences the actual reset helper when cancellation arrives during delegated ownership verification', async () => {
+    const controller = new AbortController();
+    const parent = backend(); shared.add(parent.pid);
+    const proof = parentProof(parent);
+    const reached = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const comment = { purpose: 'league-one-projection-store-integration', sentinel: 'fictional-sentinel',
+      branchId: environment.expectedBranchId, branchName: 'ownership-integration-test' };
+    for (const name of ['DATABASE_URL','MIGRATION_DATABASE_URL','PRODUCTION_DATABASE_URL','ACCOUNT_DATABASE_URL',
+      'ACCOUNTS_AUTH_DATABASE_URL','AUTH_RESET_INTEGRATION_DATABASE_URL','PROJECTION_INTEGRATION_OWNER_PROOF',
+      'COLLECTION_CAPACITY_OWNER_PROOF']) vi.stubEnv(name, undefined);
+    for (const [name,value] of Object.entries({ ENV_FILE: '.env.integration.local',
+      AUTHORIZATION: 'I_ACKNOWLEDGE_THIS_RESETS_AN_ISOLATED_DATABASE', OWNER_DATABASE_URL: environment.ownerDatabaseUrl,
+      RUNTIME_DATABASE_URL: environment.ownerDatabaseUrl.replace('owner:','league_one_runtime:'),
+      EXPECTED_DATABASE: environment.expectedDatabase, EXPECTED_BRANCH_ID: environment.expectedBranchId,
+      EXPECTED_BRANCH_NAME: comment.branchName, DATABASE_SENTINEL: comment.sentinel,
+      PRODUCTION_DENYLIST: 'main,production,br-protected-fixture' })) vi.stubEnv('PROJECTION_INTEGRATION_' + name, value);
+    let checks = 0;
+    mocked.pool.mockImplementation(function (configuration: { connectionString: string }) {
+      const item = backend();
+      const execute = item.query.getMockImplementation()!;
+      item.query.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+        if (sql.startsWith('SELECT EXISTS') && ++checks === 3) { reached.resolve(); await resume.promise; }
+        return Reflect.apply(execute, undefined, [sql, parameters]);
+      });
+      return Object.assign(new EventEmitter(), { connect: vi.fn(async () => item),
+        query: vi.fn(async () => ({ rows: [{ database_name: environment.expectedDatabase,
+          database_user: new URL(configuration.connectionString).username,
+          session_user: new URL(configuration.connectionString).username, branch_id: environment.expectedBranchId,
+          database_comment: JSON.stringify(comment) }] })), end: vi.fn(async () => item.end()) });
+    });
+    // This imports the real reset and ownership helpers. Only driver IO is mocked.
+    const { cleanIntegrationDatabase } = await import('./neon-integration-harness');
+    const cleaning = cleanIntegrationDatabase({ ownerProof: proof, signal: controller.signal });
+    const failed = expect(cleaning).rejects.toThrow('cleanup deadline');
+    await reached.promise;
+    controller.abort(new Error('cleanup deadline')); resume.resolve();
+    await failed;
+    expect(mutations).toEqual([]);
+    expect(shared).toEqual(new Set([parent.pid]));
+    parent.end(); expect(backends.size).toBe(0);
+  });
+
+  it('rejects an already aborted acquisition before constructing a pool', async () => {
+    const owner = createIntegrationDatabaseOwnership();
+    await expect(owner.acquire(environment, undefined, AbortSignal.abort(new Error('work cancelled'))))
+      .rejects.toThrow('work cancelled');
+    expect(mocked.pool).not.toHaveBeenCalled();
+  });
+
+  it('destroys a connection acquired after cancellation without admitting any SQL', async () => {
+    const connected = Promise.withResolvers<Backend>();
+    const item = backend();
+    const ended = vi.fn(async () => item.end());
+    mocked.pool.mockImplementation(function () {
+      return Object.assign(new EventEmitter(), { connect: vi.fn(() => connected.promise), end: ended });
+    });
+    const owner = createIntegrationDatabaseOwnership(); const controller = new AbortController();
+    const acquiring = owner.acquire(environment, undefined, controller.signal);
+    const failed = expect(acquiring).rejects.toThrow('work cancelled');
+    controller.abort(new Error('work cancelled')); connected.resolve(item);
+    await failed;
+    expect(item.query).not.toHaveBeenCalled();
+    expect(item.release).toHaveBeenCalledWith(true);
+    expect(ended).toHaveBeenCalledOnce(); expect(backends.size).toBe(0);
+  });
+
+  it('does not poison a retained lease when cancelled verification precedes independent cleanup', async () => {
+    const owner = createIntegrationDatabaseOwnership();
+    const initial = await owner.acquire(environment);
+    const item = backends.get(1)!;
+    const execute = item.query.getMockImplementation()!;
+    const reached = Promise.withResolvers<void>(); const resume = Promise.withResolvers<void>();
+    let hold = true;
+    item.query.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+      if (sql.startsWith('SELECT EXISTS') && hold) { hold = false; reached.resolve(); await resume.promise; }
+      return Reflect.apply(execute, undefined, [sql, parameters]);
+    });
+    const controller = new AbortController();
+    const acquiring = owner.acquire(environment, undefined, controller.signal);
+    const failed = expect(acquiring).rejects.toThrow('phase expired');
+    await reached.promise; controller.abort(new Error('phase expired')); resume.resolve(); await failed;
+    expect(await owner.acquire(environment)).toBe(initial);
+    const cleanup = await owner.acquire(environment, undefined, new AbortController().signal);
+    await cleanup.query('DROP SCHEMA independently_authorized_cleanup');
+    expect(mutations).toEqual(['DROP SCHEMA independently_authorized_cleanup']);
+    await owner.release(); expect(backends.size).toBe(0);
+  });
+
+  it('permits bounded exact rollback and release after work cancellation while refusing new SQL', async () => {
+    const owner = createIntegrationDatabaseOwnership(); const controller = new AbortController();
+    const session = await owner.acquire(environment, undefined, controller.signal);
+    await session.query('BEGIN');
+    controller.abort(new Error('phase expired'));
+    await session.query('ROLLBACK');
+    expect(() => session.query('DROP SCHEMA must_not_run')).toThrow('phase expired');
+    await expect(session.connect()).rejects.toThrow('phase expired');
+    expect(mutations).toEqual([]);
+    await owner.release(); expect(backends.size).toBe(0);
+  });
+
+  it('destroys the pinned session and closes its pool after a bounded independent unlock timeout', async () => {
+    vi.useFakeTimers();
+    const owner = createIntegrationDatabaseOwnership(); await owner.acquire(environment);
+    const item = backends.get(1)!; const execute = item.query.getMockImplementation()!;
+    item.query.mockImplementation(async (sql: string, parameters: unknown[] = []) => {
+      if (sql.includes('pg_advisory_unlock(')) return new Promise<never>(() => {});
+      return Reflect.apply(execute, undefined, [sql, parameters]);
+    });
+    const release = owner.release();
+    const failed = expect(release).rejects.toThrow('cleanup deadline');
+    await vi.advanceTimersByTimeAsync(10_000); await failed;
+    expect(item.release).toHaveBeenCalledWith(true);
+    expect(backends.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('rejects a second ordinary preparation before a reset and retains ownership through cleanup', async () => {
     const first = createIntegrationDatabaseOwnership(); const second = createIntegrationDatabaseOwnership();
     const session = await first.acquire(environment);

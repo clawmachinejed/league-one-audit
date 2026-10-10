@@ -1,10 +1,10 @@
 import type { SleeperCalendarEvidence } from './period-mapping';
 import type { CalculationSourceCapture } from './calculation-capture';
-import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
+import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope, AdministrationWriteFence,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
-import type { AcceptedTeamManagersRead, RosterCaptureAttempts } from '../aggregator/team-managers';
+import type { AcceptedTeamManagersRead, AcceptedTeamManagerEvidenceRead, RosterCaptureAttempts } from '../aggregator/team-managers';
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
@@ -31,6 +31,7 @@ export type AdministrationWriteResult = Readonly<{
   reason?: string;
   rosterAcceptance?: RosterAcceptanceResult;
   teamManagerAcceptance?: RosterAcceptanceResult;
+  teamManagerEvidenceAcceptance?: RosterAcceptanceResult;
   leagueSettingsAcceptance?: RosterAcceptanceResult;
   matchupAcceptance?: RosterAcceptanceResult;
   transactionAcceptance?: RosterAcceptanceResult;
@@ -52,16 +53,15 @@ export type AdministrationEnrollmentResolution =
 export type AdministrationEnrollmentInventory = Readonly<{ entries: readonly AdministrationEnrollmentResolution[] }>;
 export type AdministrationEnrollmentSelector = Readonly<{ leagueKey: string }>
   | Readonly<{ provider: 'sleeper'; externalLeagueId: string }>;
-export type AdministrationWriteFence = Readonly<{
-  jobKey: string; workerId: string; generation: number; deadlineAt: string;
-}>;
+export type { AdministrationWriteFence } from './contracts';
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
-    calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    managerEvidenceAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedTransactionsRead>;
@@ -77,6 +77,10 @@ export type LeagueAdministrationStore = Readonly<{
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;
+  /** Optional capability for older store implementations; Neon and disabled stores provide both. */
+  beginTeamManagerEvidenceAttempt?: (mapping: AdministrationSourceMapping, id: string,
+    fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedTeamManagerEvidence?: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagerEvidenceRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions) => Promise<AcceptedCurrentRosterRead>;

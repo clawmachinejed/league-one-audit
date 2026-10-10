@@ -58,6 +58,30 @@ DO $$ DECLARE object record; denied_table_privileges text := 'DELETE,TRUNCATE,TR
   END IF;
 END; $$;
 
+-- Optional 034 DATA intake. Earlier schemas retain their existing grants/callers.
+DO $$ DECLARE intake_table text; BEGIN
+  IF to_regclass('public.public_data_intakes') IS NOT NULL THEN
+    REVOKE ALL ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
+      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+      public.public_data_dispatch_outcomes,public.public_data_directory_captures FROM league_one_runtime;
+    GRANT SELECT ON public.public_data_intakes,public.public_data_identity_observations,public.public_data_league_lists,
+      public.public_data_league_candidates,public.public_data_collection_reservations,public.public_data_rejections,public.public_data_dispatches,
+      public.public_data_dispatch_outcomes,public.public_data_directory_captures TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.submit_public_data_intake(jsonb),public.next_public_data_intake(uuid),
+      public.guard_public_data_intake(jsonb,jsonb),public.recover_public_data_dispatch(uuid,jsonb),
+      public.admit_public_data_dispatch(jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.assert_public_data_owner(uuid,jsonb),public.fail_public_data_work(jsonb),
+      public.assert_league_collection_capacity(text) FROM league_one_runtime;
+    FOREACH intake_table IN ARRAY ARRAY['public_data_intakes','public_data_identity_observations','public_data_league_lists',
+      'public_data_league_candidates','public_data_collection_reservations','public_data_rejections','public_data_dispatches','public_data_dispatch_outcomes','public_data_directory_captures'] LOOP
+      IF has_table_privilege('league_one_runtime','public.'||intake_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR NOT has_table_privilege('league_one_runtime','public.'||intake_table,'SELECT') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public intake privileges';
+      END IF;
+    END LOOP;
+  END IF;
+END; $$;
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM league_one_runtime;
 GRANT USAGE ON SCHEMA public TO league_one_runtime;
@@ -382,5 +406,83 @@ DO $$ BEGIN
         'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
       RAISE EXCEPTION 'league_one_runtime has incorrect calculation history privileges';
     END IF;
+  END IF;
+END; $$;
+
+-- Optional036: bounded refresh authority/history remains SELECT-only. No new
+-- scheduler, worker identity, direct cursor DML or private admission bypass.
+DO $$ DECLARE refresh_table text; BEGIN
+  IF to_regclass('public.public_data_refresh_targets') IS NOT NULL THEN
+    FOREACH refresh_table IN ARRAY ARRAY['public_data_refresh_targets','public_data_refresh_configurations',
+      'public_data_refresh_cycles','public_data_refresh_cycle_outcomes','public_data_refresh_selection_failures'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',refresh_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',refresh_table);
+      IF has_table_privilege('league_one_runtime','public.'||refresh_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR NOT has_table_privilege('league_one_runtime','public.'||refresh_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+          JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+            AND object.relname=refresh_table AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public refresh privileges'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.configure_public_data_refresh(jsonb),public.select_public_data_refresh(jsonb),
+      public.record_public_data_refresh_selection_failure(jsonb,jsonb,text) TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.assert_public_refresh_owner(jsonb),public.admit_public_data_dispatch_v34(jsonb,jsonb) FROM league_one_runtime;
+  END IF;
+END; $$;
+
+-- BEGIN OPTIONAL EXACT MATCHUP RESERVATION GRANT
+-- Exact signature gating keeps late provisioning safe for schemas001..029.
+DO $$ BEGIN
+  IF to_regprocedure('public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_exact_matchup_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime lacks exact matchup reservation privilege';
+    END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL EXACT MATCHUP RESERVATION GRANT
+
+-- BEGIN OPTIONAL PUBLIC CAPTURE WITNESS GRANT
+-- R039 adds one bounded read of existing immutable admission/reservation rows.
+-- Late/repeated provisioning cannot expose its private validators or history DML.
+DO $$ DECLARE helper text; BEGIN
+  IF to_regprocedure('public.read_public_data_capture_witness(jsonb,jsonb,jsonb)') IS NOT NULL THEN
+    GRANT EXECUTE ON FUNCTION public.read_public_data_capture_witness(jsonb,jsonb,jsonb) TO league_one_runtime;
+    FOREACH helper IN ARRAY ARRAY['public.derive_public_data_capture_witness(jsonb,jsonb,jsonb)',
+      'public.assert_public_data_capture_witness(jsonb,jsonb,text,integer,jsonb)',
+      'public.public_capture_after_reservation(jsonb,uuid)',
+      'public.assert_public_capture_observation(jsonb,text)','public.assert_public_capture_input_shape(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'league_one_runtime can execute private capture helper'; END IF;
+    END LOOP;
+    IF NOT has_function_privilege('league_one_runtime','public.read_public_data_capture_witness(jsonb,jsonb,jsonb)','EXECUTE')
+      OR has_table_privilege('league_one_runtime','public.league_roster_resource_attempts','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.public_data_dispatches','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+      OR has_table_privilege('league_one_runtime','public.public_data_dispatch_outcomes','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect capture witness privileges'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC CAPTURE WITNESS GRANT
+
+-- Optional038 exact-period tasks/checkpoints extend existing public intake only.
+-- Their validators remain owner-only; SECURITY DEFINER intake functions evaluate
+-- the scope CHECK as their owner. Runtime cannot insert or mutate either table.
+DO $$ DECLARE period_table text; BEGIN
+  IF to_regclass('public.public_data_exact_period_tasks') IS NOT NULL THEN
+    FOREACH period_table IN ARRAY ARRAY['public_data_exact_period_tasks','public_data_exact_period_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',period_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',period_table);
+      IF has_table_privilege('league_one_runtime','public.'||period_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+        OR NOT has_table_privilege('league_one_runtime','public.'||period_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+          JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+            AND object.relname=period_table AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public exact period privileges'; END IF;
+    END LOOP;
+    REVOKE ALL ON FUNCTION public.canonical_public_data_exact_periods(jsonb,integer[]),
+      public.validate_public_data_exact_period_task(),public.validate_public_data_exact_period_checkpoint(),
+      public.admit_public_data_dispatch_v34(jsonb,jsonb),public.fail_public_data_work(jsonb),
+      public.record_league_administration_observation_v30(jsonb) FROM league_one_runtime;
   END IF;
 END; $$;
