@@ -2,6 +2,8 @@
 
 Revision: data-backend-v1, October 6, 2026. This is the current implementation boundary, read with [AGENTS.md](../../AGENTS.md). The user's latest explicit direction supersedes older broader plans wherever they conflict. The current outcome is a fully functioning fantasy football aggregator **data backend**. Website product work is a later outcome.
 
+The [checkpoint 1 readiness contract](data-backend-readiness-contract.md) freezes the current completion boundary to season **2026**, including within-season history and corrections across all eight official families. Annual linking and prior-season discovery remain deferred; native predecessor and future-pick-year references are retained without traversal. Its operating targets are acceptance criteria, not measured readiness or execution/release authority. Checkpoint 2 source/checklist work and later qualification remain separate.
+
 ## The outcome
 
 **Sleeper username → stable provider user identity → associated leagues → existing provider adapter → canonical relational identities and typed official resources with provenance → durable PostgreSQL storage → refresh/retry/recovery → backend readers.**
@@ -25,14 +27,14 @@ For each family, identify the existing source/adapter, exact native fields, type
 
 | Family | Required representation and coverage |
 | --- | --- |
-| Leagues, settings and seasons | Stable canonical league identity; season-specific provider IDs and evidenced annual predecessor/successor mapping; scoring, roster, competition and waiver settings with time-applicable versions |
+| Leagues, settings and seasons | Stable canonical league identity; exact 2026 provider/season IDs; scoring, roster, competition and waiver settings with time-applicable versions. Annual predecessor/successor mapping is deferred under the 2026 readiness contract; retain native references without traversal |
 | Teams, managers and co-owners | League/season-scoped team or roster identity; provider user identities and observed manager/co-owner relationships, including vacancies and changes; commissioner status is distinct |
 | Rosters and player identities | Held players, reserve/taxi/other native categories where provided; provider player namespace and evidenced crosswalks; transfers/removals and complete versus partial rosters |
 | Lineups and matchups | Exact native period and competition phase; starting/bench assignments, slots and matchup grouping; byes, ties, multiweek or other native formats where supplied |
 | Official scores, results and standings | Provider scores, custom overrides, result/finality and provider standings/rank where supplied; zero remains zero; locally computed ordering is identified as derived |
 | Transactions, waivers and FAAB | Stable transaction IDs, type, status, participants, adds/drops/trades, bids/budgets and source timestamps where supplied; no inferred failed/accepted outcome |
 | Drafts and picks | Draft identity/settings/order/status, pick ownership and traded picks where supplied; native round/pick/season scope and player references |
-| Schedules, playoffs and history | Exact periods, opponents/brackets/results, evidenced season chains and recoverable source history; coverage gaps and correction semantics stated explicitly |
+| Schedules, playoffs and history | Exact 2026 periods, opponents/brackets/results and recoverable within-season source history; coverage gaps and correction semantics stated explicitly. Evidenced annual season chains are deferred under the 2026 readiness contract; retain native references without traversal |
 
 Unusual scoring or incomplete derived-feature coverage must not reject a league whose official data can be represented reliably. Unsupported official structures get explicit resource-level limitations and retained evidence; no claim of complete coverage may hide an unimplemented obtainable family.
 
