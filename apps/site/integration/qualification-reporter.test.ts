@@ -12,6 +12,7 @@ import { createQualificationContext, qualificationArguments, qualificationDigest
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CLOSEOUT_PROFILES,
+  PERIOD_SETTINGS_CONTEXT_PROFILE, PERIOD_SETTINGS_CONTEXT_MODULE, PERIOD_SETTINGS_CONTEXT_SUITE, PERIOD_SETTINGS_CONTEXT_TESTS, PERIOD_SETTINGS_CONTEXT_FULL_NAMES,
   PERIOD_INVENTORY_PROFILE, PERIOD_INVENTORY_MODULE, PERIOD_INVENTORY_SUITE, PERIOD_INVENTORY_TESTS, PERIOD_INVENTORY_FULL_NAMES,
   TEAM_MANAGER_FACTS_PROFILE, TEAM_MANAGER_FACTS_MODULE, TEAM_MANAGER_FACTS_SUITE, TEAM_MANAGER_FACTS_TESTS, TEAM_MANAGER_FACTS_FULL_NAMES,
   ROSTER_PLAYER_LINKS_PROFILE, ROSTER_PLAYER_LINKS_MODULE, ROSTER_PLAYER_LINKS_SUITE, ROSTER_PLAYER_LINKS_TESTS, ROSTER_PLAYER_LINKS_FULL_NAMES,
@@ -592,5 +593,48 @@ it.each(['source', 'reversed'] as const)('reports the six period inventory cases
   if (order === 'source') {
     expect(report.modules[0].cases.map(test => test.name)).toEqual(PERIOD_INVENTORY_FULL_NAMES);
     await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 6, executed: 6, passed: 6, filtered: 0 });
+  } else await expect(validateQualificationArtifacts(binding)).rejects.toThrow('source order');
+}, 30_000);
+
+it.each(['source', 'reversed'] as const)('reports the seven period settings context cases with actual installed-runner hooks and rejects %s order when needed', async order => {
+  const directory = await mkdtemp(join(tmpdir(), 'period-settings-context-runner-')); directories.push(directory);
+  await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), PERIOD_SETTINGS_CONTEXT_PROFILE);
+  const names = order === 'source' ? [...PERIOD_SETTINGS_CONTEXT_TESTS] : [...PERIOD_SETTINGS_CONTEXT_TESTS].reverse();
+  let body = 'import {it,expect,describe,beforeAll,afterAll} from ' + JSON.stringify(pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href) + ';\n';
+  body += 'let setup=0,executed=0;describe.sequential(' + JSON.stringify(PERIOD_SETTINGS_CONTEXT_SUITE) + ',()=>{';
+  body += 'beforeAll(()=>{expect(setup++).toBe(0)});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(7)});';
+  names.forEach((name, index) => {
+    body += 'it(' + JSON.stringify(name) + ',async()=>{expect(setup).toBe(1);expect(executed).toBe(' + index + ');' +
+      'await new Promise(resolve=>setTimeout(resolve,10));expect(executed++).toBe(' + index + ')});';
+  });
+  body += '});\n';
+  await writeFile(join(directory, PERIOD_SETTINGS_CONTEXT_MODULE), body);
+  // Only synthetic module bytes reach Vitest; the maintained SQL fixture is never imported.
+  context.modules[0].sourceDigest = qualificationSourceDigest(body);
+  await writeFile(join(directory, 'setup.ts'), 'import {qualificationBinding,qualificationCleanup} from ' + JSON.stringify(helperPath) +
+    ';export default function(){const binding=qualificationBinding();return async()=>qualificationCleanup(async()=>{},binding)}');
+  await writeFile(join(directory, 'config.mjs'), 'export default {test:{environment:"node",include:["integration/*.integration-case.ts"],globalSetup:["./setup.ts"],fileParallelism:false,maxWorkers:1}}');
+  const guard = join(directory, 'network-block.mjs');
+  await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
+    "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
+    "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;");
+  const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
+  const binding = { context, directory: join(directory, 'artifacts') };
+  const child = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, join(site, 'node_modules/vitest/vitest.mjs'),
+    'run', '--config', join(directory, 'config.mjs'), ...qualificationArguments(context.profile, reporterPath)],
+  { cwd: directory, env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => allow.has(key.toLowerCase()))), NODE_ENV: 'test',
+    [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 2_000_000 });
+  expect(child.status, (child.stdout ?? '') + (child.stderr ?? '')).toBe(0);
+  expect(child.error).toBeUndefined();
+  const report: QualificationReport = JSON.parse(await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8'));
+  expect(report.hooks).toHaveLength(2);
+  expect(report.hooks.map(hook => [hook.starts, hook.ends])).toEqual([[1, 1], [1, 1]]);
+  expect(report.modules[0].cases.map(test => test.name)).toEqual(names.map(name => PERIOD_SETTINGS_CONTEXT_SUITE + ' > ' + name));
+  expect(report.modules[0].cases.every(test => test.state === 'passed')).toBe(true);
+  if (order === 'source') {
+    expect(report.modules[0].cases.map(test => test.name)).toEqual(PERIOD_SETTINGS_CONTEXT_FULL_NAMES);
+    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 7, executed: 7, passed: 7, filtered: 0 });
   } else await expect(validateQualificationArtifacts(binding)).rejects.toThrow('source order');
 }, 30_000);

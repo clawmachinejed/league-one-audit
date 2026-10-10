@@ -2,7 +2,7 @@ import { resolveExactLineupApplicability, type ExactLineupApplicability } from '
 import type { ExactPeriodMappingQualification } from '../../aggregator/exact-matchups';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 import type { ConfigurationVersion } from '../applicability';
-import type { ConfigurationBinding, ConfigurationComponent } from '../contracts';
+import type { ConfigurationBinding, ConfigurationComponent, ConfigurationComponentName } from '../contracts';
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from '../source-mapping';
 
 /** The existing writer creates observed_current entries automatically. Only the
@@ -67,24 +67,26 @@ function timestamp(value: unknown): string {
   return value as string;
 }
 
-export function readExactLineupApplicability(input: unknown, mapping: AdministrationSourceMapping,
-  periodMapping: ExactPeriodMappingQualification): ExactLineupApplicability {
+export function readPeriodConfigurationEvidence(input: unknown, mapping: AdministrationSourceMapping,
+  periodMapping: ExactPeriodMappingQualification, componentName: ConfigurationComponentName) {
   if (periodMapping.status !== 'mapped' || periodMapping.season !== mapping.scope.season) {
-    return { status: 'unavailable', reason: 'period_mapping_unproved' };
+    return { status: 'unavailable', reason: 'period_mapping_unproved' } as const;
   }
   if (input === null || input === undefined || (Array.isArray(input) && input.length === 0)) {
-    return { status: 'unavailable', reason: 'no_binding' };
+    return { status: 'unavailable', reason: 'no_binding' } as const;
   }
   try {
     if (!isAdministrationSourceMapping(mapping) || !Array.isArray(input) || input.length > 1000) throw new Error('Invalid applicability inventory.');
     const bindings: ConfigurationBinding[] = [];
     const versions = new Map<string, ConfigurationVersion>();
     const activationRefs: Record<number, string> = {};
+    const ranges: Record<number, { seasonType: string; fromWeek: number; throughWeek: number }> = {};
+    const sources: Record<number, Record<string, unknown>> = {};
     const candidates = input.map(candidate => {
       const row = object(candidate); return { row, activation: object(row.activation) };
     }).filter(({ activation }) => {
       // A different season type/range is irrelevant, never numeric-week proof.
-      if (activation.applicability !== 'evidenced_period' || activation.component !== 'roster'
+      if (activation.applicability !== 'evidenced_period' || activation.component !== componentName
         || activation.season_type !== periodMapping.seasonType) return false;
       const from = positive(activation.from_week); const through = positive(activation.through_week);
       if (from > through || through > 30) throw new Error('Invalid applicability interval.');
@@ -126,11 +128,21 @@ export function readExactLineupApplicability(input: unknown, mapping: Administra
       }
       versions.set(configurationVersionId, candidateVersion);
       activationRefs[generation] = id(activation.id);
-      bindings.push({ leagueSeasonId: mapping.leagueSeasonId, component: 'roster',
+      ranges[generation] = { seasonType: String(activation.season_type), fromWeek: positive(activation.from_week), throughWeek: positive(activation.through_week) };
+      sources[generation] = source;
+      bindings.push({ leagueSeasonId: mapping.leagueSeasonId, component: componentName,
         period: { season: periodMapping.season, seasonType: periodMapping.seasonType, week: periodMapping.week },
         componentHash: String(activation.component_hash), configurationVersionId, generation,
         recordedAt: timestamp(activation.recorded_at), evidence: { kind: 'owner_confirmed', reference: activation.evidence } });
     }
-    return resolveExactLineupApplicability({ mapping, periodMapping, bindings, versions: [...versions.values()], activationRefs });
-  } catch { return { status: 'unavailable', reason: 'invalid_applicability_evidence' }; }
+    return { status: 'parsed', bindings, versions: [...versions.values()], activationRefs, ranges, sources } as const;
+  } catch { return { status: 'unavailable', reason: 'invalid_applicability_evidence' } as const; }
+}
+
+/** Preserve the established roster-only read and its SQL projection. */
+export function readExactLineupApplicability(input: unknown, mapping: AdministrationSourceMapping,
+  periodMapping: ExactPeriodMappingQualification): ExactLineupApplicability {
+  const evidence = readPeriodConfigurationEvidence(input, mapping, periodMapping, 'roster');
+  return evidence.status === 'unavailable' ? evidence
+    : resolveExactLineupApplicability({ mapping, periodMapping, ...evidence });
 }
