@@ -1,3 +1,5 @@
+import * as linkReader from './roster-player-links';
+import { rosterCategoryEvidence, type RosterPlayerLinksRead } from '../../aggregator/roster-player-links';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient, DatabaseRow } from '../../database';
 import { CURRENT_ROSTER_POLICY, currentRosterScope } from '../../aggregator/current-roster';
@@ -11,7 +13,7 @@ import { loadFantasyPlayerCatalog, projectPlayerCatalog, type FantasyPlayerCatal
 import type { CurrentRosterReadOptions } from '../../aggregator/current-roster-metadata';
 
 vi.mock('server-only', () => ({}));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const ids = {
   connection: '10000000-0000-4000-8000-000000000001',
@@ -80,6 +82,49 @@ async function metadataCatalog(): Promise<FantasyPlayerCatalog> {
 }
 
 describe('current roster shadow Neon adapter', () => {
+  it('opt-in enriches held players and groups from one exact immutable link snapshot without enabling catalog decoration', async () => {
+    const raw = [{ ...payload[0], starters: ['001', '0'], reserve: ['DEF'], taxi: [] }, payload[1]];
+    const methods = currentRosterMethods(database(() => [storedRow(raw)]));
+    const original = await methods.readAcceptedCurrentRoster(mapping);
+    if (original.status !== 'available') throw new Error('Expected held roster.');
+    const links = original.teams.flatMap(team => team.players.map((player, index) => ({ seasonTeamId: team.seasonTeamId,
+      externalRosterId: team.externalRosterId, nativePlayerId: player.sourceEntity.nativeId, membershipOrdinal: index + 1,
+      entityKind: 'player' as const, identityState: 'resolved' as const, canonicalEntityId: ids.different, reasons: [],
+      directoryIdentityStatus: 'valid' as const, kindEvidence: null, mappingProof: [] })));
+    const evidence: RosterPlayerLinksRead = { status: 'available', version: 'sleeper-roster-player-links-v1',
+      provider: 'sleeper', nativeNamespace: 'nfl', directoryNamespace: 'nfl:players',
+      rosterAcceptanceId: ids.different, rosterReceiptId: ids.receipt, rosterContentId: ids.content, mapping, rosterSource: provenance,
+      resolvedAt: '2026-09-25T12:00:03.000Z', mappingEvaluatedAt: '2026-09-25T12:00:02.000Z', directory: null,
+      outcome: 'complete', reasons: [], counts: { teams: 2, held: 2, resolved: 2, unresolved: 0, conflict: 0 }, links,
+      teams: original.teams.map((team, index) => ({ seasonTeamId: team.seasonTeamId, externalRosterId: team.externalRosterId,
+        categories: { players: rosterCategoryEvidence(raw[index], 'players'), starters: rosterCategoryEvidence(raw[index], 'starters'),
+          reserve: rosterCategoryEvidence(raw[index], 'reserve'), taxi: rosterCategoryEvidence(raw[index], 'taxi') } })) };
+    // Reader proof validation is covered separately; this seam tests exact composition.
+    const readLinks = vi.fn(async () => evidence);
+    const factory = vi.spyOn(linkReader, 'rosterPlayerLinkMethods').mockReturnValue({ readRosterPlayerLinks: readLinks });
+    expect(await methods.readAcceptedCurrentRoster(mapping)).toEqual(original);
+    expect(factory).not.toHaveBeenCalled();
+    const enriched = await methods.readAcceptedCurrentRoster(mapping, { includePlayerLinks: true });
+    expect(enriched).toMatchObject({ status: 'available', accepted: original.accepted, receipt: original.receipt,
+      teams: [{ players: [{ canonicalEntityId: ids.different, identityState: 'resolved' }, { canonicalEntityId: ids.different }],
+        currentGroups: { starters: { value: [{ membership: { canonicalEntityId: ids.different } }, { empty: true, membership: null }] },
+          reserve: { value: [{ canonicalEntityId: ids.different }] } } }, { players: [] }], playerLinks: evidence });
+    expect(enriched).not.toHaveProperty('currentPlayerMetadata');
+    expect(readLinks).toHaveBeenCalledWith({ rosterReceiptId: ids.receipt, leagueSeasonId: ids.season });
+    const malformed = { ...evidence, links: evidence.links.map((link, index) => index ? { ...link, nativePlayerId: 'foreign' } : link) };
+    readLinks.mockResolvedValue(malformed);
+    const rejected = await methods.readAcceptedCurrentRoster(mapping, { includePlayerLinks: true });
+    expect(rejected).toEqual({ ...original, playerLinks: { status: 'unavailable', reason: 'roster_player_link_association_mismatch' } });
+  });
+
+  it.each(['missing', 'unavailable', 'capacity_exceeded'] as const)('preserves official membership and categories on %s links', async status => {
+    const methods = currentRosterMethods(database(() => [storedRow()]));
+    const original = await methods.readAcceptedCurrentRoster(mapping);
+    const evidence: RosterPlayerLinksRead = status === 'capacity_exceeded'
+      ? { status, reason: 'capacity', rosterReceiptId: ids.receipt, counts: { teams: 2, held: 10_001 } } : { status, reason: 'unavailable' };
+    vi.spyOn(linkReader, 'rosterPlayerLinkMethods').mockReturnValue({ readRosterPlayerLinks: vi.fn(async () => evidence) });
+    expect(await methods.readAcceptedCurrentRoster(mapping, { includePlayerLinks: true })).toEqual({ ...original, playerLinks: evidence });
+  });
   it('optionally exposes exact season fields from the same roster SQL, capture and identities', async () => {
     const raw = [{ ...payload[0], settings: { wins: 2, losses: 1, ties: 0, fpts: 100.004, fpts_decimal: 0.1,
       fpts_against: 80, fpts_against_decimal: 25, waiver_position: 4, waiver_budget_used: -5 } }, payload[1]];

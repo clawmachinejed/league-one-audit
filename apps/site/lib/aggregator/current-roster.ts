@@ -1,3 +1,4 @@
+import type { RosterPlayerLinksRead } from './roster-player-links';
 import type { AcceptedResource, RosterMembership, SourceScope } from './contracts';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
 import type { AdministrationEnvelope } from '../league-administration/contracts';
@@ -34,6 +35,8 @@ export type AcceptedCurrentRosterRead = Readonly<{
     currentGroups: CurrentRosterGroups }[];
   /** Optional current catalog evidence has its own provenance, never the roster receipt's age. */
   currentPlayerMetadata?: CurrentRosterMetadata;
+  /** Separately versioned immutable identity proof; the roster acceptance remains players-only. */
+  playerLinks?: RosterPlayerLinksRead;
   /** Optional same-capture season fields; the accepted receipt still qualifies players only. */
   seasonOverview?: SeasonOverviewSourceRead;
 }> | Readonly<{ status: 'missing' | 'unavailable' | 'disabled'; reason?: string }>;

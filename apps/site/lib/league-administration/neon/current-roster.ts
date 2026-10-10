@@ -1,3 +1,5 @@
+import { rosterPlayerLinkMethods } from './roster-player-links';
+import { applyRosterPlayerLinks, type RosterPlayerLinksRead } from '../../aggregator/roster-player-links';
 import 'server-only';
 import type { DatabaseClient } from '../../database';
 import { CURRENT_ROSTER_POLICY, currentRosterScope, type AcceptedCurrentRosterRead,
@@ -30,11 +32,12 @@ function id(value: unknown): string {
 }
 
 /** Optional malformed decoration input cannot reject already accepted official membership. */
-function readOptions(options: CurrentRosterReadOptions | undefined): { metadata: boolean; seasonOverview: boolean } {
+function readOptions(options: CurrentRosterReadOptions | undefined): { metadata: boolean; seasonOverview: boolean; playerLinks: boolean } {
   try {
     const seasonOverview = options?.includeSeasonOverview === true;
-    return { metadata: options !== undefined && (!seasonOverview || Object.hasOwn(options, 'playerCatalog')), seasonOverview };
-  } catch { return { metadata: options !== undefined, seasonOverview: false }; }
+    const playerLinks = options?.includePlayerLinks === true;
+    return { metadata: options !== undefined && (!(seasonOverview || playerLinks) || Object.hasOwn(options, 'playerCatalog')), seasonOverview, playerLinks };
+  } catch { return { metadata: options !== undefined, seasonOverview: false, playerLinks: false }; }
 }
 
 /** Internal-only shadow readback. It never selects content through the v1 head. */
@@ -110,7 +113,8 @@ export function currentRosterMethods(client: DatabaseClient) {
           identities.set(identity.externalRosterId, id(identity.seasonTeamId));
         }
         if (identities.size !== normalized.value.teams.length || new Set(identities.values()).size !== identities.size) throw new Error('Incomplete roster identities.');
-        const teams = normalized.value.teams.map(team => {
+        const normalizedTeams = normalized.value.teams;
+        let teams = normalizedTeams.map(team => {
           const seasonTeamId = identities.get(team.externalRosterId);
           if (!seasonTeamId || team.playerExternalIds === null) throw new Error('Incomplete players coverage.');
           const players: RosterMembership[] = team.playerExternalIds.map(nativeId => ({ seasonTeamId,
@@ -133,7 +137,22 @@ export function currentRosterMethods(client: DatabaseClient) {
           ordinal: integer(row.ordinal), provenance, configurationContentId: id(row.configuration_content_id),
           expectedTeamCount: integer(row.expected_team_count), legacyObservationId: id(row.legacy_observation_id) };
         const requested = readOptions(options);
+        let playerLinks: RosterPlayerLinksRead | undefined;
+        if (requested.playerLinks) {
+          playerLinks = await rosterPlayerLinkMethods(client).readRosterPlayerLinks({ rosterReceiptId: receipt.id, leagueSeasonId: mapping.leagueSeasonId });
+          if (playerLinks.status === 'available') {
+            try {
+              if (playerLinks.rosterContentId !== accepted.contentId || playerLinks.rosterReceiptId !== receipt.id
+                || compatibleRevision(playerLinks.mapping) !== compatibleRevision(mapping)
+                || compatibleRevision(playerLinks.rosterSource) !== compatibleRevision(provenance)) throw new Error('Foreign player link snapshot.');
+              const enriched = applyRosterPlayerLinks(teams, playerLinks);
+              teams = enriched.map((team, index) => ({ ...team,
+                currentGroups: projectCurrentRosterGroups(normalizedTeams[index], team.players, receipt.id, provenance) }));
+            } catch { playerLinks = { status: 'unavailable', reason: 'roster_player_link_association_mismatch' }; }
+          }
+        }
         return { status: 'available', accepted, receipt, teams,
+          ...(playerLinks ? { playerLinks } : {}),
           ...(requested.metadata ? { currentPlayerMetadata: projectCurrentRosterMetadata(teams, options!) } : {}),
           ...(requested.seasonOverview ? { seasonOverview: projectSeasonOverviewSource({ normalized, mapping, accepted, receipt,
             seasonTeams: teams }) } : {}) };

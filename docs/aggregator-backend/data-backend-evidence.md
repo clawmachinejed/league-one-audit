@@ -914,3 +914,108 @@ the full 49-module SQL suite and production rollout remain separate unqualified
 obligations; independent review did not identify them as blockers to this CP5
 resource checkpoint. This does not complete DATA as a whole or authorize another
 paid run, deployment or automatic acquisition.
+
+## CP6 source candidate scope (2026-10-10; qualification pending)
+
+- **Data resource:** accepted Sleeper current-season (2026) held roster membership and evidenced canonical player/team-defense links, retaining each roster observation's immutable history and native category evidence.
+- **Existing path:** the existing administration normalization and `record_league_administration_observation` acceptance transaction; existing canonical identity owner in `projections/adapters/neon/identities.ts`; accepted roster and public DATA readers. Add migration 042 and receipt-bound link reads without another worker, feed or acquisition path.
+- **Persisted result:** one immutable link snapshot per newly accepted players receipt, bound to league-season, source mapping, season-team, native player ID, roster observation and one accepted directory version when available. Missing directory evidence remains explicit and unresolved. Freeze canonical mapping/kind proof or an explicit unresolved reason. Complete empty membership is retained; incomplete captures preserve the last good acceptance. Link capacity is explicit (1,000 teams / 10,000 memberships), never silently truncated.
+- **Required proof and present gaps:** source/unit verification and independent exact-diff review precede a frozen restricted-role PostgreSQL qualification covering identity reuse, native parity, historical reads, replay, category changes, concurrency, real lock expiry/rollback, isolation and negative permissions. No CP6 implementation or SQL result is yet qualified. CP5's two paid allowances are consumed; this source approval permits no paid run, provisioning, retained migration application, merge or production activation.
+
+Independent Astra Ultra reviewer `/root/cp5_review` confirmed the specific migration, shared identity extraction/compatibility, provisioner grant, focused test-support, store-composition and opt-in reader paths before authoring (review reference `DATA-CP6-2026-10-10-ROSTER-PLAYER-LINKS`). The shared identity helper is capability-gated: absent schema retains the exact legacy implementation; an installed helper's error never falls back. Each accepted linkage transaction rechecks its existing fence/deadline after potentially blocking identity work. Reads perform no identity mutation or provider calls. Existing players-only v1 policy and hashes remain unchanged; DATA opt-in enriches held players and groups from the same validated frozen evidence while exposing link coverage separately. Omitted opt-in retains legacy output. The same independent reviewer confirmed the exact qualification profile, test and workflow wiring paths before authoring; final source review accepted their closed selector and preserved safeguards.
+
+
+### CP6 reviewed source and qualification boundary
+
+The dedicated branch `codex/data-roster-player-links` starts at qualified CP5
+head `6ad380e10911eae1e274b9c96c8b1217613a45da`. Before implementation and again
+before preview publication, local/GitHub main and the actual Vercel production
+source agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Vercel remained bound
+to `clawmachinejed/league-one-audit`, root `apps/site`, production branch `main`,
+with Ready production deployment `8C3YSnXRCbmPETftQgRtirfyck5e`. Primary main
+remains clean. Open branches and deployments showed no competing release owner;
+this does not assert the absence of other tasks or qualify worker leases.
+
+Independent Astra Ultra review accepted migration 042 at SHA256
+`7d1f8658258c3e1a792a7b1765efb3ab0a4ccd5d8c8da3466029b00a6fea24db`, the shared
+identity adapter/grants, immutable readers, DATA opt-in composition and nine-case
+fixture. The maintained fixture's frozen LF SHA256 is
+`0d2f9c729b2631a8a975410138e4cd56741a3ca1812205a39bf35daa7648908e`.
+The closed `data-roster-player-links-v1` profile requires all nine collected cases
+in chronological source order with one setup/teardown pair and no skips,
+filtering, retries, repeats or unhandled errors. Normal discovery now contains
+50 modules; all older closed source pins and live exclusions are preserved.
+
+Review corrected native-ID index sizing, exact PostgreSQL timestamp precision,
+JavaScript whitespace parity for kind evidence, strict JSON string source IDs,
+identity validity after lock waits, and cleanup retaining canonical entities
+referenced by immutable historical links. The shared identity helper samples
+one post-wait validity instant immediately before its distinct resolve statement;
+its installed error never invokes the legacy fallback. A real SQL oracle
+requires a fresh canonical insert to sort before the observed blocking identity,
+then checks rollback of identities, content, receipts, links and accepted heads.
+These are authored assertions, not execution results.
+
+Focused reader/wiring checks passed 419 tests across seven files with zero skips;
+the final pinned qualification/profile/reporter/supervisor subset passed 177 tests
+across three files, also with zero skips. Storage/identity compatibility checks
+passed 130 tests across five files with zero skips; the final internal helper
+rename was additionally checked by its nine identity tests. These overlapping
+runs are not added together as a unique test total. Targeted lint passed. The
+workflow's extracted shell was exercised only with a print stub: 18 allowed
+combinations passed and six invalid combinations were rejected; no supervisor,
+provisioning, provider request or SQL ran in those checks.
+
+Early source development checks exposed incomplete fixture typings and test
+expectations, and review caught two SQL template/dollar-delimiter mistakes.
+They were corrected before the frozen review. No installed PostgreSQL parser
+was available, so actual migration compilation remains part of the required
+SQL qualification. The first complete local verification attempt stopped after
+scope checking because nested pnpm used system Node 20; an ignored task-local
+launcher routes the unchanged commands through required Node 24 without changing
+project dependencies or package scripts. Its final result is recorded separately.
+
+No CP6 paid qualification, retained installation, migration application, live
+Sleeper acquisition, merge or production activation has occurred. The proposed
+next run is one protected disposable 0.25-CU attempt under the existing $1
+allowance model, only after new exact-source approval. Previous CP5 allowances
+are consumed; actual billing is not measured and the allowance is not a provider
+billing cap. Original limits remain 20 seconds per ordinary work step, 30 minutes
+of supervisor work, 40 minutes total lifecycle and 50 minutes CI. The nine body
+allowances total 29 minutes plus up to two 120-second hooks, so worst-case sum
+exceeds the hard work cutoff. Actual fit is unmeasured and no retry is implied.
+A successful run must show nine passing cases and acknowledged child, schema,
+credential and owned-branch cleanup. CP6 remains pending that qualification;
+manager facts, genuinely fresh roles, recurrence/fleet targets, the full SQL
+suite and production rollout remain separate later obligations.
+
+### CP6 local verification before publication
+
+The final complete local `pnpm verify` invocation passed scope, dependency,
+lint and type checks, then reported 6,529 unit tests passed, one failed and one
+skipped across 292 files. The only remaining failure was the unchanged
+`public-data-refresh-diagnostics.test.ts` case "exposes every retained receipt,
+provenance, capture and manager identity field within realistic full operands":
+5,058 ms against its original 5,000-ms timeout under the complete parallel suite.
+The prior full invocation showed the same timeout at 5,221 ms plus one stale
+reader-options expectation. Independent review approved updating only that
+expectation to include `includePlayerLinks: true`; it now passes. The expensive
+case passed separately with its original limit (one passed, 219 filtered;
+approximately 2.40 seconds of test work). No timeout, worker setting, selector,
+assertion or production behavior was weakened to make the full suite pass.
+
+The one environmental skip is the pre-existing scoped-local-IPv6 browser-target
+case: this host has a non-loopback IPv4 interface but no scoped IPv6 interface.
+The latest local complete workflow remains failed; an isolated pass is not a
+substitute. Canonical Linux source CI and browser results will be recorded for
+the published exact candidate, separately from this local result. Retained
+ignored logs are `apps/site/test-results/data-backend/cp6-source-verify-final.log`
+and `cp6-diagnostic-timeout-reproduction.log` in the same directory.
+
+The standalone unchanged production build passed under Node 24. Independent
+review confirmed that the sole diagnostic expectation repair and conditional
+IPv6 skip do not block draft publication, while the local complete verify
+result remains failed pending the separate canonical CI result. Final
+prepublication scope checking passed with 85 reviewed extensions, five
+governance paths and 31 DATA paths; the exact diff remains within reviewed CP6
+source scope. No paid execution or production action follows from publication.

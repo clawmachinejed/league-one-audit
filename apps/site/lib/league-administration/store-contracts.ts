@@ -1,3 +1,4 @@
+import type { RosterPlayerLinksSelection, RosterPlayerLinksRead } from '../aggregator/roster-player-links';
 import type { PlayerDirectoryAttempt, PlayerDirectoryCapture, PlayerDirectoryRead, PlayerDirectoryReadSelection,
   PlayerDirectoryReservation, PlayerDirectoryWriteResult } from './player-directory-contracts';
 import type { SleeperCalendarEvidence } from './period-mapping';
@@ -89,6 +90,7 @@ export type LeagueAdministrationStore = Readonly<{
   readAcceptedTeamManagerEvidence?: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagerEvidenceRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readRosterPlayerLinks: (selection: RosterPlayerLinksSelection) => Promise<RosterPlayerLinksRead>;
   readAcceptedCurrentRoster: (mapping: AdministrationSourceMapping, options?: CurrentRosterReadOptions) => Promise<AcceptedCurrentRosterRead>;
   readSourceMapping: (externalLeagueId: string) => Promise<AdministrationSourceMapping | null>;
   readSource: (input: AdministrationReadInput) => Promise<LeagueAdministrationStoreRead>;

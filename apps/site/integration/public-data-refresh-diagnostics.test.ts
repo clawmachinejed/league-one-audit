@@ -1241,7 +1241,7 @@ it('keeps a swallowed actual typed-reader SQL failure first and adds the actual 
   expect(saved.firstFailure.readbackComparison.comparison.readback.items).toHaveLength(4);
   for (const entry of saved.firstFailure.readbackComparison.comparison.readback.items) expect(entry.resources.heldRoster).toEqual({ status: 'unavailable', reason: 'held-roster-read-failed' });
   expect(query).toHaveBeenCalledTimes(4); expect(admin.readAcceptedCurrentRoster).toHaveBeenCalledTimes(4);
-  for (const [index, call] of admin.readAcceptedCurrentRoster.mock.calls.entries()) expect(call).toEqual([mapping(JOURNEY_LEAGUES[index]), { includeSeasonOverview: true }]);
+  for (const [index, call] of admin.readAcceptedCurrentRoster.mock.calls.entries()) expect(call).toEqual([mapping(JOURNEY_LEAGUES[index]), { includeSeasonOverview: true, includePlayerLinks: true }]);
   expect(raw).not.toContain(secret);
 });
 it('refuses nested native-ID objects and keeps the fixed readback supplement small', async () => {

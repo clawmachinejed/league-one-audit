@@ -120,7 +120,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       const [settings, teamManagers, heldRoster, directory, teamManagerEvidence] = await Promise.all([
         administration.readAcceptedLeagueSettings(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'settings-read-failed' })),
         administration.readAcceptedTeamManagers(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-managers-read-failed' })),
-        administration.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true }).catch(() => ({ status: 'unavailable' as const, reason: 'held-roster-read-failed' })),
+        administration.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true, includePlayerLinks: true }).catch(() => ({ status: 'unavailable' as const, reason: 'held-roster-read-failed' })),
         administration.readSource({ ...mapping.scope, family: 'users', week: null }).catch(() => ({ status: 'unavailable' as const, reason: 'directory-read-failed' })),
         options.managerEvidenceVersion === 'v2'
           ? administration.readAcceptedTeamManagerEvidence?.(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-manager-evidence-read-failed' }))

@@ -296,6 +296,8 @@ describe('public official data intake through the existing worker/writer', () =>
     const result = await readPublicSleeperIntake(client, administration, id);
     expect(result.status).toBe('partial');
     if (result.status === 'missing') throw new Error('Missing fixture result.');
+    expect(administration.readAcceptedCurrentRoster).toHaveBeenCalledWith(mapping, { includeSeasonOverview: true, includePlayerLinks: true });
+    expect(f.source.core).not.toHaveBeenCalled();
     expect(result.leagues[0].resources).toMatchObject({ settings: { status: 'available' },
       teamManagers: { status: 'available' }, heldRoster: { status: 'available' }, directory: { status: 'unavailable' } });
   });

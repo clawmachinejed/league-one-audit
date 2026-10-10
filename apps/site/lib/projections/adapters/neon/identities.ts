@@ -175,6 +175,20 @@ export function createIdentityMethods(client: DatabaseClient): IdentityMethods {
         throw new Error('Every scoring entity needs at least one provider identifier.');
       }
 
+      const capability = await client.query(`/* projection-store:scoring-identity-owner-capability */
+        SELECT to_regprocedure('public.upsert_scoring_entity_identities(jsonb)') IS NOT NULL AS installed`);
+      if (capability.length === 1 && capability[0].installed === true) {
+        const rows = await client.query(`/* projection-store:upsert-scoring-identity-owner */
+          SELECT * FROM jsonb_to_recordset(public.upsert_scoring_entity_identities($1::jsonb)->'rows')
+            AS resolved(input_key text,entity_id uuid,conflict boolean,proposed_id uuid)`, [json(prepared)]);
+        return { kind: 'stored', value: rows.map((row) => ({ key: rowText(row, 'input_key'),
+          entityId: rowBoolean(row, 'conflict') ? null : rowNullableText(row, 'entity_id'),
+          conflict: rowBoolean(row, 'conflict') })) };
+      }
+      if (capability.length !== 1 || capability[0].installed !== false) {
+        throw new Error('Scoring identity owner capability is unavailable.');
+      }
+      // Only an absent additive schema selects this exact legacy compatibility path.
       await client.query(`/* projection-store:upsert-scoring-entities */
         WITH input AS (
           SELECT * FROM jsonb_to_recordset($1::jsonb) AS value(

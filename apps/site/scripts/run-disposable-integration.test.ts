@@ -299,7 +299,7 @@ describe('disposable integration receipt ownership', () => {
   });
 });
 
-it.each(['data-live-player-directory-v1','data-player-directory-v1','data-core-refresh-v1','data-core-ingestion-v1','data-official-preconfiguration-v1','data-ingestion-guards-v1','data-refresh-concurrency-v1','data-late-write-rollback-v1','data-intake-recovery-v1','data-refresh-history-v1','data-period-recovery-v1','data-period-exhaustion-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
+it.each(['data-roster-player-links-v1','data-live-player-directory-v1','data-player-directory-v1','data-core-refresh-v1','data-core-ingestion-v1','data-official-preconfiguration-v1','data-ingestion-guards-v1','data-refresh-concurrency-v1','data-late-write-rollback-v1','data-intake-recovery-v1','data-refresh-history-v1','data-period-recovery-v1','data-period-exhaustion-v1'])('forwards only closed profile %s without changing lifecycle safeguards', async profile => {
   process.argv.push('--profile=' + profile); await import('./run-disposable-integration');
   expect(mocked.run.mock.calls[0][0].profile).toBe(profile); expect(process.exitCode).toBe(0);
 });
@@ -316,7 +316,7 @@ it.each(['--retry=1', '--testNamePattern=anything', '--profile=data-core-refresh
   });
 
 
-const closeoutProfiles = ['data-live-player-directory-v1','data-player-directory-v1', 'data-intake-recovery-v1', 'data-refresh-history-v1',
+const closeoutProfiles = ['data-roster-player-links-v1','data-live-player-directory-v1','data-player-directory-v1', 'data-intake-recovery-v1', 'data-refresh-history-v1',
   'data-period-recovery-v1', 'data-period-exhaustion-v1'] as const;
 it.each(closeoutProfiles.flatMap(profile => ['--retry=1', '--repeat=1', '--testNamePattern=anything', '--config=custom',
   '--reporter=custom', '--sequence.shuffle', '--profile=' + profile, '--profile=data-core-refresh-v1']
