@@ -11,8 +11,8 @@ import type { CapturedAdministrationDocument } from '../lib/league-administratio
 import type { DatabaseRow } from '../lib/database';
 import { createPublicDataDiagnostics, observePublicDataDependencies } from './public-data-refresh-diagnostics';
 import { assertLiveJson, liveRawOracle, normalizeLiveCapture } from './live-league-two';
-import { createLiveJourney, JOURNEY_CASE_MS, JOURNEY_LOOP_MS, JOURNEY_CADENCE_SECONDS, JOURNEY_LEAGUES,
-  JOURNEY_MANAGER, JOURNEY_SEASON, JOURNEY_USERNAME, JOURNEY_STEPS } from './public-data-live';
+import { createLiveJourney, JOURNEY_CASE_MS, JOURNEY_LOOP_MS, JOURNEY_CADENCE_SECONDS,
+  JOURNEY_MANAGER, JOURNEY_SEASON, JOURNEY_USERNAME } from './public-data-live';
 import { JOURNEY_SUITE, JOURNEY_TEST, qualificationDigest, requireJourneyQualification } from './qualification-profile';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
 import { writeIntegrationArtifact } from './integration-artifacts';
@@ -47,7 +47,7 @@ describe(JOURNEY_SUITE, () => {
       const manualId = randomUUID(), targetId = randomUUID();
       type Write = { input: Parameters<typeof administration.recordObservation>[0]; result: Awaited<ReturnType<typeof administration.recordObservation>> };
       const writes: Write[] = [];
-      let selectedStep = JOURNEY_STEPS[0];
+      let selectedStep = source.steps[0];
       const dependencies = observePublicDataDependencies(diagnostics, {
         administration: { ...administration, recordObservation: async (...args: Parameters<typeof administration.recordObservation>) => {
           const result = await administration.recordObservation(...args); writes.push({ input: args[0], result }); return result;
@@ -101,7 +101,7 @@ describe(JOURNEY_SUITE, () => {
         check('intake-readback', 'journey.intake.summary', read, { status: 'available', request: { id: requestId, terminal: true, external_manager_id: JOURNEY_MANAGER,
           seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [] }, (a, e) => expect(a).toMatchObject(e));
         if (read.status === 'missing') throw new Error('Missing live intake.');
-        check('intake-readback', 'journey.intake.league-order', read.leagues.map(row => row.externalLeagueId), [...JOURNEY_LEAGUES], (a, e) => expect(a).toEqual(e));
+        check('intake-readback', 'journey.intake.league-order', read.leagues.map(row => row.externalLeagueId), [...source.leagueIds], (a, e) => expect(a).toEqual(e));
         check('intake-readback', 'journey.intake.list-count', read.lists, 1, (a, e) => expect(a).toHaveLength(e));
         const identity = capture(cycle, 'identity', null, 'identity'), list = capture(cycle, 'leagues', null, 'leagues');
         const retainedIdentity = await database.query('SELECT payload,request_started_at,request_completed_at FROM public.public_data_identity_observations WHERE intake_id=$1', [requestId]);
@@ -112,7 +112,7 @@ describe(JOURNEY_SUITE, () => {
           check('discovery-times', 'journey.discovery.completed', exactMatchupClockInstant(stored[0].request_completed_at), original.requestCompletedAt, (a, e) => expect(a).toBe(e));
         }
         const allReceipts: string[] = [], allContents: string[] = [], allObservations: string[] = [];
-        for (const leagueId of JOURNEY_LEAGUES) {
+        for (const leagueId of source.leagueIds) {
           const league = capture(cycle, 'core', leagueId, 'league') as CapturedAdministrationDocument;
           const roster = capture(cycle, 'core', leagueId, 'rosters') as CapturedAdministrationDocument;
           const users = capture(cycle, 'users', leagueId, 'users') as CapturedAdministrationDocument;
@@ -272,7 +272,7 @@ describe(JOURNEY_SUITE, () => {
             directory: { status: 'available', observationId: directory.observationId, acquisition: { id: directoryCapture.id, sourceMapping: mapping } },
           } }, (a, e) => expect(a).toMatchObject(e));
         }
-        check('live-core', 'journey.leagues.distinct', new Set([...firstIdentity.values()].map(value => (value as DatabaseRow).league_id)).size, JOURNEY_LEAGUES.length, (a, e) => expect(a).toBe(e));
+        check('live-core', 'journey.leagues.distinct', new Set([...firstIdentity.values()].map(value => (value as DatabaseRow).league_id)).size, source.leagueIds.length, (a, e) => expect(a).toBe(e));
         check('team-identities', 'journey.teams.all-distinct', new Set(firstNativeTeams.values()).size, firstNativeTeams.size, (a, e) => expect(a).toBe(e));
         const accountRows = await database.query("SELECT id,external_manager_id FROM public.league_source_manager_accounts WHERE provider='sleeper' AND id=ANY($1::uuid[]) ORDER BY external_manager_id", [[...reverseManagers.keys()]]);
         check('provider-manager-identities', 'journey.managers.accounts', accountRows, [...firstManagers].map(([external_manager_id, id]) => ({ id, external_manager_id }))
@@ -282,9 +282,9 @@ describe(JOURNEY_SUITE, () => {
           outcome.recorded_at BETWEEN dispatch.admitted_at AND dispatch.admitted_at+interval '30 seconds' AS server_window
           FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome USING(worker_id,generation)
           WHERE dispatch.intake_id=$1 ORDER BY dispatch.admitted_at`, [requestId]);
-        check('dispatch-witness', 'journey.dispatch.count', dispatches, 14, (a, e) => expect(a).toHaveLength(e));
+        check('dispatch-witness', 'journey.dispatch.count', dispatches, source.expected.perCycle, (a, e) => expect(a).toHaveLength(e));
         for (const [i, row] of dispatches.entries()) {
-          const step = JOURNEY_STEPS[(cycle - 1) * 14 + i];
+          const step = source.steps[(cycle - 1) * source.expected.perCycle + i];
           check('dispatch-witness', 'journey.dispatch.flags', row, { resource: step.kind, outcome: 'checkpoint-committed', exact_nonce: true, server_window: true }, (a, e) => expect(a).toMatchObject(e));
           const original = source.captures.find(entry => entry.cycle === cycle && entry.capture.acquisition?.work.kind === step.kind && entry.leagueId === (step.leagueId ?? null))!;
           check('dispatch-witness', 'journey.dispatch.capture', row.capture_acquisition, original.capture.acquisition, (a, e) => expect(a).toEqual(e)); check('dispatch-witness', 'journey.dispatch.work', row.work, original.capture.acquisition!.work, (a, e) => expect(a).toEqual(e));
@@ -300,7 +300,7 @@ describe(JOURNEY_SUITE, () => {
             ['league_roster_resource_acceptances', 'receipt_id=ANY($1::uuid[])'],
           ]) {
             const sql = `SELECT * FROM public.${table} WHERE ${predicate} ORDER BY to_jsonb(${table})::text`, args = [allReceipts];
-            const rows = await database.query(sql, args); check('stored-resources', 'journey.history.receipt-count', rows, 16, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
+            const rows = await database.query(sql, args); check('stored-resources', 'journey.history.receipt-count', rows, source.expected.typedReceipts, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
           }
           for (const [table, column, ids] of [
             ['league_administration_contents', 'id', allContents],
@@ -315,7 +315,7 @@ describe(JOURNEY_SUITE, () => {
             check('stored-resources', 'journey.history.content-populated', rows.length, 0, (a, e) => expect(a).toBeGreaterThan(e)); history.push({ sql, args, rows });
           }
           const sql = 'SELECT outcome.* FROM public.public_data_dispatch_outcomes outcome JOIN public.public_data_dispatches dispatch USING(worker_id,generation) WHERE dispatch.intake_id=$1 ORDER BY outcome.worker_id,outcome.generation';
-          const args = [requestId], rows = await database.query(sql, args); check('stored-resources', 'journey.history.dispatch-count', rows, 14, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
+          const args = [requestId], rows = await database.query(sql, args); check('stored-resources', 'journey.history.dispatch-count', rows, source.expected.perCycle, (a, e) => expect(a).toHaveLength(e)); history.push({ sql, args, rows });
         } else for (const item of history) check('stored-resources', 'journey.history.unchanged', await database.query(item.sql, item.args), item.rows, (a, e) => expect(a).toEqual(e));
       };
       await intake.submit({ id: manualId, username: JOURNEY_USERNAME, seasons: [JOURNEY_SEASON] });
@@ -327,7 +327,7 @@ describe(JOURNEY_SUITE, () => {
         if (performance.now() + wait >= until) throw new Error('Live journey work bound exhausted.');
         if (wait) await delay(wait); if (performance.now() >= until) throw new Error('Live journey work bound exhausted.');
       };
-      for (let completed = 0; completed < 28;) {
+      for (let completed = 0; completed < source.steps.length;) {
         await waitForAdmission(); selectedStep = source.beginStep(currentRequest);
         diagnostics.beginStep(selectedStep.cycle);
         const outcome = selectedStep.cycle === 1
@@ -340,13 +340,13 @@ describe(JOURNEY_SUITE, () => {
         process.stdout.write('PUBLIC_DATA_LIVE_PROGRESS ' + JSON.stringify({ step: completed, collection: selectedStep.cycle, resource: selectedStep.kind }) + '\n');
         // Real waiting after observed completion; never change the clock, DB admission or fence.
         notBefore = performance.now() + 60_000;
-        if (completed === 14) {
+        if (source.leagueIds.length && completed === source.expected.perCycle) {
           await diagnostics.observe('reader.intake', () => proveCollection(manualId, 1));
           await refresh.configure({ id: targetId, expectedRevision: 0, identityRequestId: manualId, seasons: [JOURNEY_SEASON],
             cadenceSeconds: JOURNEY_CADENCE_SECONDS, expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), paused: false });
           currentRequest = undefined;
         }
-        if (completed === 28) await diagnostics.observe('reader.intake', () => proveCollection(currentRequest!, 2));
+        if (source.leagueIds.length && completed === source.expected.admissions) await diagnostics.observe('reader.intake', () => proveCollection(currentRequest!, 2));
       }
       source.assertComplete();
       await waitForAdmission(); diagnostics.beginStep(2);
@@ -360,13 +360,13 @@ describe(JOURNEY_SUITE, () => {
       check('journey-complete', 'journey.refresh.disposition', await database.query('SELECT disposition FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1', [targetId]), [{ disposition: 'complete' }], (a, e) => expect(a).toEqual(e));
       const [spacing] = await database.query(`SELECT count(*)::int AS count,bool_and(gap>=interval '60 seconds') AS bounded FROM (
         SELECT admitted_at-lag(admitted_at) OVER (ORDER BY admitted_at) AS gap FROM public.public_data_dispatches) entries`);
-      check('journey-complete', 'journey.settlement.spacing', spacing, { count: 28, bounded: true }, (a, e) => expect(a).toEqual(e)); check('journey-complete', 'journey.settlement.claims', claims, 29, (a, e) => expect(a).toBe(e)); check('journey-complete', 'journey.settlement.admissions', admissions, 28, (a, e) => expect(a).toBe(e));
+      check('journey-complete', 'journey.settlement.spacing', spacing, { count: source.expected.admissions, bounded: true }, (a, e) => expect(a).toEqual(e)); check('journey-complete', 'journey.settlement.claims', claims, source.expected.claims, (a, e) => expect(a).toBe(e)); check('journey-complete', 'journey.settlement.admissions', admissions, source.expected.admissions, (a, e) => expect(a).toBe(e));
       check('journey-complete', 'journey.settlement.unfinished', await database.query(`SELECT dispatch.worker_id FROM public.public_data_dispatches dispatch LEFT JOIN public.public_data_dispatch_outcomes outcome
         USING(worker_id,generation) WHERE outcome.worker_id IS NULL`), [], (a, e) => expect(a).toEqual(e));
       source.assertComplete();
       for (const row of source.captures) check('capture-witness', 'journey.capture.unchanged', qualificationDigest(row.capture.payload), row.payloadDigest, (a, e) => expect(a).toBe(e));
       finalized = true;
-      process.stdout.write('PUBLIC_DATA_LIVE_PROGRESS ' + JSON.stringify({ step: 29, collection: 2, resource: 'settlement' }) + '\n');
+      process.stdout.write('PUBLIC_DATA_LIVE_PROGRESS ' + JSON.stringify({ step: source.expected.claims, collection: 2, resource: 'settlement' }) + '\n');
     } catch (error) { throw diagnostics.failure('case', error); }
     finally {
       globalThis.fetch = originalFetch;

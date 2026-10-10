@@ -350,6 +350,17 @@ it.each([
   expect(await validateQualificationArtifacts(binding)).toMatchObject({ collected: 1, executed: 1, passed: 1, filtered: 0 });
 });
 
+it('refuses the historical fixed-four live source pin under the discovery-bound journey profile', async () => {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), JOURNEY_PROFILE);
+  const directory = await mkdtemp(join(tmpdir(), 'qualification-journey-history-')); directories.push(directory);
+  const priorSourceDigest = '3d51da6710c64cccba8064806e3ff47a16240deef46b72c16a228453cae5699b';
+  expect(context.modules).toEqual([{ path: JOURNEY_MODULE, sourceDigest: JOURNEY_SOURCE_DIGEST }]);
+  expect(JOURNEY_SOURCE_DIGEST).not.toBe(priorSourceDigest);
+  const historical = { ...context, modules: [{ path: JOURNEY_MODULE, sourceDigest: priorSourceDigest }] };
+  expect(() => requireJourneyQualification({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(historical),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: directory })).toThrow();
+});
+
 it('binds the ingestion guards to exactly three source-ordered cases, excluding the fairness prerequisite', async () => {
   expect(parseQualificationArguments(['--profile=' + GUARDS_PROFILE])).toBe(GUARDS_PROFILE);
   expect(qualificationArguments(GUARDS_PROFILE, '/reporter').slice(4)).toEqual([SELECTED_MODULE, '--testNamePattern', GUARDS_PATTERN]);

@@ -8,7 +8,7 @@ import { qualificationDigest } from './qualification-profile';
 export const JOURNEY_USERNAME = 'DannyPak';
 export const JOURNEY_MANAGER = '79628519873069056';
 export const JOURNEY_SEASON = 2026;
-export const JOURNEY_LEAGUES = ['1312138224994385920', '1378850182409490432', '1395875117568913408', '1398809418962898944'] as const;
+export const JOURNEY_MAX_LEAGUES = 4;
 export const JOURNEY_MAX_GETS = 36;
 export const JOURNEY_BODY_BYTES = 1_048_576;
 export const JOURNEY_TOTAL_BYTES = JOURNEY_BODY_BYTES * JOURNEY_MAX_GETS;
@@ -17,14 +17,15 @@ export const JOURNEY_CASE_MS = 29 * 60_000;
 export const JOURNEY_CADENCE_SECONDS = 3_600;
 type Family = 'identity' | 'leagues' | 'league' | 'rosters' | 'users';
 type Step = Readonly<{ cycle: 1 | 2; kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users'; leagueId?: string }>;
-export const JOURNEY_STEPS: readonly Step[] = ([1, 2] as const).flatMap(cycle => [
+const journeySteps = (leagueIds: readonly string[]): readonly Step[] => Object.freeze(([1, 2] as const).flatMap(cycle => [
   { cycle, kind: 'identity' as const }, { cycle, kind: 'leagues' as const },
-  ...JOURNEY_LEAGUES.flatMap(leagueId => [{ cycle, kind: 'bootstrap' as const, leagueId }, { cycle, kind: 'core' as const, leagueId }]),
-  ...JOURNEY_LEAGUES.map(leagueId => ({ cycle, kind: 'users' as const, leagueId })),
-]);
+  ...leagueIds.flatMap(leagueId => [{ cycle, kind: 'bootstrap' as const, leagueId }, { cycle, kind: 'core' as const, leagueId }]),
+  ...leagueIds.map(leagueId => ({ cycle, kind: 'users' as const, leagueId })),
+]).map(step => Object.freeze(step)));
 type Capture = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>;
 export type JourneyCapture = Readonly<{ cycle: number; family: Family; leagueId: string | null; capture: Capture; payloadDigest: string }>;
-type FailureCode = 'ordering' | 'request' | 'network' | 'http' | 'redirect' | 'body' | 'body-limit' | 'abort' | 'source' | 'witness' | 'scope';
+type FailureCode = 'ordering' | 'request' | 'network' | 'http' | 'redirect' | 'body' | 'body-limit' | 'abort' | 'source' | 'witness' | 'scope'
+  | 'discovery-empty' | 'discovery-limit' | 'discovery-invalid' | 'discovery-drift';
 class BoundaryError extends Error { constructor(readonly reason: FailureCode) { super('Live public intake boundary rejected: ' + reason); } }
 const same = (a: unknown, b: unknown) => qualificationDigest(a) === qualificationDigest(b);
 const pathFor = (family: Family, subject: string) => family === 'identity' ? '/user/' + subject
@@ -35,6 +36,16 @@ const pathFor = (family: Family, subject: string) => family === 'identity' ? '/u
  * Install fetch once for the case; concurrent core captures receive separate one-use request slots. */
 export function createLiveJourney(transport: typeof fetch) {
   let index = 0, attempts = 0, totalBytes = 0;
+  let leagueIds: readonly string[] | undefined;
+  let steps: readonly Step[] = Object.freeze(journeySteps([]).slice(0, 2));
+  const discovery: { cycle: number; rawCount: number | null; normalizedCount: number | null; payloadDigest: string;
+    idsDigest: string | null; accepted: boolean }[] = [];
+  const expected = () => {
+    if (!leagueIds) return reject('ordering');
+    const count = leagueIds.length;
+    return { perCycle: 2 + 3 * count, admissions: 4 + 6 * count, claims: 5 + 6 * count,
+      gets: 4 + 8 * count, typedReceipts: 4 * count };
+  };
   let active: { step: Step; requestId: string | undefined; opened: Set<Family>; finished: Set<Family> } | undefined;
   const slots = new Map<string, { dispatched: boolean }>();
   const controller = new AbortController();
@@ -106,13 +117,27 @@ export function createLiveJourney(transport: typeof fetch) {
         const identity = value as unknown as Awaited<ReturnType<typeof capturePublicSleeperIdentity>>;
         if (!identity.value || identity.value.userId !== JOURNEY_MANAGER || identity.value.username.toLowerCase() !== JOURNEY_USERNAME.toLowerCase()) return reject('source');
       }
-      if (family === 'leagues') {
-        const list = value as unknown as Awaited<ReturnType<typeof capturePublicSleeperLeagueList>>;
-        if (!list.value || !Array.isArray(list.payload) || !same(list.value.map(x => x.id).sort(), [...JOURNEY_LEAGUES])
-          || !same(list.payload.map(x => x?.league_id).sort(), [...JOURNEY_LEAGUES])) return reject('scope');
-      }
+      // Retain the exact sealed capture even when discovery is refused. No replacement
+      // list can reach the intake checkpoint, and diagnostics expose only counts/digests.
       captures.push({ cycle: current.step.cycle, family, leagueId: current.step.leagueId ?? null,
         capture: value, payloadDigest: qualificationDigest(value.payload) });
+      if (family === 'leagues') {
+        const list = value as unknown as Awaited<ReturnType<typeof capturePublicSleeperLeagueList>>;
+        const rawIds = Array.isArray(list.payload) ? list.payload.map(row => row?.league_id) : null;
+        const normalizedIds = list.value?.map(row => row.id) ?? null;
+        const valid = rawIds !== null && normalizedIds !== null && rawIds.length >= 1 && rawIds.length <= JOURNEY_MAX_LEAGUES
+          && rawIds.every(id => typeof id === 'string' && /^[1-9]\d{0,31}$/u.test(id))
+          && new Set(rawIds).size === rawIds.length && new Set(normalizedIds).size === normalizedIds.length
+          && list.value!.every(row => row.season === String(JOURNEY_SEASON))
+          && same([...rawIds].sort(), [...normalizedIds].sort());
+        const ids = valid ? [...normalizedIds!].sort() : null;
+        const accepted = ids !== null && (leagueIds === undefined || same(ids, leagueIds));
+        discovery.push({ cycle: current.step.cycle, rawCount: rawIds?.length ?? null, normalizedCount: normalizedIds?.length ?? null,
+          payloadDigest: qualificationDigest(list.payload), idsDigest: ids ? qualificationDigest(ids) : null, accepted });
+        if (!accepted) return reject(rawIds?.length === 0 ? 'discovery-empty'
+          : rawIds && rawIds.length > JOURNEY_MAX_LEAGUES ? 'discovery-limit' : !valid ? 'discovery-invalid' : 'discovery-drift');
+        if (leagueIds === undefined) { leagueIds = Object.freeze(ids!); steps = journeySteps(leagueIds); }
+      }
       current.finished.add(family); return value;
     } catch (error) { return reject(error instanceof BoundaryError ? error.reason : 'source'); }
     finally { slots.delete(url); }
@@ -128,17 +153,22 @@ export function createLiveJourney(transport: typeof fetch) {
       combined => capturePublicSleeperCore(league, family, combined, undefined, witness)),
   };
   return { fetch, source, captures,
+    get leagueIds() { return leagueIds ?? []; }, get steps() { return steps; }, get expected() { return expected(); },
     beginStep(requestId?: string) {
-      available(); if (active || !JOURNEY_STEPS[index]) return reject('ordering');
-      active = { step: JOURNEY_STEPS[index], requestId, opened: new Set(), finished: new Set() }; return active.step;
+      available(); if (active || !steps[index]) return reject('ordering');
+      active = { step: steps[index], requestId, opened: new Set(), finished: new Set() }; return active.step;
     },
     finishStep(progress: boolean) {
       available(); if (!active || slots.size) return reject('ordering');
       if (progress ? active.finished.size !== (active.step.kind === 'core' ? 2 : 1) : active.opened.size !== 0) return reject('ordering');
       if (progress) index++; active = undefined;
     },
-    assertComplete() { available(); if (active || index !== 28 || attempts !== JOURNEY_MAX_GETS || captures.length !== JOURNEY_MAX_GETS) reject('ordering'); },
-    snapshot() { return { steps: index, attempts, totalBytes, failure: failure ? { ...failure } : null,
+    assertComplete() {
+      available(); const counts = expected();
+      if (active || index !== counts.admissions || attempts !== counts.gets || captures.length !== counts.gets) reject('ordering');
+    },
+    snapshot() { return { steps: index, attempts, totalBytes, discovery: discovery.map(row => ({ ...row })),
+      expected: leagueIds ? expected() : null, failure: failure ? { ...failure } : null,
       receipts: receipts.map(row => ({ ...row })), captures: captures.map(row => ({ cycle: row.cycle, family: row.family,
         leagueId: row.leagueId, requestStartedAt: row.capture.requestStartedAt, requestCompletedAt: row.capture.requestCompletedAt,
         payloadDigest: row.payloadDigest, witnessDigest: qualificationDigest(row.capture.acquisition) })) }; },

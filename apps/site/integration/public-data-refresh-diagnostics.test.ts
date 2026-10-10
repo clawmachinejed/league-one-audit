@@ -12,7 +12,8 @@ import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness } fr
 import { assertLiveJson } from './live-league-two';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
 import { writeIntegrationArtifact } from './integration-artifacts';
-import { JOURNEY_LEAGUES, JOURNEY_MANAGER, JOURNEY_SEASON } from './public-data-live';
+import { createLiveJourney, JOURNEY_USERNAME, JOURNEY_MANAGER, JOURNEY_SEASON } from './public-data-live';
+const JOURNEY_LEAGUES = ['3103', '3119', '3167', '3191'];
 import { readPublicSleeperIntake } from '../lib/league-administration/public-intake-reader';
 import type { AcceptedLeagueSettingsRead } from '../lib/aggregator/league-settings';
 import type { CurrentRosterCaptureReceipt } from '../lib/aggregator/season-overview-source-contracts';
@@ -1005,7 +1006,26 @@ it('uses one existing five-second bound for all live receipt reads and ignores l
   const snapshot = f.diagnostics.snapshot(); late.resolve([]); await Promise.resolve(); expect(f.diagnostics.snapshot()).toEqual(snapshot);
 });
 // Execute the maintained journey assertions and its actual catch/finally; never copy a SQL oracle.
-async function journeyAssertionFixture() {
+async function journeyAssertionFixture(leagueIds: readonly string[] = JOURNEY_LEAGUES) {
+  const originalFetch = globalThis.fetch;
+  const journey = createLiveJourney(vi.fn<typeof fetch>(async url => new Response(JSON.stringify(String(url).includes('/leagues/')
+    ? [...leagueIds].reverse().map(league_id => ({ league_id, season: String(JOURNEY_SEASON), sport: 'nfl', name: 'Offline discovery' }))
+    : { user_id: JOURNEY_MANAGER, username: JOURNEY_USERNAME }))));
+  vi.stubGlobal('fetch', journey.fetch);
+  for (const kind of ['identity', 'leagues'] as const) {
+    journey.beginStep(id);
+    const work = kind === 'identity' ? { requestId: id, revision: 0, kind, username: JOURNEY_USERNAME }
+      : { requestId: id, revision: 1, kind, userId: JOURNEY_MANAGER, season: JOURNEY_SEASON };
+    const witness: PublicCaptureWitness = { version: 'public-network-capture-v1', work,
+      fence: { jobKey: 'league-administration-public-intake', workerId: id, generation: 1, deadlineAt: new Date(Date.now() + 20_000).toISOString() },
+      dispatchNonce: id, mapping: null, attempts: {} };
+    const signal = new AbortController().signal;
+    if (kind === 'identity') await journey.source.identity(JOURNEY_USERNAME, signal, witness);
+    else await journey.source.leagues(JOURNEY_MANAGER, JOURNEY_SEASON, signal, witness);
+    journey.finishStep(true);
+  }
+  vi.stubGlobal('fetch', originalFetch);
+  const expected = journey.expected;
   const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), JOURNEY_PROFILE);
   vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
   const text = await readFile(new URL('./public-data.live-integration-case.ts', import.meta.url), 'utf8');
@@ -1021,14 +1041,14 @@ async function journeyAssertionFixture() {
     ts.forEachChild(node, visit);
   };
   visit(tree); expect(declarations.size).toBe(4); expect(finalizer?.catchClause).toBeDefined();
-  const diagnostics = createPublicDataDiagnostics('journey'); for (let i = 0; i < 14; i++) diagnostics.beginStep(1);
-  const originalFetch = globalThis.fetch, guardedFetch = vi.fn<typeof fetch>(async () => { throw new Error(secret); });
+  const diagnostics = createPublicDataDiagnostics('journey'); for (let i = 0; i < expected.perCycle; i++) diagnostics.beginStep(1);
+  const guardedFetch = vi.fn<typeof fetch>(async () => { throw new Error(secret); });
   vi.stubGlobal('fetch', guardedFetch);
-  const base = { diagnostics, expect, JOURNEY_LEAGUES, JOURNEY_MANAGER, JOURNEY_SEASON };
+  const base = { diagnostics, expect, source: journey, JOURNEY_MANAGER, JOURNEY_SEASON };
   const compile = (bindings: Record<string, unknown>, code: string) => new Function(...Object.keys(bindings),
     ts.transpile(code, { target: ts.ScriptTarget.ES2022 }));
   const prove = async (read: unknown, actual?: { database: unknown; administration: unknown }) => {
-    const bindings = { ...base, readPublicSleeperIntake: actual ? readPublicSleeperIntake : vi.fn(async () => read), database: actual?.database ?? {}, administration: actual?.administration ?? {} };
+    const bindings = { ...base, readPublicSleeperIntake: actual ? readPublicSleeperIntake : vi.fn(async () => read), database: actual?.database ?? {}, administration: actual?.administration ?? {}, capture: () => { throw new Error('Offline discovery checks complete.'); } };
     return compile(bindings, declarations.get('check')! + '\n' + declarations.get('observedReaders')! + '\n' + declarations.get('proveCollection')! + '\nreturn proveCollection;')(...Object.values(bindings))(id, 1);
   };
   const selected = async (key: string, supplied: Record<string, unknown>) => {
@@ -1046,13 +1066,13 @@ async function journeyAssertionFixture() {
     const query = vi.fn(async () => [canonical]);
     const capture = vi.fn((cycle: number) => ({ payload: { scoring_settings: cycle === 1 ? initialRules : options.refreshedRules } }));
     const bindings = { ...base, createHash, assertLiveJson, database: { query }, capture, cycle: options.cycle ?? 1,
-      leagueId: JOURNEY_LEAGUES[0], mapping: { leagueSeasonId: id, connectionId: id }, firstIdentity: new Map([[JOURNEY_LEAGUES[0], options.first]]),
+      leagueId: leagueIds[0], mapping: { leagueSeasonId: id, connectionId: id }, firstIdentity: new Map([[leagueIds[0], options.first]]),
       uuid: /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu };
     const code = declarations.get('check')! + '\n' + declarations.get('equal')! + '\nreturn (async () => { '
       + statements.slice(start, end + 1).map(statement => statement.getText(tree)).join('\n') + ' })();';
     await compile(bindings, code)(...Object.values(bindings));
-    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('LEFT JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id'), [JOURNEY_LEAGUES[0], JOURNEY_SEASON]);
-    expect(capture).toHaveBeenCalledExactlyOnceWith(1, 'bootstrap', JOURNEY_LEAGUES[0], 'league');
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('LEFT JOIN public.scoring_profiles profile ON profile.id=season.scoring_profile_id'), [leagueIds[0], JOURNEY_SEASON]);
+    expect(capture).toHaveBeenCalledExactlyOnceWith(1, 'bootstrap', leagueIds[0], 'league');
   };
   const tail = async (overrides: { cycles?: readonly string[]; disposition?: string; spacing?: boolean; count?: string; claims?: number;
     admissions?: number; unfinished?: readonly DatabaseRow[]; payloadChanged?: boolean; providerRequests?: number; intakeStatus?: string } = {}) => {
@@ -1067,20 +1087,20 @@ async function journeyAssertionFixture() {
         return (overrides.cycles ?? ['1']).map(value => ({ cycle: parse(oid, value) }));
       }
       if (sql.includes('SELECT disposition FROM public.public_data_refresh_cycle_outcomes')) return [{ disposition: parse(25, overrides.disposition ?? 'complete') }];
-      if (sql.includes("bool_and(gap>=interval '60 seconds')")) return [{ count: parse(sql.includes('count(*)::int') ? 23 : 20, overrides.count ?? '28'), bounded: parse(16, overrides.spacing === false ? 'f' : 't') }];
+      if (sql.includes("bool_and(gap>=interval '60 seconds')")) return [{ count: parse(sql.includes('count(*)::int') ? 23 : 20, overrides.count ?? String(expected.admissions)), bounded: parse(16, overrides.spacing === false ? 'f' : 't') }];
       if (sql.includes('WHERE outcome.worker_id IS NULL')) return overrides.unfinished ?? [];
       throw new Error('Unexpected offline final-tail query.');
     });
     const originalPayload = { payload: 'original' }, capturePayload = overrides.payloadChanged ? { payload: 'changed' } : originalPayload;
-    const source = { assertComplete: vi.fn(), captures: [{ capture: { payload: capturePayload }, payloadDigest: qualificationDigest(originalPayload) }] };
+    const source = { ...journey, assertComplete: vi.fn(), captures: [{ capture: { payload: capturePayload }, payloadDigest: qualificationDigest(originalPayload) }] };
     const step = vi.fn(async () => ({ status: 'backoff', providerRequests: overrides.providerRequests ?? 0 }));
     const read = vi.fn(async () => ({ status: 'available', target: { id, externalManagerId: JOURNEY_MANAGER, cadenceSeconds: 3600 },
       cycle: { number: 1, requestId: id, outcome: { disposition: 'complete' } },
       intake: { status: overrides.intakeStatus ?? 'available', request: { terminal: true } } }));
-    for (let index = 14; index < 29; index++) diagnostics.beginStep(2);
+    for (let index = expected.perCycle; index < expected.claims; index++) diagnostics.beginStep(2);
     const bindings = { ...base, runPublicDataRefreshStep: step, readPublicDataRefresh: read, database: { query }, dependencies: {}, observedReaders: {},
       targetId: id, currentRequest: id, JOURNEY_CADENCE_SECONDS: 3600, until: performance.now() + 60_000,
-      claims: overrides.claims ?? 29, admissions: overrides.admissions ?? 28, source, qualificationDigest, finalized: false, process: { stdout: { write: vi.fn() } } };
+      claims: overrides.claims ?? expected.claims, admissions: overrides.admissions ?? expected.admissions, source, qualificationDigest, finalized: false, process: { stdout: { write: vi.fn() } } };
     const code = declarations.get('check')! + '\nreturn (async () => { ' + statements.slice(start).map(statement => statement.getText(tree)).join('\n') + '; return { finalized }; })();';
     const result = await compile(bindings, code)(...Object.values(bindings));
     expect(query).toHaveBeenCalledTimes(4); expect(step).toHaveBeenCalledOnce(); expect(read).toHaveBeenCalledOnce(); expect(source.assertComplete).toHaveBeenCalledOnce();
@@ -1088,7 +1108,7 @@ async function journeyAssertionFixture() {
   };
   const run = async (action: () => Promise<unknown>) => {
     const bindings = { ...base, action, originalFetch, writeIntegrationArtifact, qualificationDigest, binding: { context },
-      claims: 14, admissions: 14, finalized: false, changes: [], source: { snapshot: () => ({}) } };
+      claims: expected.perCycle, admissions: expected.perCycle, finalized: false, changes: [], source: { snapshot: () => ({}) } };
     const body = 'return (async () => { try { await diagnostics.observe("reader.intake", action); } '
       + finalizer!.catchClause!.getText(tree) + ' finally ' + finalizer!.finallyBlock!.getText(tree) + ' })();';
     let thrown: unknown;
@@ -1100,10 +1120,10 @@ async function journeyAssertionFixture() {
     expect(diagnostics.failure('case', new Error(secret))).toBe(thrown);
     return { raw, saved, thrown };
   };
-  return { prove, selected, profile, tail, run, checks, tree };
+  return { prove, selected, profile, tail, run, checks, tree, expected, diagnostics };
 }
-const journeyRead = () => ({ status: 'available', request: { id, terminal: true, external_manager_id: JOURNEY_MANAGER,
-  seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [], leagues: JOURNEY_LEAGUES.map(externalLeagueId => ({ externalLeagueId })), lists: [{ season: JOURNEY_SEASON }] });
+const journeyRead = (leagueIds: readonly string[] = JOURNEY_LEAGUES) => ({ status: 'available', request: { id, terminal: true, external_manager_id: JOURNEY_MANAGER,
+  seasons: [JOURNEY_SEASON], failure_count: 0 }, rejected: [], leagues: leagueIds.map(externalLeagueId => ({ externalLeagueId })), lists: [{ season: JOURNEY_SEASON }] });
 it.each(['status', 'header', 'league-order', 'list-count'] as const)('retains the actual journey first-readback %s mismatch through observe/catch/finally/save', async mode => {
   const f = await journeyAssertionFixture(), read = journeyRead();
   if (mode === 'status') read.status = 'partial';
@@ -1296,9 +1316,38 @@ it('rejects replacement of the original season profile even when replacement rul
   const { saved } = await f.run(() => f.profile(replacement, profileRules, { cycle: 2, first, refreshedRules: profileRules }));
   expect(saved.firstFailure.comparison.id).toBe('journey.canonical.stable');
 });
-it('executes the actual final journey tail with installed Neon parsers and reaches finalization without weakening strict numeric equality', async () => {
-  const f = await journeyAssertionFixture(); expect(await f.tail()).toEqual({ finalized: true });
+it.each([1, 2, 4])('executes actual discovery/profile/final-tail assertions with %i dynamically discovered leagues', async count => {
+  const ids = JOURNEY_LEAGUES.slice(0, count), f = await journeyAssertionFixture(ids);
+  await expect(f.prove(journeyRead(ids))).rejects.toThrow('Offline discovery checks complete.');
+  expect(f.diagnostics.snapshot().firstFailure).toBeNull();
+  await f.profile(profileRow(profileRules), profileRules);
+  expect(await f.tail()).toEqual({ finalized: true });
   expect(types.getTypeParser(20, 'text')('1')).toBe('1'); expect(types.getTypeParser(23, 'text')('1')).toBe(1);
+});
+it.each([1, 2, 4].flatMap(count => ['dispatch', 'receipt', 'history-dispatch'].map(kind => ({ count, kind }))))('keeps exact per-collection $kind counts for $count discoveries in the authored oracle', async ({ count, kind }) => {
+  const f = await journeyAssertionFixture(JOURNEY_LEAGUES.slice(0, count));
+  const label = kind === 'dispatch' ? 'journey.dispatch.count' : kind === 'receipt' ? 'journey.history.receipt-count' : 'journey.history.dispatch-count';
+  const total = kind === 'receipt' ? 4 * count : 2 + 3 * count;
+  for (const delta of [0, -1, 1]) {
+    const rows = Array(total + delta).fill({});
+    const assertion = f.selected(label, kind === 'dispatch' ? { dispatches: rows } : { rows });
+    if (delta === 0) await expect(assertion).resolves.toBeUndefined(); else await expect(assertion).rejects.toThrow();
+  }
+});
+it.each([1, 2, 4].flatMap(count => ['missing', 'extra'].map(mode => ({ count, mode }))))('rejects $mode stored league at count $count in the actual readback oracle', async ({ count, mode }) => {
+  const ids = JOURNEY_LEAGUES.slice(0, count), f = await journeyAssertionFixture(ids), read = journeyRead(ids);
+  if (mode === 'missing') read.leagues.pop(); else read.leagues.push({ externalLeagueId: '9991' });
+  const { saved } = await f.run(() => f.prove(read));
+  expect(saved.firstFailure).toMatchObject({ category: 'assertion', step: 2 + 3 * count,
+    comparison: { id: 'journey.intake.league-order' } });
+});
+it.each([1, 2, 4].flatMap(count => ['dispatch', 'claim', 'admission'].flatMap(kind => [-1, 1].map(delta => ({ count, kind, delta })))))('rejects $kind delta $delta for $count discoveries in the actual final tail', async ({ count, kind, delta }) => {
+  const f = await journeyAssertionFixture(JOURNEY_LEAGUES.slice(0, count));
+  const change = kind === 'dispatch' ? { count: String(f.expected.admissions + delta) }
+    : kind === 'claim' ? { claims: f.expected.claims + delta } : { admissions: f.expected.admissions + delta };
+  const { saved } = await f.run(() => f.tail(change));
+  expect(saved.firstFailure).toMatchObject({ category: 'assertion', step: 5 + 6 * count,
+    comparison: { id: 'journey.settlement.' + (kind === 'dispatch' ? 'spacing' : kind + 's') } });
 });
 it.each([
   ['wrong cycle', { cycles: ['2'] }, 'journey.refresh.cycle-count'],
