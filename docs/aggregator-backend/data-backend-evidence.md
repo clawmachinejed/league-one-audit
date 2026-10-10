@@ -1019,3 +1019,100 @@ result remains failed pending the separate canonical CI result. Final
 prepublication scope checking passed with 85 reviewed extensions, five
 governance paths and 31 DATA paths; the exact diff remains within reviewed CP6
 source scope. No paid execution or production action follows from publication.
+
+### CP6 first PostgreSQL qualification attempt — failed, cleanup verified
+
+The user approved exactly one protected disposable attempt at frozen source
+`c7c1ab94c9f3c7fe91325205e8370dd78cac6261`, using the closed
+`data-roster-player-links-v1` profile, 0.25 CU and a new $1 allowance under the
+unchanged 20-second ordinary work, 30-minute supervisor work, 40-minute lifecycle
+and 50-minute CI limits. [Run 38054471625](https://github.com/clawmachinejed/league-one-audit/actions/runs/38054471625),
+attempt 1, was manually dispatched and its protected environment approved only
+after the recorded exact-SHA/source review. No competing integration run was
+observed. The reusable test-project credential was reused inside CI; no local
+credential was retrieved, created or rotated.
+
+**Result: nine collected and executed cases, nine failed, zero passed, zero
+skipped/filtered/retried/repeated and zero unhandled errors. CP6 remains
+unqualified.** Six cases reported PostgreSQL `42883` because a bare `team`
+reference in the new trigger's size estimate resolved the joined directory's
+text `team` column instead of the local JSON set-returning-function alias.
+Two cases reported `42702` because two JSON functions exposed default `value`
+columns and the shared identity validation referenced `value` without a column
+qualifier. The ordinary intake case returned `unavailable` instead of `progress`;
+its output does not expose the underlying SQL error, so attributing that final
+failure to the same defect is an inference, not an independently reported cause.
+The migration was installed in the disposable schema, but these function-body
+statements failed when executed; source/build tests did not detect them.
+
+The supervisor run was `9afd69bc-485b-4bde-ae34-fde9c685d2fc`, from
+`2026-10-10T13:07:41.046Z` through `13:13:42.404Z`, with recorded lifecycle
+361,448 ms. Vitest took 349.44 seconds. The terminal acknowledgment at
+`13:13:42.4160614Z` records failure only for tests, verified POSIX child-tree
+closure, schema cleanup, generated database-credential revocation, deletion of
+owned branch `br-snowy-pond-b7ubuhrz`, no unresolved resources and no production
+writes. The cleanup acknowledgment is bound to the exact failed report; cleanup
+success does not turn failed tests into qualification. The one-hour branch
+expiry was fallback only. No separate post-run Neon API probe or measured billing
+is claimed. The single $1 allowance is consumed, is not a provider billing cap,
+and does not authorize another run.
+
+Downloaded evidence is retained under
+`test-results/cp6-38054471625/integration-c7c1ab94c9f3c7fe91325205e8370dd78cac6261-1`,
+with the report/cleanup pair in `artifacts/run-u97TK1`. SHA256 values:
+
+- Acknowledged terminal receipt `run-1791637661042-ea183c8a-70e1-469c-955b-81b3ea66558c-0012.json`: `2b4ddafa27fcc5b971806e49c1a9621f3155e0e9ce440f0f923aa8aa649c1d79`.
+- `qualification-report.json`: `e9ae2166c58b466f0be3e599a2f61a25ff268e33ce86dbd897414ab6a1babf67`.
+- `qualification-cleanup.json`: `bad31a22e85857b3dd67f94e03e2498a85cf94ba687ca0349d355034b7290e8f`.
+- Parent `workflow.log`: `98778594b4553ec1fa1d2b6a7d80eee3c2f6e483b8ab49a5ffb5ba26155f41ca`.
+
+The separately passing [source CI 38053548430](https://github.com/clawmachinejed/league-one-audit/actions/runs/38053548430)
+remains evidence only for source/build/browser checks: 6,531 unit tests across
+292 files, zero failures/skips; 121 public browser passes with 20 intentional
+account-fixture skips; 20 separate account browser passes, zero failures/skips.
+CI merge `5db079f10670be0947f1f1b66573c2dd954c1383` and candidate share Git tree
+`540ddd6a13c391731ebe5674ba0a0278719566a1`. Actual Ready preview
+`H3makh6pTZmk3xtcjALL1HYVMdZC` was inspected for League One, League Two and Dynasty.
+Neither source CI nor that preview supersedes the failed SQL result. No merge,
+retained installation, production migration, scheduling or release occurred.
+
+Independent Astra Ultra review verified all twelve receipt sequences and their
+run/source/project/branch bindings, the exact report and balanced hooks, and the
+terminal acknowledgment. The existing read-only artifact validator correctly
+rejected the failed report: `testEvidenceFailure: missing-or-invalid` denotes
+failed qualification here, not absent artifacts. The zero-byte unsequenced JSON
+file is a reserved journal path, not a missing terminal receipt. Cleanup proof
+and failed qualification remain separately recorded.
+
+### CP6 source repair after the failed attempt
+
+Independent reviewers and the coordinating agent traced the recorded PostgreSQL
+positions to the two name-resolution errors before repair. The narrow repair
+changes only migration 042: JSON set-returning functions and the two scalar
+position-clue functions receive explicit output-column aliases, and all operands
+in their affected scopes are qualified. This includes the related identity-lock,
+cleanup, raw-roster, candidate/result and final-link statements, without claiming
+an additional observed failure in those later statements. No casts or exception
+swallowing conceal either defect. No predicates, capacity bounds, lock keys or
+order, fences, grants, ordinality, public interfaces or fallback behavior change.
+
+Independent Astra Ultra exact-diff review accepted repaired migration LF SHA256
+`73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c`.
+The nine-case fixture, all profile pins, dependencies, runtime limits and original
+assertions remain unchanged. Its existing nine actual SQL cases are the
+regression oracle; no source-text test is substituted for PostgreSQL execution.
+The existing nine identity-adapter tests passed with zero skips. Further source
+checks and the repaired candidate SHA are recorded with PR295; none can qualify
+SQL paths that the failed attempt did not reach. This repair is unqualified until
+another explicitly approved frozen-source run passes all nine cases and cleanup.
+No rerun, paid provisioning, retained migration, merge or production action is
+implied by the source repair.
+
+Post-repair source verification also passed all 177 profile/reporter/supervisor
+checks across three files with zero skips, and scope/diff checks passed. Together
+with the nine identity-adapter cases these are 186 distinct focused source tests;
+none execute PostgreSQL. Before repair publication, local/origin/GitHub main and
+Vercel production still agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`,
+with the same canonical repository, `apps/site` root and production branch `main`.
+Primary main remains clean. Only migration 042 and this evidence ledger changed
+from the failed candidate; the fixture LF hash and every profile pin are preserved.

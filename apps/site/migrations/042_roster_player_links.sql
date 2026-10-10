@@ -18,28 +18,28 @@ BEGIN
   IF jsonb_typeof(p_inputs) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'invalid scoring identity input'; END IF;
   IF jsonb_array_length(p_inputs)=0 THEN RETURN jsonb_build_object('evaluatedAt',clock_timestamp(),'rows','[]'::jsonb); END IF;
   -- These are the existing prepared identity inputs, not caller assertions of a resolved crosswalk.
-  IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) value
-    WHERE jsonb_typeof(value) IS DISTINCT FROM 'object'
-      OR value->>'kind' NOT IN ('player','team_defense') OR value->>'kind' IS NULL
-      OR jsonb_typeof(value->'ordinal') IS DISTINCT FROM 'number'
-      OR (value->>'ordinal') !~ '^(0|[1-9][0-9]*)$' OR (value->>'ordinal')::numeric>2147483647
-      OR jsonb_typeof(value->'input_key') IS DISTINCT FROM 'string' OR btrim(value->>'input_key')=''
-      OR jsonb_typeof(value->'display_name') IS DISTINCT FROM 'string' OR btrim(value->>'display_name')=''
-      OR (value->>'proposed_id')::uuid IS DISTINCT FROM public.scoring_identity_uuid('scoring-entity:'||(value->>'kind'),value->>'input_key')
-      OR jsonb_typeof(value->'provider_ids') IS DISTINCT FROM 'array' OR jsonb_array_length(value->'provider_ids')=0)
-    OR (SELECT count(*) FROM jsonb_array_elements(p_inputs))<>(SELECT count(DISTINCT value->>'input_key') FROM jsonb_array_elements(p_inputs) value)
-    OR (SELECT count(*) FROM jsonb_array_elements(p_inputs))<>(SELECT count(DISTINCT value->>'ordinal') FROM jsonb_array_elements(p_inputs) value)
-    OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) value CROSS JOIN LATERAL jsonb_array_elements(value->'provider_ids') ids
-      WHERE jsonb_typeof(ids->'provider') IS DISTINCT FROM 'string' OR btrim(ids->>'provider')=''
-        OR jsonb_typeof(ids->'external_id') IS DISTINCT FROM 'string' OR btrim(ids->>'external_id')='')
-    OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) value CROSS JOIN LATERAL jsonb_array_elements(value->'provider_ids') ids
-      GROUP BY ids->>'provider',value->>'kind',ids->>'external_id' HAVING count(*)>1) THEN
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) AS input_item(value)
+    WHERE jsonb_typeof(input_item.value) IS DISTINCT FROM 'object'
+      OR input_item.value->>'kind' NOT IN ('player','team_defense') OR input_item.value->>'kind' IS NULL
+      OR jsonb_typeof(input_item.value->'ordinal') IS DISTINCT FROM 'number'
+      OR (input_item.value->>'ordinal') !~ '^(0|[1-9][0-9]*)$' OR (input_item.value->>'ordinal')::numeric>2147483647
+      OR jsonb_typeof(input_item.value->'input_key') IS DISTINCT FROM 'string' OR btrim(input_item.value->>'input_key')=''
+      OR jsonb_typeof(input_item.value->'display_name') IS DISTINCT FROM 'string' OR btrim(input_item.value->>'display_name')=''
+      OR (input_item.value->>'proposed_id')::uuid IS DISTINCT FROM public.scoring_identity_uuid('scoring-entity:'||(input_item.value->>'kind'),input_item.value->>'input_key')
+      OR jsonb_typeof(input_item.value->'provider_ids') IS DISTINCT FROM 'array' OR jsonb_array_length(input_item.value->'provider_ids')=0)
+    OR (SELECT count(*) FROM jsonb_array_elements(p_inputs) AS input_item(value))<>(SELECT count(DISTINCT input_item.value->>'input_key') FROM jsonb_array_elements(p_inputs) AS input_item(value))
+    OR (SELECT count(*) FROM jsonb_array_elements(p_inputs) AS input_item(value))<>(SELECT count(DISTINCT input_item.value->>'ordinal') FROM jsonb_array_elements(p_inputs) AS input_item(value))
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) AS input_item(value) CROSS JOIN LATERAL jsonb_array_elements(input_item.value->'provider_ids') AS provider_id(value)
+      WHERE jsonb_typeof(provider_id.value->'provider') IS DISTINCT FROM 'string' OR btrim(provider_id.value->>'provider')=''
+        OR jsonb_typeof(provider_id.value->'external_id') IS DISTINCT FROM 'string' OR btrim(provider_id.value->>'external_id')='')
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_inputs) AS input_item(value) CROSS JOIN LATERAL jsonb_array_elements(input_item.value->'provider_ids') AS provider_id(value)
+      GROUP BY provider_id.value->>'provider',input_item.value->>'kind',provider_id.value->>'external_id' HAVING count(*)>1) THEN
     RAISE EXCEPTION 'invalid or duplicate scoring identity input';
   END IF;
   -- Serialize shared provider identities across kinds; all callers use a stable lock order.
   PERFORM pg_advisory_xact_lock(hashtextextended('scoring-native:'||jsonb_build_array(keys.provider,keys.external_id)::text,0))
-    FROM (SELECT DISTINCT (ids->>'provider') COLLATE "C" AS provider,(ids->>'external_id') COLLATE "C" AS external_id
-      FROM jsonb_array_elements(p_inputs) value CROSS JOIN LATERAL jsonb_array_elements(value->'provider_ids') ids
+    FROM (SELECT DISTINCT (provider_id.value->>'provider') COLLATE "C" AS provider,(provider_id.value->>'external_id') COLLATE "C" AS external_id
+      FROM jsonb_array_elements(p_inputs) AS input_item(value) CROSS JOIN LATERAL jsonb_array_elements(input_item.value->'provider_ids') AS provider_id(value)
       ORDER BY provider,external_id) keys;
   WITH input AS (
           SELECT * FROM jsonb_to_recordset(p_inputs) AS value(
@@ -156,8 +156,8 @@ BEGIN
 
   -- Preserve proposed-ID orphan cleanup while retaining identities referenced by immutable CP6 history.
   DELETE FROM public.scoring_entities entity
-    WHERE entity.id IN (SELECT (value->>'proposed_id')::uuid FROM jsonb_array_elements(resolved_rows) value
-      WHERE value->>'entity_id' IS DISTINCT FROM value->>'proposed_id')
+    WHERE entity.id IN (SELECT (resolved_item.value->>'proposed_id')::uuid FROM jsonb_array_elements(resolved_rows) AS resolved_item(value)
+      WHERE resolved_item.value->>'entity_id' IS DISTINCT FROM resolved_item.value->>'proposed_id')
       AND NOT EXISTS(SELECT 1 FROM public.external_scoring_entity_ids mapping WHERE mapping.scoring_entity_id=entity.id)
       AND NOT EXISTS(SELECT 1 FROM public.league_roster_player_links historical WHERE historical.canonical_entity_id=entity.id);
   RETURN jsonb_build_object('evaluatedAt',resolved_at_value,'rows',resolved_rows);
@@ -270,8 +270,8 @@ BEGIN
   SELECT version.id,version.content_id INTO directory_version,directory_content
     FROM public.league_player_directory_heads head JOIN public.league_player_directory_versions version ON version.id=head.accepted_version_id
     WHERE head.provider='sleeper' AND head.sport='nfl';
-  SELECT count(*)::integer,COALESCE(sum(jsonb_array_length(team->'playerExternalIds')),0)::integer
-    INTO team_count_value,held_count_value FROM jsonb_array_elements(content.normalized_value->'teams') team;
+  SELECT count(*)::integer,COALESCE(sum(jsonb_array_length(roster_team.value->'playerExternalIds')),0)::integer
+    INTO team_count_value,held_count_value FROM jsonb_array_elements(content.normalized_value->'teams') AS roster_team(value);
   IF attempt.write_fence IS NULL THEN outcome_value:='owner_unqualified'; reasons_value:='["owner_unqualified"]'::jsonb;
   ELSE
     PERFORM public.assert_roster_player_link_fence(attempt.write_fence);
@@ -284,12 +284,12 @@ BEGIN
       SELECT COALESCE(sum(held.memberships*(2048+3*octet_length(to_jsonb(held.native_id)::text)
           +octet_length(COALESCE(jsonb_build_object('position',entry.position,'fantasyPositions',entry.fantasy_positions,
             'positionState',entry.field_states->'position','fantasyPositionsState',entry.field_states->'fantasy_positions')::text,'null'))))
-        +COALESCE((SELECT sum(jsonb_array_length(team->'playerExternalIds')*octet_length(to_jsonb(team->>'externalRosterId')::text))
-          FROM jsonb_array_elements(content.normalized_value->'teams') team),0),0)
+        +COALESCE((SELECT sum(jsonb_array_length(roster_team.value->'playerExternalIds')*octet_length(to_jsonb(roster_team.value->>'externalRosterId')::text))
+          FROM jsonb_array_elements(content.normalized_value->'teams') AS roster_team(value)),0),0)
         INTO estimated_bytes
-      FROM (SELECT player#>>'{}' AS native_id,count(*) AS memberships
-        FROM jsonb_array_elements(content.normalized_value->'teams') team
-        CROSS JOIN LATERAL jsonb_array_elements(team->'playerExternalIds') player GROUP BY player#>>'{}') held
+      FROM (SELECT held_player.value#>>'{}' AS native_id,count(*) AS memberships
+        FROM jsonb_array_elements(content.normalized_value->'teams') AS roster_team(value)
+        CROSS JOIN LATERAL jsonb_array_elements(roster_team.value->'playerExternalIds') AS held_player(value) GROUP BY held_player.value#>>'{}') held
       LEFT JOIN public.league_player_directory_entries entry ON entry.content_id=directory_content
         AND entry.external_player_id_hash=encode(digest(held.native_id,'sha256'),'hex') AND entry.external_player_id=held.native_id;
       IF estimated_bytes>8388608 THEN outcome_value:='capacity_exceeded'; END IF;
@@ -298,13 +298,13 @@ BEGIN
     ELSE
       -- Same native-key locks and order as the shared identity owner, never a directory-head lock.
       PERFORM pg_advisory_xact_lock(hashtextextended('scoring-native:'||jsonb_build_array('sleeper',held.native_id)::text,0))
-        FROM (SELECT DISTINCT (player#>>'{}') COLLATE "C" AS native_id FROM jsonb_array_elements(content.normalized_value->'teams') team
-          CROSS JOIN LATERAL jsonb_array_elements(team->'playerExternalIds') player
-          WHERE length(player#>>'{}')<=256 ORDER BY native_id) held;
+        FROM (SELECT DISTINCT (held_player.value#>>'{}') COLLATE "C" AS native_id FROM jsonb_array_elements(content.normalized_value->'teams') AS roster_team(value)
+          CROSS JOIN LATERAL jsonb_array_elements(roster_team.value->'playerExternalIds') AS held_player(value)
+          WHERE length(held_player.value#>>'{}')<=256 ORDER BY native_id) held;
       PERFORM public.assert_roster_player_link_fence(attempt.write_fence);
       WITH held AS (
-        SELECT DISTINCT player#>>'{}' AS native_id FROM jsonb_array_elements(content.normalized_value->'teams') team
-          CROSS JOIN LATERAL jsonb_array_elements(team->'playerExternalIds') player
+        SELECT DISTINCT held_player.value#>>'{}' AS native_id FROM jsonb_array_elements(content.normalized_value->'teams') AS roster_team(value)
+          CROSS JOIN LATERAL jsonb_array_elements(roster_team.value->'playerExternalIds') AS held_player(value)
       ), native AS (
         SELECT held.native_id,entry.identity_status,
           CASE WHEN octet_length(entry.full_name)<=1024 THEN entry.full_name END AS full_name,
@@ -314,9 +314,9 @@ BEGIN
             'fantasyPositions',entry.fantasy_positions,'positionState',entry.field_states->'position',
             'fantasyPositionsState',entry.field_states->'fantasy_positions') END AS kind_evidence,
           CASE WHEN entry.external_player_id IS NOT NULL THEN
-            (SELECT COALESCE(bool_or(translate(btrim(clue,js_whitespace),'def','DEF')='DEF'),false) FROM unnest(ARRAY[entry.position]||COALESCE(entry.fantasy_positions,'{}'::text[])) clue WHERE btrim(clue,js_whitespace)<>'') ELSE false END AS has_def,
+            (SELECT COALESCE(bool_or(translate(btrim(kind_clue.value,js_whitespace),'def','DEF')='DEF'),false) FROM unnest(ARRAY[entry.position]||COALESCE(entry.fantasy_positions,'{}'::text[])) AS kind_clue(value) WHERE btrim(kind_clue.value,js_whitespace)<>'') ELSE false END AS has_def,
           CASE WHEN entry.external_player_id IS NOT NULL THEN
-            (SELECT COALESCE(bool_or(translate(btrim(clue,js_whitespace),'def','DEF')<>'DEF'),false) FROM unnest(ARRAY[entry.position]||COALESCE(entry.fantasy_positions,'{}'::text[])) clue WHERE btrim(clue,js_whitespace)<>'') ELSE false END AS has_player,
+            (SELECT COALESCE(bool_or(translate(btrim(kind_clue.value,js_whitespace),'def','DEF')<>'DEF'),false) FROM unnest(ARRAY[entry.position]||COALESCE(entry.fantasy_positions,'{}'::text[])) AS kind_clue(value) WHERE btrim(kind_clue.value,js_whitespace)<>'') ELSE false END AS has_player,
           -- Reuse CP5's exact native-ID validation, including UTF-16 and JS whitespace.
           CASE WHEN length(held.native_id)>256 THEN false ELSE
             NOT (public.player_directory_native_row(held.native_id,'{}'::jsonb)->'reasons' ? 'invalid-native-id') END AS valid_id
@@ -347,40 +347,40 @@ BEGIN
         'provider_ids',jsonb_build_array(jsonb_build_object('provider','sleeper','external_id',candidate.value->>'native_id')))
         ORDER BY candidate.ordinal),'[]'::jsonb) INTO identity_inputs
       FROM jsonb_array_elements(candidates) WITH ORDINALITY candidate(value,ordinal)
-      WHERE candidate.value->>'reason' IS NULL AND EXISTS(SELECT 1 FROM jsonb_array_elements(content.payload) raw
-        WHERE raw->'players' ? (candidate.value->>'native_id') AND (NOT raw ? 'league_id' OR raw->'league_id'=to_jsonb(content.external_league_id)));
+      WHERE candidate.value->>'reason' IS NULL AND EXISTS(SELECT 1 FROM jsonb_array_elements(content.payload) AS source_row(value)
+        WHERE source_row.value->'players' ? (candidate.value->>'native_id') AND (NOT source_row.value ? 'league_id' OR source_row.value->'league_id'=to_jsonb(content.external_league_id)));
       owner_result:=public.upsert_scoring_entity_identities(identity_inputs);
       owner_results:=owner_result->'rows'; evaluated_at:=(owner_result->>'evaluatedAt')::timestamptz;
       PERFORM public.assert_roster_player_link_fence(attempt.write_fence);
       WITH memberships AS (
         SELECT team.id AS season_team_id,team.external_roster_id,player.value#>>'{}' AS native_player_id,
-          player.ordinal AS membership_ordinal,EXISTS(SELECT 1 FROM jsonb_array_elements(content.payload) raw
-            WHERE raw->>'roster_id'=team.external_roster_id AND raw ? 'league_id'
-              AND raw->'league_id' IS DISTINCT FROM to_jsonb(content.external_league_id)) AS scope_conflict
+          player.ordinal AS membership_ordinal,EXISTS(SELECT 1 FROM jsonb_array_elements(content.payload) AS source_row(value)
+            WHERE source_row.value->>'roster_id'=team.external_roster_id AND source_row.value ? 'league_id'
+              AND source_row.value->'league_id' IS DISTINCT FROM to_jsonb(content.external_league_id)) AS scope_conflict
         FROM public.league_administration_team_entries entry JOIN public.league_season_teams team ON team.id=entry.team_id
           AND team.league_season_id=entry.league_season_id
         CROSS JOIN LATERAL jsonb_array_elements(entry.source_value->'playerExternalIds') WITH ORDINALITY player(value,ordinal)
         WHERE entry.content_id=content.id AND entry.league_season_id=scope.league_season_id
           AND team.provider='sleeper' AND team.external_league_id=content.external_league_id
       ), enriched AS (
-        SELECT memberships.*,candidate->>'entity_kind' AS entity_kind,COALESCE(candidate->>'identity_status','missing') AS directory_identity_status,
-          NULLIF(candidate->'kind_evidence','null'::jsonb) AS kind_evidence,result->>'entity_id' AS resolved_id,
-          CASE WHEN scope_conflict THEN 'roster_source_scope_conflict' WHEN candidate->>'reason' IS NOT NULL THEN candidate->>'reason'
+        SELECT memberships.*,candidate.value->>'entity_kind' AS entity_kind,COALESCE(candidate.value->>'identity_status','missing') AS directory_identity_status,
+          NULLIF(candidate.value->'kind_evidence','null'::jsonb) AS kind_evidence,result.value->>'entity_id' AS resolved_id,
+          CASE WHEN scope_conflict THEN 'roster_source_scope_conflict' WHEN candidate.value->>'reason' IS NOT NULL THEN candidate.value->>'reason'
             WHEN mapping.mapping_status='unverified' THEN 'canonical_mapping_unverified'
             WHEN mapping.mapping_status='retired' THEN 'canonical_mapping_retired'
             WHEN mapping.valid_from>evaluated_at THEN 'canonical_mapping_not_yet_valid'
             WHEN mapping.valid_to<=evaluated_at THEN 'canonical_mapping_expired'
-            WHEN result->>'entity_id' IS NULL OR (result->>'conflict')::boolean THEN 'canonical_identity_conflict' END AS reason,
+            WHEN result.value->>'entity_id' IS NULL OR (result.value->>'conflict')::boolean THEN 'canonical_identity_conflict' END AS reason,
           COALESCE((SELECT jsonb_agg(jsonb_build_object('provider',mapping.provider,'entityKind',mapping.entity_kind,
             'externalId',mapping.external_id,'scoringEntityId',mapping.scoring_entity_id,'mappingStatus',mapping.mapping_status,
             'validFrom',mapping.valid_from,'validTo',mapping.valid_to,'canonicalKind',entity.kind) ORDER BY mapping.entity_kind)
             FROM public.external_scoring_entity_ids mapping JOIN public.scoring_entities entity ON entity.id=mapping.scoring_entity_id
             WHERE mapping.provider='sleeper' AND mapping.external_id=memberships.native_player_id
               AND mapping.entity_kind IN ('player','team_defense')),'[]'::jsonb) AS mapping_proof
-        FROM memberships JOIN jsonb_array_elements(candidates) candidate ON candidate->>'native_id'=memberships.native_player_id
-        LEFT JOIN jsonb_array_elements(owner_results) result ON result->>'input_key'=(candidate->>'entity_kind')||':'||memberships.native_player_id
+        FROM memberships JOIN jsonb_array_elements(candidates) AS candidate(value) ON candidate.value->>'native_id'=memberships.native_player_id
+        LEFT JOIN jsonb_array_elements(owner_results) AS result(value) ON result.value->>'input_key'=(candidate.value->>'entity_kind')||':'||memberships.native_player_id
         LEFT JOIN public.external_scoring_entity_ids mapping ON mapping.provider='sleeper' AND mapping.external_id=memberships.native_player_id
-          AND mapping.entity_kind=candidate->>'entity_kind'
+          AND mapping.entity_kind=candidate.value->>'entity_kind'
       ) SELECT COALESCE(jsonb_agg(jsonb_build_object('season_team_id',season_team_id,'external_roster_id',external_roster_id,
           'native_player_id',native_player_id,'membership_ordinal',membership_ordinal,'entity_kind',entity_kind,
           'directory_identity_status',directory_identity_status,'kind_evidence',kind_evidence,'mapping_proof',mapping_proof,
@@ -390,9 +390,9 @@ BEGIN
           'reasons',CASE WHEN reason IS NULL THEN '[]'::jsonb ELSE jsonb_build_array(reason) END)
           ORDER BY external_roster_id COLLATE "C",membership_ordinal),'[]'::jsonb) INTO links FROM enriched;
       IF jsonb_array_length(links)<>held_count_value THEN RAISE EXCEPTION 'incomplete roster player snapshot'; END IF;
-      SELECT count(*) FILTER(WHERE value->>'identity_state'='resolved')::integer,
-        count(*) FILTER(WHERE value->>'identity_state'='conflict')::integer INTO resolved_count_value,conflict_count_value
-        FROM jsonb_array_elements(links) value;
+      SELECT count(*) FILTER(WHERE link_item.value->>'identity_state'='resolved')::integer,
+        count(*) FILTER(WHERE link_item.value->>'identity_state'='conflict')::integer INTO resolved_count_value,conflict_count_value
+        FROM jsonb_array_elements(links) AS link_item(value);
       outcome_value:=CASE WHEN resolved_count_value=held_count_value THEN 'complete' ELSE 'partial' END;
       IF outcome_value='partial' THEN reasons_value:='["unresolved_player_links"]'::jsonb; END IF;
     END IF;
@@ -405,10 +405,10 @@ BEGIN
     resolved_count_value,held_count_value-resolved_count_value-conflict_count_value,conflict_count_value);
   INSERT INTO public.league_roster_player_links(roster_acceptance_id,season_team_id,external_roster_id,native_player_id,
     membership_ordinal,entity_kind,identity_state,reasons,directory_identity_status,kind_evidence,canonical_entity_id,mapping_proof)
-  SELECT NEW.id,(value->>'season_team_id')::uuid,value->>'external_roster_id',value->>'native_player_id',
-    (value->>'membership_ordinal')::integer,value->>'entity_kind',value->>'identity_state',value->'reasons',
-    value->>'directory_identity_status',NULLIF(value->'kind_evidence','null'::jsonb),(value->>'canonical_entity_id')::uuid,value->'mapping_proof'
-    FROM jsonb_array_elements(links) value;
+  SELECT NEW.id,(link_item.value->>'season_team_id')::uuid,link_item.value->>'external_roster_id',link_item.value->>'native_player_id',
+    (link_item.value->>'membership_ordinal')::integer,link_item.value->>'entity_kind',link_item.value->>'identity_state',link_item.value->'reasons',
+    link_item.value->>'directory_identity_status',NULLIF(link_item.value->'kind_evidence','null'::jsonb),(link_item.value->>'canonical_entity_id')::uuid,link_item.value->'mapping_proof'
+    FROM jsonb_array_elements(links) AS link_item(value);
   IF attempt.write_fence IS NOT NULL THEN PERFORM public.assert_roster_player_link_fence(attempt.write_fence); END IF;
   RETURN NEW;
 END; $$;
