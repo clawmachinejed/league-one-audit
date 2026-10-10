@@ -156,7 +156,7 @@ CI permits one run at a time. A preflight inventory also refuses more than two e
 
 The checked-in `disposable-integration` workflow supports manual dispatch (`workflow_dispatch`) and pushes only to branches matching `codex/integration-qualification-*` in the canonical repository. [Manual dispatch requires the workflow to exist on the default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch); once registered there, select an approved internal branch in GitHub. Before merge, an explicitly reviewed commit can instead be published to a dedicated qualification ref named `codex/integration-qualification-<shortSHA>`. That ref must point to the exact full reviewed SHA without another code commit; [push workflows can run before merge](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push). Each matching push queues a run, so publish only a commit ready for qualification and environment review. Ordinary development branches and pull-request events do not trigger this workflow.
 
-Manual dispatch offers the closed `profile` choices `full` (default), `data-player-directory-v1`, `data-core-compatibility-v1`, `data-core-ingestion-v1`, `data-core-refresh-v1`, `data-live-league-two-v1`, `data-live-public-intake-v1`, `data-official-preconfiguration-v1`, `data-ingestion-guards-v1`, `data-refresh-concurrency-v1`, `data-late-write-rollback-v1`, `data-intake-recovery-v1`, `data-refresh-history-v1`, `data-period-recovery-v1` and `data-period-exhaustion-v1`. Each choice maps to a fixed existing supervisor command; unknown values fail closed. Qualification-branch pushes continue to run the full suite. The same protected environment secret, approval boundary, concurrency group and original deadlines apply to every choice.
+Manual dispatch offers the closed `profile` choices `full` (default), `data-roster-player-links-v1`, `data-live-player-directory-v1`, `data-player-directory-v1`, `data-core-compatibility-v1`, `data-core-ingestion-v1`, `data-core-refresh-v1`, `data-live-league-two-v1`, `data-live-public-intake-v1`, `data-official-preconfiguration-v1`, `data-ingestion-guards-v1`, `data-refresh-concurrency-v1`, `data-late-write-rollback-v1`, `data-intake-recovery-v1`, `data-refresh-history-v1`, `data-period-recovery-v1` and `data-period-exhaustion-v1`. Each choice maps to a fixed existing supervisor command; unknown values fail closed. Qualification-branch pushes continue to run the full suite. The same protected environment secret, approval boundary, concurrency group and original deadlines apply to every choice.
 
 Both paths require review of the immutable `github.sha` recorded for the run and qualify that exact checkout; there is no arbitrary SHA input. The canonical-repository guard and protected `integration-test` environment apply to qualification pushes as well as manual dispatch. No fork code receives the control-plane credential. The workflow has read-only repository permissions, does not persist checkout credentials, serializes integration jobs without cancelling an active cleanup, and has a 50-minute limit. This leaves a nominal ten-minute allowance for dependency installation and artifact upload around the supervisor's 40-minute local lifecycle; installation consumes part of that allowance. Cleanup is already inside the supervisor budget. Individual API operation limits remain, but all requests, polling and teardown waits also share the remaining aggregate lifecycle budget. Expiry or a local hard stop never substitutes for verified remote deletion. The API key is supplied only to the test-runner step. Sanitized receipts and synthetic measurement JSON from each run's artifact directory are uploaded even after failure when available.
 
@@ -315,7 +315,7 @@ one case in `integration/player-directory.live-integration-case.ts`, with a
 reviewed LF source pin, a matching supervisor context and one hook pair. Run
 only through the existing protected disposable supervisor after exact-source
 review and separate bounded run authorization. The new live suffix is excluded
-from normal full discovery, which remains 49 modules; all older profiles and
+from normal full discovery, which contains 50 modules after the CP6 addition; all older profiles and
 source pins remain unchanged.
 
 This case requires one real public Sleeper `/players/nfl` GET through the existing
@@ -337,3 +337,58 @@ Production scheduling,
 roster links and production installation remain off. Source/offline checks are
 not evidence of live capacity or fit; only a separately authorized exact-source
 run with verified report and cleanup can qualify the observed catalog.
+
+
+## CP6 roster-player link qualification
+
+The closed `data-roster-player-links-v1` profile selects exactly nine ordered
+cases in `integration/roster-player-links.integration-case.ts`, with one shared
+setup/teardown pair. Its fixed supervisor command is
+`pnpm test:integration --profile=data-roster-player-links-v1`. The same protected
+manual workflow can select it; source authoring and publication do not dispatch it.
+The normal suite now discovers 50 modules. Every older closed profile/source pin
+and all live-module exclusions remain unchanged.
+
+This profile uses synthetic Sleeper HTTP responses through the existing adapters
+and actual restricted PostgreSQL writes/readers. It qualifies current-season 2026
+native roster membership, player and team-defense identity reuse, immutable link
+history, additions/removals/transfers/category corrections, unchanged captures and
+exact replay, explicit unresolved mappings, source remapping, concurrency, real
+identity-lock expiry with full rollback, bounded capacity and negative grants.
+The final case uses ordinary public intake and one real refresh cycle, including
+actual minute admission spacing and stored-only public readers. It does not make
+a live Sleeper request. The prior CP5 full-catalog live result is separate evidence.
+
+The new link resource permits at most 1,000 teams and 10,000 memberships. A
+conservative pre-mint proof estimate is capped at 8 MiB; a reader independently
+rejects serialized evidence above 32 MiB. An exceeded link limit preserves the
+official held roster with explicit capacity status and zero new link rows or
+identity writes. These are link-resource bounds; the CP5 catalog and existing
+20-second work deadlines are not expanded. Categories retain native
+missing/null/empty/supplied state, and capture/resolution times do not invent
+provider transfer or effective timestamps.
+
+The fixture may reset only the directory's mutable daily-cadence prerequisite,
+never immutable source/acceptance/dispatch times. It waits on actual database time
+for public admission and teardown spacing. Its nine individual test allowances
+sum to 29 minutes, in addition to setup/teardown; this is not a worst-case fit
+claim. Expected ordinary admission time is roughly ten minutes before other
+checks. The unchanged supervisor still enforces 30 minutes of work, 40 minutes
+of total lifecycle and 50 minutes of CI, including failure cleanup. No retries,
+extra arguments or alternative credential path are introduced.
+
+[Run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318)
+passed all nine cases at `93c18e588f7bcead866b6e3e3f087b8a691dcee6`,
+with independently validated source/report bindings and acknowledged cleanup.
+The [evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md)
+records actual timing, versions, artifact hashes and both preceding failures.
+This establishes CP6 implementation and resource qualification within the stated
+scope, including observed execution within the original limits; it is not a
+worst-case duration guarantee. Later documentation-only commits do not change
+the executed source.
+
+This result does not qualify genuinely fresh-role provisioning, daily recurrence,
+fleet capacity, a few-minute freshness guarantee, the full SQL suite or production
+rollout. The approved single-run allowance is consumed; actual billing is
+unmeasured. No further paid run, retained migration application, merge or
+production activation follows from this result.

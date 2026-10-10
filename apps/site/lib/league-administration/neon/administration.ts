@@ -1,3 +1,4 @@
+import { rosterPlayerLinkMethods } from './roster-player-links';
 import 'server-only';
 import { playerDirectoryMethods } from './player-directory';
 import { teamManagerMethods } from './team-managers';
@@ -119,6 +120,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   return {
     ...transactionMethods(client),
     ...currentRosterMethods(client),
+    ...rosterPlayerLinkMethods(client),
     ...playerDirectoryMethods(client),
     ...teamManagerMethods(client),
     ...leagueSettingsMethods(client),

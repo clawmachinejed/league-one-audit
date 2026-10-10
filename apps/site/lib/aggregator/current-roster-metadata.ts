@@ -6,6 +6,7 @@ import type { SleeperPlayer } from '../sleeper-catalog-types';
 export type CurrentRosterReadOptions = Readonly<{
   playerCatalog?: FantasyPlayerCatalog;
   includeSeasonOverview?: true;
+  includePlayerLinks?: true;
 }>;
 type MetadataField<T> = Readonly<{
   value: T | null; availability: 'present' | 'empty' | 'missing'; sourcePaths: readonly string[];

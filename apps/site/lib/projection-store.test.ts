@@ -29,6 +29,7 @@ function fakeDatabase(
       async query<Row extends DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
         const call = { statement, parameters };
         calls.push(call);
+        if (statement.includes('scoring-identity-owner-capability')) return [{ installed: false }] as unknown as readonly Row[];
         return respond(call) as readonly Row[];
       },
     },
@@ -295,11 +296,12 @@ describe('projection persistence', () => {
       { key: 'conflict', entityId: null, conflict: true },
     ]);
     expect(outcome.kind === 'stored' && outcome.value[0].entityId).toMatch(/^[0-9a-f-]{36}$/u);
-    expect(fake.calls).toHaveLength(3);
-    expect(fake.calls[0].statement).toContain('ON CONFLICT (id) DO UPDATE');
-    expect(fake.calls[1].statement).toContain('resolve-scoring-entities');
-    expect(fake.calls[2].statement).toContain('clean-orphan-scoring-entities');
-    const input = JSON.parse(String(fake.calls[0].parameters[0])) as Array<{
+    expect(fake.calls).toHaveLength(4);
+    expect(fake.calls[0].statement).toContain('scoring-identity-owner-capability');
+    expect(fake.calls[1].statement).toContain('ON CONFLICT (id) DO UPDATE');
+    expect(fake.calls[2].statement).toContain('resolve-scoring-entities');
+    expect(fake.calls[3].statement).toContain('clean-orphan-scoring-entities');
+    const input = JSON.parse(String(fake.calls[1].parameters[0])) as Array<{
       provider_ids: Array<{ provider: string }>;
     }>;
     expect(input[0].provider_ids.map(({ provider }) => provider)).toEqual(['sleeper', 'tank01']);

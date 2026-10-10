@@ -491,7 +491,7 @@ Current repaired source: `592a60a79639a648a35dda14f53d787003d357bf`, independent
 | Discovery: username → stable user ID → associated leagues for declared seasons | `sleeper.ts` → `A/public-intake.ts`, `A/neon/public-intake.ts` → `A/public-intake-reader.ts` | **Verified:** `f20eab3`, complete four-league 2026 list and two live collections. **Verified r2 B at `592a60a79639a648a35dda14f53d787003d357bf`:** two controlled empty-list refresh cycles with retained prior typed history. Current bounds: 1–3 seasons, 1,000 list rows/season, 20 selected candidates and shared 16-league enrollment ceiling. **Unverified:** other users/seasons, changed/invalid lists and remaining list/enrollment-limit behavior. Qualify those through the same path; the selected pending-request/paused-target cases are not general discovery-limit or acquisition-capacity proof. Capacity exclusions are not invalid official formats. |
 | Leagues, settings and seasons: native league/season IDs, scoring/roster/competition/waiver settings, applicability | `sleeper.ts`, `A/normalize.ts` → `A/neon/public-intake.ts`, `A/neon/league-settings.ts`, `projections/adapters/neon/identities.ts` → `A/public-intake-reader.ts` | **Verified:** core at `2f19b7e9`, `e85c798`, `f20eab3`; nine-state preconfiguration and committed-bootstrap recovery at `cbfc938`; A at `0c9f318` adds interrupted typed-core recovery, explicit existing-consumer adoption and generation-one admission after the maintained completed-job retention path. A new nonempty numeric rule set may create a profile; missing/null/empty rules leave NULL; an existing season's binding stays immutable. **Missing:** bounded DATA annual predecessor/successor acquisition and evidenced applicability coverage. Extend registration/source mapping using existing `A/applicability.ts`, `A/neon/administration.ts` and migration016's `connect_league_administration_season`; retain predecessor evidence and qualify conflicting/missing years. Existing applicability/version mechanisms are implemented, not a new history pipeline. |
 | Teams, managers and co-owners: season-scoped roster IDs, user IDs, vacancies/changes; commissioner separate | `sleeper.ts`, `A/normalize.ts` → `A/neon/team-managers.ts`, `A/neon/administration.ts` → `A/public-intake-reader.ts` | **Verified:** core and optional directory at `2f19b7e9`, `e85c798`, `f20eab3`; changed manager/player fixture at `91aec119`. R035 v2 can retain valid co-managers beside unknown primary ownership; its read is latest-for-current-mapping, not receipt-bound intake completion. **Unverified:** dedicated R035 remap/ordering/privilege and independent directory failure matrix. **Missing:** typed commissioner fact where supplied; add explicit presence/evidence in existing contracts/normalizer/writer/reader without ownership or account authority. |
-| Rosters and player identities: held players, starters/reserve/taxi and native player namespace; complete/partial changes | `sleeper.ts`, `A/normalize.ts` → `A/neon/current-roster.ts` → `A/public-intake-reader.ts`; reusable `sleeper-player-catalog.ts`, `G/current-roster-metadata.ts`, `projections/adapters/neon/identities.ts` | **Verified:** selected held memberships and source parity in core runs; bench classification is derived. **Unverified:** removals, partial rosters, unfamiliar positions and identity conflicts. **Missing:** DATA durable catalog acquisition, evidenced crosswalk linkage and stored reader coverage; optional decoration from an already-loaded catalog is not that path. Connect the existing catalog and canonical identity owners to bounded intake acceptance; never infer cross-provider identity from names. |
+| Rosters and player identities: held players, starters/reserve/taxi and native player namespace; complete/partial changes | `sleeper.ts`, `A/normalize.ts`, `sleeper-player-catalog.ts` → existing administration acceptance and shared scoring-identity owner → `A/neon/current-roster.ts`, `A/neon/roster-player-links.ts`, `A/public-intake-reader.ts` | **Qualified within CP5–6 scope:** durable versioned directory; correctly keyed memberships/categories; evidenced player and team-defense links; explicit unresolved/conflicting identities; additions/removals/transfers, complete-empty versus incomplete input, unfamiliar positions, immutable corrections/history and stored-reader parity. CP6's nine-case restricted-SQL [run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318) qualifies source `93c18e588f7bcead866b6e3e3f087b8a691dcee6`, including ordinary intake and one refresh. HTTP is synthetic; CP5 live acquisition remains separate evidence. No name-based cross-provider inference or provider transfer timestamps are invented. Fresh roles, sustained recurrence/fleet targets, full SQL regression and production installation remain later qualifications. Any subsequent documentation-only commit records this result; it is not another executed SQL source. |
 | Lineups and matchups: native period, roster/matchup IDs, assignments/slots/grouping, byes and formats | `sleeper.ts`, `A/public-intake.ts`, `G/exact-matchups.ts` → `A/neon/exact-matchups.ts`, `A/neon/public-intake.ts` → `A/public-intake-reader.ts` | **Verified:** selector/permission SQL at `e8afd508`; A at `0c9f318` adds the twenty-ordinal/candidate-lineage/immutable-scope structural case with rolled-back owner-only prerequisites. **Verified r2 C at `592a60a79639a648a35dda14f53d787003d357bf`:** the controlled week 7/season 2179 retained-period chain, paired reservations/witnesses, stale/fenced receipt rejection, observed work-deadline expiry during an advisory-lock wait and lost-ack recovery, and failure preservation. **Verified r2 D at `592a60a`:** five failed exact-period admissions with real backoffs, then core/users completion with partial intake status and no period checkpoint. **Unverified:** stored score/custom-zero value parity and broader competing-head/remap/format behavior. **Missing:** bounded full period inventory and supplied competition-phase/multiweek/history applicability. Extend this same task and exact-reader path; unavailable exact-period reserve/taxi or historical slots cannot be filled from today's roster. |
 | Official scores, results and standings: scores/custom overrides, outcome/finality, supplied rank/seed/W-L-T/PF-PA | `G/exact-matchups.ts`, `G/season-overview-source.ts` → `A/neon/exact-matchups.ts`, `A/neon/current-roster.ts` → `A/public-intake-reader.ts`, `G/season-overview-standings.ts` / existing `G/bundle-two-reader.ts` | **Implemented/unverified:** exact raw/custom/effective scores and same-roster season facts; custom zero remains zero and local ordering is derived. The C fixture supplies custom zero but asserts period availability rather than exact stored score values, so its accepted pass does not close field/value/presence parity. Existing exact-matchup finality is explicitly unknown (`no_matchup_finality_evidence`); intake still lists official results as not requested. **Missing:** supplied official outcome/finality/phase facts and generic stored result coverage; extend existing contracts and acceptance/readers using actual source/bracket evidence, never scores alone or current standings as historical evidence. |
 | Transactions, waivers and FAAB: ID/type/status/participants/adds/drops/trades/bids/budgets/timestamps | `sleeper.ts`, `A/normalize.ts`, `A/runtime.ts` → `A/neon/transactions.ts` → existing `readAcceptedTransactions` through `A/store.ts` | **Implemented:** typed week-scoped path and correction-aware retained reader; core roster facts preserve supplied waiver/budget fields. **Missing:** DATA selection/checkpoints/reader composition (currently `notRequested`) and declared historical range. Add bounded transaction tasks to `A/public-intake.ts`, `A/neon/public-intake.ts` and `A/public-intake-reader.ts`, reusing existing attempt/writer/reader. Qualify corrections/deletions/partial failures and supplied claim visibility; do not invent failed bids or accepted outcomes. |
@@ -914,3 +914,395 @@ the full 49-module SQL suite and production rollout remain separate unqualified
 obligations; independent review did not identify them as blockers to this CP5
 resource checkpoint. This does not complete DATA as a whole or authorize another
 paid run, deployment or automatic acquisition.
+
+## CP6 source candidate scope (2026-10-10; qualification pending)
+
+- **Data resource:** accepted Sleeper current-season (2026) held roster membership and evidenced canonical player/team-defense links, retaining each roster observation's immutable history and native category evidence.
+- **Existing path:** the existing administration normalization and `record_league_administration_observation` acceptance transaction; existing canonical identity owner in `projections/adapters/neon/identities.ts`; accepted roster and public DATA readers. Add migration 042 and receipt-bound link reads without another worker, feed or acquisition path.
+- **Persisted result:** one immutable link snapshot per newly accepted players receipt, bound to league-season, source mapping, season-team, native player ID, roster observation and one accepted directory version when available. Missing directory evidence remains explicit and unresolved. Freeze canonical mapping/kind proof or an explicit unresolved reason. Complete empty membership is retained; incomplete captures preserve the last good acceptance. Link capacity is explicit (1,000 teams / 10,000 memberships), never silently truncated.
+- **Required proof and present gaps:** source/unit verification and independent exact-diff review precede a frozen restricted-role PostgreSQL qualification covering identity reuse, native parity, historical reads, replay, category changes, concurrency, real lock expiry/rollback, isolation and negative permissions. No CP6 implementation or SQL result is yet qualified. CP5's two paid allowances are consumed; this source approval permits no paid run, provisioning, retained migration application, merge or production activation.
+
+Independent Astra Ultra reviewer `/root/cp5_review` confirmed the specific migration, shared identity extraction/compatibility, provisioner grant, focused test-support, store-composition and opt-in reader paths before authoring (review reference `DATA-CP6-2026-10-10-ROSTER-PLAYER-LINKS`). The shared identity helper is capability-gated: absent schema retains the exact legacy implementation; an installed helper's error never falls back. Each accepted linkage transaction rechecks its existing fence/deadline after potentially blocking identity work. Reads perform no identity mutation or provider calls. Existing players-only v1 policy and hashes remain unchanged; DATA opt-in enriches held players and groups from the same validated frozen evidence while exposing link coverage separately. Omitted opt-in retains legacy output. The same independent reviewer confirmed the exact qualification profile, test and workflow wiring paths before authoring; final source review accepted their closed selector and preserved safeguards.
+
+
+### CP6 reviewed source and qualification boundary
+
+The dedicated branch `codex/data-roster-player-links` starts at qualified CP5
+head `6ad380e10911eae1e274b9c96c8b1217613a45da`. Before implementation and again
+before preview publication, local/GitHub main and the actual Vercel production
+source agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Vercel remained bound
+to `clawmachinejed/league-one-audit`, root `apps/site`, production branch `main`,
+with Ready production deployment `8C3YSnXRCbmPETftQgRtirfyck5e`. Primary main
+remains clean. Open branches and deployments showed no competing release owner;
+this does not assert the absence of other tasks or qualify worker leases.
+
+Independent Astra Ultra review accepted migration 042 at SHA256
+`7d1f8658258c3e1a792a7b1765efb3ab0a4ccd5d8c8da3466029b00a6fea24db`, the shared
+identity adapter/grants, immutable readers, DATA opt-in composition and nine-case
+fixture. The maintained fixture's frozen LF SHA256 is
+`0d2f9c729b2631a8a975410138e4cd56741a3ca1812205a39bf35daa7648908e`.
+The closed `data-roster-player-links-v1` profile requires all nine collected cases
+in chronological source order with one setup/teardown pair and no skips,
+filtering, retries, repeats or unhandled errors. Normal discovery now contains
+50 modules; all older closed source pins and live exclusions are preserved.
+
+Review corrected native-ID index sizing, exact PostgreSQL timestamp precision,
+JavaScript whitespace parity for kind evidence, strict JSON string source IDs,
+identity validity after lock waits, and cleanup retaining canonical entities
+referenced by immutable historical links. The shared identity helper samples
+one post-wait validity instant immediately before its distinct resolve statement;
+its installed error never invokes the legacy fallback. A real SQL oracle
+requires a fresh canonical insert to sort before the observed blocking identity,
+then checks rollback of identities, content, receipts, links and accepted heads.
+These are authored assertions, not execution results.
+
+Focused reader/wiring checks passed 419 tests across seven files with zero skips;
+the final pinned qualification/profile/reporter/supervisor subset passed 177 tests
+across three files, also with zero skips. Storage/identity compatibility checks
+passed 130 tests across five files with zero skips; the final internal helper
+rename was additionally checked by its nine identity tests. These overlapping
+runs are not added together as a unique test total. Targeted lint passed. The
+workflow's extracted shell was exercised only with a print stub: 18 allowed
+combinations passed and six invalid combinations were rejected; no supervisor,
+provisioning, provider request or SQL ran in those checks.
+
+Early source development checks exposed incomplete fixture typings and test
+expectations, and review caught two SQL template/dollar-delimiter mistakes.
+They were corrected before the frozen review. No installed PostgreSQL parser
+was available, so actual migration compilation remains part of the required
+SQL qualification. The first complete local verification attempt stopped after
+scope checking because nested pnpm used system Node 20; an ignored task-local
+launcher routes the unchanged commands through required Node 24 without changing
+project dependencies or package scripts. Its final result is recorded separately.
+
+No CP6 paid qualification, retained installation, migration application, live
+Sleeper acquisition, merge or production activation has occurred. The proposed
+next run is one protected disposable 0.25-CU attempt under the existing $1
+allowance model, only after new exact-source approval. Previous CP5 allowances
+are consumed; actual billing is not measured and the allowance is not a provider
+billing cap. Original limits remain 20 seconds per ordinary work step, 30 minutes
+of supervisor work, 40 minutes total lifecycle and 50 minutes CI. The nine body
+allowances total 29 minutes plus up to two 120-second hooks, so worst-case sum
+exceeds the hard work cutoff. Actual fit is unmeasured and no retry is implied.
+A successful run must show nine passing cases and acknowledged child, schema,
+credential and owned-branch cleanup. CP6 remains pending that qualification;
+manager facts, genuinely fresh roles, recurrence/fleet targets, the full SQL
+suite and production rollout remain separate later obligations.
+
+### CP6 local verification before publication
+
+The final complete local `pnpm verify` invocation passed scope, dependency,
+lint and type checks, then reported 6,529 unit tests passed, one failed and one
+skipped across 292 files. The only remaining failure was the unchanged
+`public-data-refresh-diagnostics.test.ts` case "exposes every retained receipt,
+provenance, capture and manager identity field within realistic full operands":
+5,058 ms against its original 5,000-ms timeout under the complete parallel suite.
+The prior full invocation showed the same timeout at 5,221 ms plus one stale
+reader-options expectation. Independent review approved updating only that
+expectation to include `includePlayerLinks: true`; it now passes. The expensive
+case passed separately with its original limit (one passed, 219 filtered;
+approximately 2.40 seconds of test work). No timeout, worker setting, selector,
+assertion or production behavior was weakened to make the full suite pass.
+
+The one environmental skip is the pre-existing scoped-local-IPv6 browser-target
+case: this host has a non-loopback IPv4 interface but no scoped IPv6 interface.
+The latest local complete workflow remains failed; an isolated pass is not a
+substitute. Canonical Linux source CI and browser results will be recorded for
+the published exact candidate, separately from this local result. Retained
+ignored logs are `apps/site/test-results/data-backend/cp6-source-verify-final.log`
+and `cp6-diagnostic-timeout-reproduction.log` in the same directory.
+
+The standalone unchanged production build passed under Node 24. Independent
+review confirmed that the sole diagnostic expectation repair and conditional
+IPv6 skip do not block draft publication, while the local complete verify
+result remains failed pending the separate canonical CI result. Final
+prepublication scope checking passed with 85 reviewed extensions, five
+governance paths and 31 DATA paths; the exact diff remains within reviewed CP6
+source scope. No paid execution or production action follows from publication.
+
+### CP6 first PostgreSQL qualification attempt — failed, cleanup verified
+
+The user approved exactly one protected disposable attempt at frozen source
+`c7c1ab94c9f3c7fe91325205e8370dd78cac6261`, using the closed
+`data-roster-player-links-v1` profile, 0.25 CU and a new $1 allowance under the
+unchanged 20-second ordinary work, 30-minute supervisor work, 40-minute lifecycle
+and 50-minute CI limits. [Run 38054471625](https://github.com/clawmachinejed/league-one-audit/actions/runs/38054471625),
+attempt 1, was manually dispatched and its protected environment approved only
+after the recorded exact-SHA/source review. No competing integration run was
+observed. The reusable test-project credential was reused inside CI; no local
+credential was retrieved, created or rotated.
+
+**Result: nine collected and executed cases, nine failed, zero passed, zero
+skipped/filtered/retried/repeated and zero unhandled errors. CP6 remains
+unqualified.** Six cases reported PostgreSQL `42883` because a bare `team`
+reference in the new trigger's size estimate resolved the joined directory's
+text `team` column instead of the local JSON set-returning-function alias.
+Two cases reported `42702` because two JSON functions exposed default `value`
+columns and the shared identity validation referenced `value` without a column
+qualifier. The ordinary intake case returned `unavailable` instead of `progress`;
+its output does not expose the underlying SQL error, so attributing that final
+failure to the same defect is an inference, not an independently reported cause.
+The migration was installed in the disposable schema, but these function-body
+statements failed when executed; source/build tests did not detect them.
+
+The supervisor run was `9afd69bc-485b-4bde-ae34-fde9c685d2fc`, from
+`2026-10-10T13:07:41.046Z` through `13:13:42.404Z`, with recorded lifecycle
+361,448 ms. Vitest took 349.44 seconds. The terminal acknowledgment at
+`13:13:42.4160614Z` records failure only for tests, verified POSIX child-tree
+closure, schema cleanup, generated database-credential revocation, deletion of
+owned branch `br-snowy-pond-b7ubuhrz`, no unresolved resources and no production
+writes. The cleanup acknowledgment is bound to the exact failed report; cleanup
+success does not turn failed tests into qualification. The one-hour branch
+expiry was fallback only. No separate post-run Neon API probe or measured billing
+is claimed. The single $1 allowance is consumed, is not a provider billing cap,
+and does not authorize another run.
+
+Downloaded evidence is retained under
+`test-results/cp6-38054471625/integration-c7c1ab94c9f3c7fe91325205e8370dd78cac6261-1`,
+with the report/cleanup pair in `artifacts/run-u97TK1`. SHA256 values:
+
+- Acknowledged terminal receipt `run-1791637661042-ea183c8a-70e1-469c-955b-81b3ea66558c-0012.json`: `2b4ddafa27fcc5b971806e49c1a9621f3155e0e9ce440f0f923aa8aa649c1d79`.
+- `qualification-report.json`: `e9ae2166c58b466f0be3e599a2f61a25ff268e33ce86dbd897414ab6a1babf67`.
+- `qualification-cleanup.json`: `bad31a22e85857b3dd67f94e03e2498a85cf94ba687ca0349d355034b7290e8f`.
+- Parent `workflow.log`: `98778594b4553ec1fa1d2b6a7d80eee3c2f6e483b8ab49a5ffb5ba26155f41ca`.
+
+The separately passing [source CI 38053548430](https://github.com/clawmachinejed/league-one-audit/actions/runs/38053548430)
+remains evidence only for source/build/browser checks: 6,531 unit tests across
+292 files, zero failures/skips; 121 public browser passes with 20 intentional
+account-fixture skips; 20 separate account browser passes, zero failures/skips.
+CI merge `5db079f10670be0947f1f1b66573c2dd954c1383` and candidate share Git tree
+`540ddd6a13c391731ebe5674ba0a0278719566a1`. Actual Ready preview
+`H3makh6pTZmk3xtcjALL1HYVMdZC` was inspected for League One, League Two and Dynasty.
+Neither source CI nor that preview supersedes the failed SQL result. No merge,
+retained installation, production migration, scheduling or release occurred.
+
+Independent Astra Ultra review verified all twelve receipt sequences and their
+run/source/project/branch bindings, the exact report and balanced hooks, and the
+terminal acknowledgment. The existing read-only artifact validator correctly
+rejected the failed report: `testEvidenceFailure: missing-or-invalid` denotes
+failed qualification here, not absent artifacts. The zero-byte unsequenced JSON
+file is a reserved journal path, not a missing terminal receipt. Cleanup proof
+and failed qualification remain separately recorded.
+
+### CP6 source repair after the failed attempt
+
+Independent reviewers and the coordinating agent traced the recorded PostgreSQL
+positions to the two name-resolution errors before repair. The narrow repair
+changes only migration 042: JSON set-returning functions and the two scalar
+position-clue functions receive explicit output-column aliases, and all operands
+in their affected scopes are qualified. This includes the related identity-lock,
+cleanup, raw-roster, candidate/result and final-link statements, without claiming
+an additional observed failure in those later statements. No casts or exception
+swallowing conceal either defect. No predicates, capacity bounds, lock keys or
+order, fences, grants, ordinality, public interfaces or fallback behavior change.
+
+Independent Astra Ultra exact-diff review accepted repaired migration LF SHA256
+`73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c`.
+The nine-case fixture, all profile pins, dependencies, runtime limits and original
+assertions remain unchanged. Its existing nine actual SQL cases are the
+regression oracle; no source-text test is substituted for PostgreSQL execution.
+The existing nine identity-adapter tests passed with zero skips. Further source
+checks and the repaired candidate SHA are recorded with PR295; none can qualify
+SQL paths that the failed attempt did not reach. This repair is unqualified until
+another explicitly approved frozen-source run passes all nine cases and cleanup.
+No rerun, paid provisioning, retained migration, merge or production action is
+implied by the source repair.
+
+Post-repair source verification also passed all 177 profile/reporter/supervisor
+checks across three files with zero skips, and scope/diff checks passed. Together
+with the nine identity-adapter cases these are 186 distinct focused source tests;
+none execute PostgreSQL. Before repair publication, local/origin/GitHub main and
+Vercel production still agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`,
+with the same canonical repository, `apps/site` root and production branch `main`.
+Primary main remains clean. Only migration 042 and this evidence ledger changed
+from the failed candidate; the fixture LF hash and every profile pin are preserved.
+
+### CP6 second PostgreSQL attempt — seven passed, two fixture failures
+
+The user separately approved one new attempt at repaired source
+`fd04228756d2ef9c300c4e97e750a923ca908ae6`, under the same closed nine-case
+`data-roster-player-links-v1` profile, 0.25 CU, new $1 allowance and unchanged
+20-second ordinary work / 30-minute supervisor / 40-minute lifecycle / 50-minute
+CI limits, with no automatic retry. [Run 38056628125](https://github.com/clawmachinejed/league-one-audit/actions/runs/38056628125),
+attempt 1, executed once after exact-SHA and protected-environment verification.
+Local/origin/GitHub main and Ready production remained
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; canonical Vercel repository, main
+production branch and apps/site root matched. No competing integration run was
+observed. No production or retained database was targeted.
+
+**Result: nine collected/executed, seven passed, two failed, zero
+skipped/filtered/retried/repeated, zero unhandled errors, one balanced shared
+setup/teardown pair. CP6 remains unqualified.** All prior SQL alias errors were
+absent. Passing cases covered unresolved official membership, canonical reuse,
+explicit conflicts/native edge cases, accepted-head/source remapping, actual
+concurrent identity reuse and post-wait mapping validity, capacity and negative
+permissions, and the ordinary 2026 intake plus one real refresh and stored-only
+readback. The last journey passed in 609,196 ms. These are source-bound executed
+assertions, not an all-nine pass or complete backend/fleet qualification.
+
+The history case stopped at its exact-replay comparison: accepted status,
+receipt and generation matched, but actual reason `exact_receipt_replay` differed
+from the fixture's expected original null reason. Existing migrations 027/029/039
+and the maintained current-roster-acceptance case explicitly define that replay
+marker. The fixture expectation was incorrect. Subsequent snapshot/state,
+partial/category/corrected-identity and empty-history assertions in that case
+were not reached and remain unqualified by this run.
+
+The rollback case stopped before its lock/rollback checks, while its directory
+prerequisite tried to acquire the shared job. Its failure retained neither the
+returned claim kind nor scheduled time. Independent offline reproduction found
+that the installed Neon timestamptz parser returns a Date, while the fixture's
+`new Date(String(row.at))` loses milliseconds. Two database timestamps inside
+one second then become the same scheduler slot; the existing job owner correctly
+requires a strictly newer slot after completion. This reproducible fixture defect
+is consistent with the failed 389-ms transition after the preceding case's
+directory capture. The historical collision is an inference, not a reconstruction
+of unretained run values. The deadline/lease rollback assertions were not reached.
+
+Supervisor run `bd9c7ab8-2fe8-4ac6-9aeb-6f0ccaeb9968` ran from
+`2026-10-10T13:41:22.085Z` to `13:53:57.503Z`; lifecycle was 755,545 ms and
+Vitest duration 743.24 seconds. The terminal acknowledgment at
+`13:53:57.5152961Z` confirms POSIX child-tree closure, schema cleanup, generated
+credential revocation and deletion of owned branch `br-snowy-haze-b72nsdcv`, with
+failures only `tests`, no unresolved resources and no production writes.
+Independent review verified all twelve journal sequences, report/context/source
+bindings, cleanup acknowledgment and the maintained offline validator's correct
+rejection of the failed report. The generic `missing-or-invalid` category again
+means failed qualification, not missing evidence.
+
+During this run, read-only Neon Console inspection identified that exact child,
+its run-UUID branch name, parent and project as **PostgreSQL 18**, default compute
+0.25 CU. The retained witness and subsequent supervisor receipts match. This is
+provider-reported major-version evidence; SQL-reported patch/build was not
+measured, and no prior CP5 patch version is borrowed. After cleanup, a separate
+read-only Console branch listing showed only the integration-test baseline.
+No extra SQL, credential retrieval or provider-data acquisition was performed.
+
+Artifacts are retained under `test-results/cp6-38056628125`; downloaded report and
+cleanup are in `download/integration-fd04228756d2ef9c300c4e97e750a923ca908ae6-1/artifacts/run-oDRZZA`.
+SHA256 values:
+
+- Report: `4927199212ef34a67c57e85870f568e94a41babdf506258468af44e58fd41cdc`.
+- Cleanup acknowledgment: `3ecc5c1ae6b01ec21724f1c14b71e03e5ecb83111ebf3dcd039b57c546a2c5a8`.
+- Terminal journal `run-1791639682079-f42bbf9e-4d34-4860-a3b2-341682f3d13a-0012.json`: `aa14a85c4dd915c0ad65f622c19c1ff41a6336174bdce0d3844229b3f809631b`.
+- Workflow log: `25b39931299d597f50261253cdaec5a3751e1a4a14f01bcce0475f2d2b2932f3`.
+- Provider Console witness: `b16aa140fd3fa93cb289586b59371cd0e47039285abe67562b921d6ec5a3781a`.
+
+The second one-run allowance is consumed as execution authority; actual billing
+was not measured and $1 is not a hard provider cap. No third run follows from the
+failed result or repair. No merge, retained installation, production migration, activation or release
+occurred.
+
+### CP6 fixture correction after the second attempt
+
+Independent Astra Ultra review approved three fixture-only changes: preserve a
+returned Date directly before ISO serialization; include only the bounded claim
+kind and scheduled timestamp in a failed-claim diagnostic; and require the
+existing exact-replay marker while retaining strict status/receipt/generation,
+snapshot and full-state equality. No scheduler, application or migration code,
+SQL calls, waits, leases, timeouts, retry counts, case names or suite hooks change.
+The reviewed module LF SHA256 is
+`652a0be4ac216af1a8fd17b03f19a05e8be09f0529a4afe6b7c37ad153d640d0`;
+only its CP6 qualification pin changes. All older profile pins remain unchanged.
+Migration 042 remains LF SHA256
+`73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c`.
+
+The independent offline reproduction extracts/transpiles the actual old and new
+fixture functions, uses the installed Neon parser, and calls the maintained job
+methods against an explicitly modeled scheduler predicate. The old Date path
+collapses .100/.489 seconds and rejects the second completed-slot claim; the
+repair retains .100/.489 and reacquires. String timestamp fallback remains
+correct, and network attempts are zero. This is source evidence, not PostgreSQL
+execution or proof of the unlogged historical timestamps. Ignored reproduction
+script `apps/site/test-results/data-backend/cp6-job-clock-reproduction.cjs` has
+SHA256 `2bca0b33cc759929b5d7196f4624a65d29ece1e3de82ec4345f8e410e3587504`;
+its log has SHA256 `bbb74219f681539f9389b55003f76cf333988a16c177cfbb9bf10eb8fc618ba2`.
+
+All 177 offline profile/reporter/supervisor cases passed across three files with
+zero skips, and targeted lint and type checking passed. Final candidate SHA,
+source CI and preview evidence belong with PR295. These fixture corrections
+require a new separately approved exact-source SQL attempt before CP6 can be
+qualified; seven passes at the preceding source do not qualify the new fixture.
+
+### CP6 third PostgreSQL attempt — accepted nine-case qualification
+
+**Checkpoint 6 implementation and resource qualification are complete within the
+recorded 2026 scope.** The user separately approved one attempt at frozen source
+`93c18e588f7bcead866b6e3e3f087b8a691dcee6`, using the unchanged closed
+`data-roster-player-links-v1` profile, 0.25 CU, a new $1 allowance, the original
+20-second ordinary work / 30-minute supervisor work / 40-minute lifecycle /
+50-minute CI limits, no automatic retry and verified cleanup.
+[Run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318),
+attempt 1, ran once after exact-source and protected-environment review.
+Local/origin/GitHub main and Ready Vercel production agreed on
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; the canonical repository, apps/site
+root and main production branch matched. No competing integration owner was
+observed; the test project contained only its baseline before this run.
+
+**Nine collected, executed and passed; zero failed, skipped, filtered, retried,
+repeated, flaky or unhandled errors.** The complete ordered suite and its two
+once-only setup/teardown hooks passed the maintained offline artifact validator
+and independent review. Both previously blocked cases now completed: history,
+corrections, categories, exact replay and partial/empty preservation in 7,492.04717
+ms; observed identity-lock deadline/lease expiry with full rollback in
+21,997.095098 ms across the two scenarios. This latter whole-case duration is not
+one ordinary work attempt or an expansion of its unchanged deadline. Ordinary
+public intake, one real refresh cycle and stored-only readback passed in
+612,107.762037 ms. The remaining cases passed native unresolved membership,
+canonical reuse across leagues/kinds, explicit conflicts/native edge cases,
+accepted ordering/source remapping, actual concurrent identity creation,
+capacity outcomes and negative permissions. HTTP inputs were synthetic; the
+prior CP5 live full-catalog result remains separately bound evidence.
+
+Supervisor run `28c1c80d-6d30-4df2-9b76-f18a65d8b161` started at
+`2026-10-10T14:29:37.348Z` and finished at `14:42:45.238Z`. Lifecycle was
+787,998 ms; Vitest duration was 775.76 seconds. The workflow job took 13m32s.
+The exact terminal acknowledgment at `14:42:45.2517010Z` confirms tests and
+qualification passed, POSIX child-tree closure, schema cleanup, generated
+credential revocation and deletion of owned branch `br-bitter-lake-b7utmpsl`,
+with empty failures and unresolved resources and no production writes. All twelve
+immutable journal sequences, context/source/report bindings and cleanup
+acknowledgment were independently verified. A fresh read-only Neon Console
+listing after completion showed only `integration-test-base`.
+
+Read-only Console evidence collected during execution binds this exact child,
+run-UUID branch name, parent `br-plain-bread-b7sgfdl8` and project
+`steep-glitter-44680287` to **provider-reported PostgreSQL 18** and default 0.25 CU.
+SQL-reported patch/build and actual billing were not measured. The child was
+created at `14:29:38Z` and had `15:29:38Z` fallback expiry; observed deletion,
+not expiry, establishes cleanup. No extra SQL or credential retrieval was used
+for the version witness. The one-run allowance is consumed as execution
+authority; $1 is not a hard provider billing cap.
+
+Artifacts remain under `test-results/cp6-38059763318`; downloaded report and
+cleanup are in `download/integration-93c18e588f7bcead866b6e3e3f087b8a691dcee6-1/artifacts/run-LcIN1e`.
+SHA256 values:
+
+- Report: `884d0585055b9a594455b902bb64a2018ac4f4464263c54905458646fb930314`.
+- Cleanup acknowledgment: `a85c29ae29e021ef9a917ba3439f6b8b270778b4a2e59e0ae3625c9a7fb70fca`.
+- Terminal journal `run-1791642577342-a2dba1f0-1e4c-4b2d-80dd-adadb577d983-0012.json`: `57b926493f2a6a22d6e2b92015bede732d511b5822b83a55fa03a9921fd50fa8`.
+- Workflow log: `55864462ba9afaccc95b1b1ebfe255e0c00be34197786dbbbc17c314b34706e9`.
+- Provider Console witness: `25e8b1b84f97c14f7dd738358c113111fa55d034efe10907e247615acf83acaa`.
+
+Context digest is `da5f6017069982b57f7f8b1916838c7cf76225c29e55c069ef9b882b11a01ba5`;
+profile digest is `4e5582dab661b8e1cf37581d24f8a37a4f08e7a05c87c6b4a5a4f1d74c482635`.
+The fixture LF digest remains `652a0be4ac216af1a8fd17b03f19a05e8be09f0529a4afe6b7c37ad153d640d0`;
+migration 042 remains `73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c`.
+
+Executed source `93c18e5` already passed [source CI 38058123736](https://github.com/clawmachinejed/league-one-audit/actions/runs/38058123736):
+6,531 unit tests across 292 files, build, 121 public-browser passes with 20 expected
+account-fixture skips and 20 separate account passes, with no actual retries.
+CI merge `0f469b23e30414a09a2510e8c242e0782881e950` and candidate share tree
+`c7fdc95037f01be97f41f4a712f32297c5b773a5`. Ready preview
+`29dfCzqhVbNw7D7NbKBC6iWB4gsx` was verified at that exact source; My Fantasy,
+League One, League Two and Dynasty manager views were inspected successfully.
+
+This closeout changes documentation only and preserves the executed source
+binding. Both earlier failures remain historical evidence. CP6 does not complete
+fresh-role provisioning, process-crash recovery, sustained worker fairness,
+daily recurrence, fleet/freshness/request/reader/storage/restore targets, the
+full 50-module SQL suite or complete backend readiness. No further paid run,
+retained installation, merge, production migration, activation or release is
+authorized by this result. The next resource checkpoint is 7: manager facts,
+commissioner distinct from ownership, changes, vacancies, co-owners and directory
+failures.

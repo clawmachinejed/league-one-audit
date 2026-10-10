@@ -516,3 +516,32 @@ DO $$ DECLARE relation text; helper text; BEGIN
   END IF;
 END; $$;
 -- END OPTIONAL SHARED PLAYER DIRECTORY GRANTS
+
+-- BEGIN OPTIONAL ROSTER PLAYER LINKS GRANTS
+-- Optional 042 roster/player evidence and the shared scoring identity owner.
+DO $$ DECLARE link_table text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_player_link_receipts') IS NOT NULL THEN
+    REVOKE ALL ON public.league_roster_player_link_receipts,public.league_roster_player_links FROM league_one_runtime;
+    GRANT SELECT ON public.league_roster_player_link_receipts,public.league_roster_player_links TO league_one_runtime;
+    REVOKE ALL ON FUNCTION public.validate_roster_player_link_lineage(),public.assert_roster_player_link_fence(jsonb),
+      public.capture_roster_player_links() FROM league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.scoring_identity_uuid(text,text),public.upsert_scoring_entity_identities(jsonb) TO league_one_runtime;
+    FOREACH link_table IN ARRAY ARRAY['league_roster_player_link_receipts','league_roster_player_links'] LOOP
+      IF has_table_privilege('league_one_runtime','public.'||link_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||link_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||link_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect roster player link privileges';
+      END IF;
+    END LOOP;
+    IF has_function_privilege('league_one_runtime','public.validate_roster_player_link_lineage()','EXECUTE')
+      OR has_function_privilege('league_one_runtime','public.assert_roster_player_link_fence(jsonb)','EXECUTE')
+      OR has_function_privilege('league_one_runtime','public.capture_roster_player_links()','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime','public.scoring_identity_uuid(text,text)','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime','public.upsert_scoring_entity_identities(jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime has incorrect roster player link function privileges';
+    END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL ROSTER PLAYER LINKS GRANTS

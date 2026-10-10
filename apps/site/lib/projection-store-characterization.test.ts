@@ -145,17 +145,17 @@ describe('projection-store public behavior characterization', () => {
     }
   });
 
-  it('keeps all 78 store-owned SQL operations marked and unique across adapter modules', async () => {
+  it('keeps all 80 store-owned SQL operations marked and unique across adapter modules', async () => {
     const extraction = await extractProjectionStoreSql();
 
     // A non-template or unmarked database call must fail this audit instead of escaping the baseline.
     expect(extraction.operations).toHaveLength(extraction.queryCallCount);
-    expect(extraction.operations).toHaveLength(78);
+    expect(extraction.operations).toHaveLength(80);
     expect(extraction.operations.every(({ markerCount }) => markerCount === 1)).toBe(true);
 
     const markers = extraction.operations.map(({ marker }) => marker);
     expect(markers.every((value): value is string => value !== null)).toBe(true);
-    expect(new Set(markers).size).toBe(78);
+    expect(new Set(markers).size).toBe(80);
     expect(markers.toSorted()).toEqual([...projectionStoreSqlMarkers]);
   });
 
@@ -200,11 +200,12 @@ describe('projection-store public behavior characterization', () => {
       key: 'quarterback', kind: 'player', displayName: 'Example Player', nflTeam: 'LAC',
       providerIds: [{ provider: 'Sleeper', externalId: 'player-id' }],
     }]);
-    const [entityInput] = JSON.parse(String(entityFake.calls[0].parameters[0])) as Array<{
+    const [entityInput] = JSON.parse(String(entityFake.calls[1].parameters[0])) as Array<{
       proposed_id: string;
     }>;
     expect(entityInput.proposed_id).toBe('a0efc205-2131-5f2b-9a18-9370495df5c0');
     expect(entityFake.calls.map(({ statement }) => marker(statement))).toEqual([
+      'scoring-identity-owner-capability',
       'upsert-scoring-entities',
       'resolve-scoring-entities',
     ]);

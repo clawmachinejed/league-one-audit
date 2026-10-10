@@ -30,6 +30,7 @@ function fakeStore(): LeagueAdministrationStore {
   beginCalculationSourceCapture: vi.fn(),
   beginLeagueSettingsAttempt: vi.fn(), readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'missing' as const })),
   beginExactMatchupAttempt: vi.fn(), readAcceptedExactMatchups: vi.fn(async () => ({ status: 'missing' as const })),
+  readRosterPlayerLinks: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterAttempt: vi.fn(), readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'missing' as const })),
   beginRosterCapture: vi.fn(), readAcceptedTeamManagers: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceByConnection: vi.fn(async () => ({ status: 'missing' as const })), listEnrollments: vi.fn(async () => []),

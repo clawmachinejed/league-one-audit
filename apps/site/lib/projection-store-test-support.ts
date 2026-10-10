@@ -21,6 +21,7 @@ export function createFakeProjectionDatabase(
       async query<Row extends DatabaseRow>(statement: string, parameters: readonly unknown[] = []) {
         const call = { statement, parameters };
         calls.push(call);
+        if (statement.includes('scoring-identity-owner-capability')) return [{ installed: false }] as unknown as readonly Row[];
         return respond(call) as readonly Row[];
       },
       async queryAfterLock<Row extends DatabaseRow>(
@@ -272,10 +273,12 @@ export const projectionStoreSqlMarkers = [
   'reserve-full-lineup-observation',
   'resolve-nfl-games',
   'resolve-scoring-entities',
+  'scoring-identity-owner-capability',
   'synchronize-lineup-watch-states',
   'upsert-league-period-authority',
   'upsert-nfl-games',
   'upsert-scoring-entities',
+  'upsert-scoring-identity-owner',
   'validate-all-player-fence',
   'wake-future-projection-and-materialization',
 ] as const;
