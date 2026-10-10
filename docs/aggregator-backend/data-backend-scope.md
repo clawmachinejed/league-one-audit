@@ -4,6 +4,8 @@ Revision: data-backend-v1, October 6, 2026. This is the current implementation b
 
 The [checkpoint 1 readiness contract](data-backend-readiness-contract.md) freezes the current completion boundary to season **2026**, including within-season history and corrections across all eight official families. Annual linking and prior-season discovery remain deferred; native predecessor and future-pick-year references are retained without traversal. Its operating targets are acceptance criteria, not measured readiness or execution/release authority. Checkpoint 2 source/checklist work and later qualification remain separate.
 
+The [checkpoint 2 source baseline and acceptance checklist](data-backend-acceptance-baseline.md) pins the source/evidence overlay and existing owners for the remaining resource and operating work. It preserves checkpoint 1 targets and historical proof boundaries; completing the checklist document does not qualify the backend.
+
 ## The outcome
 
 **Sleeper username → stable provider user identity → associated leagues → existing provider adapter → canonical relational identities and typed official resources with provenance → durable PostgreSQL storage → refresh/retry/recovery → backend readers.**
