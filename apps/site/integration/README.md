@@ -392,3 +392,45 @@ fleet capacity, a few-minute freshness guarantee, the full SQL suite or producti
 rollout. The approved single-run allowance is consumed; actual billing is
 unmeasured. No further paid run, retained migration application, merge or
 production activation follows from this result.
+
+## CP7 manager and commissioner fact qualification
+
+The authored closed `data-team-manager-facts-v1` profile selects exactly nine
+ordered cases in `integration/team-manager-facts.integration-case.ts`, with one
+shared setup/teardown pair. Its fixed supervisor command, only after separate
+run authorization, is `pnpm test:integration --profile=data-team-manager-facts-v1`.
+The existing protected manual workflow offers the same profile. Source authoring
+and publication do not dispatch it or authorize credentials or provisioning.
+Default collection now contains 51 modules; older fixture bodies and closed
+profile pins remain unchanged.
+
+The profile uses synthetic Sleeper HTTP responses through existing adapters and
+the ordinary restricted PostgreSQL writers/readers. Current-2026 cases distinguish
+commissioners from roster primary owners, co-owners and vacancies; retain known
+true/false, absent, null and invalid commissioner facts; and cover canonical
+identity reuse, ownership corrections, immutable history, unchanged capture and
+exact replay. Dedicated cases exercise uncertain owner/co-owner evidence,
+reservation ordering, source remaps, independent partial/malformed/unavailable
+directory results, forged facts and worker fences, observed lock expiry with
+rollback, and actual runtime table/helper permissions. The final case uses the
+ordinary intake owner, directory failure and recovery, then one changed refresh
+cycle with stored-only readback. Existing v1 completion and v2 latest-mapping
+evidence semantics are preserved. No live Sleeper request is selected.
+
+The nine case limits total 23 minutes (eight at 60 seconds and one at 900 seconds);
+the two 120-second hooks bring the authored allowance to 27 minutes before other
+harness overhead. This arithmetic is not measured runtime or a worst-case fit
+guarantee. Every ordinary work step retains its original 20-second deadline,
+real minute admission spacing and retry policy. The shared supervisor retains
+30 minutes of work, 40 minutes of total lifecycle and the existing 50-minute CI
+limit, including failure cleanup. No extra acquisition pipeline, timing rewrite,
+automatic retry, alternative credential path or cleanup exception is introduced.
+
+CP7 remains **authored and SQL-unqualified** until a separately approved exact
+source run passes all nine selected cases and the maintained report, source pins,
+hook inventory and acknowledged cleanup are independently validated. Source tests
+and mocks cannot establish installed constraints, role privileges, PostgreSQL
+version, lock behavior or duration. Record those results in the
+[evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+The profile does not qualify fleet capacity, daily recurrence, the full SQL suite,
+live provider acquisition, retained installation or production release.

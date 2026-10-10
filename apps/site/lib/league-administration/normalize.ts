@@ -1,6 +1,7 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
 import { publicCaptureForRequest, type PublicCaptureWitness } from './public-capture-witness';
-import { TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, type SourceTeamManagers, type TeamManagersNormalization,
+import { MANAGER_DIRECTORY_VERSION, type ManagerDirectoryNormalization, type CommissionerFact,
+  TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, type SourceTeamManagers, type TeamManagersNormalization,
   type SourceTeamManagerEvidence, type TeamManagerEvidenceNormalization } from '../aggregator/team-managers';
 import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
   type LeagueSettingsValue, type NativePeriodReference } from '../aggregator/league-settings';
@@ -480,6 +481,30 @@ function normalizeTeamManagerEvidence(envelope: AdministrationEnvelope,
   }
 }
 
+function normalizeManagerDirectory(envelope: AdministrationEnvelope): ManagerDirectoryNormalization {
+  const version = MANAGER_DIRECTORY_VERSION;
+  try {
+    validateEnvelope(envelope);
+    if (envelope.completeness !== 'complete') invalid('incomplete_directory', 'completeness', 'Directory inventory is incomplete.');
+    const managers = rows(envelope.payload, 'payload').map((entry, index) => {
+      const path = `payload[${index}]`;
+      const row = object(entry, path);
+      const externalManagerId = identifier(row.user_id, `${path}.user_id`);
+      const commissioner: CommissionerFact = row.is_owner === undefined
+        ? { sourcePath: 'is_owner', state: 'absent', value: null }
+        : row.is_owner === null ? { sourcePath: 'is_owner', state: 'null', value: null }
+          : typeof row.is_owner === 'boolean' ? { sourcePath: 'is_owner', state: 'known', value: row.is_owner }
+            : { sourcePath: 'is_owner', state: 'invalid', value: null, raw: row.is_owner };
+      return { externalManagerId, commissioner };
+    });
+    unique(managers, manager => manager.externalManagerId, 'payload');
+    return { version, status: 'complete', managers, diagnostics: [] };
+  } catch (error) {
+    if (!(error instanceof InvalidDocument)) throw error;
+    return { version, status: 'invalid', managers: null, diagnostics: [error.diagnostic] };
+  }
+}
+
 function normalizeUsers(raw: readonly JsonValue[]): NormalizedAdministrationValue {
   const managers: SourceManager[] = raw.map((entry, index) => {
     const path = `payload[${index}]`;
@@ -732,7 +757,8 @@ export function normalizeAdministrationObservation(
   const contentHash = compatibleRevision(envelope.payload);
   const projection = envelope.family === 'rosters' ? { teamManagers: normalizeTeamManagers(envelope, expectations),
     ...(expectations.managerEvidenceVersion === 'v2' ? { teamManagerEvidence: normalizeTeamManagerEvidence(envelope, expectations) } : {}) }
-    : envelope.family === 'league' ? { leagueSettings: normalizeLeagueSettings(envelope) } : {};
+    : envelope.family === 'league' ? { leagueSettings: normalizeLeagueSettings(envelope) }
+      : envelope.family === 'users' ? { managerDirectory: normalizeManagerDirectory(envelope) } : {};
   try {
     validateEnvelope(envelope);
     let value: NormalizedAdministrationValue;

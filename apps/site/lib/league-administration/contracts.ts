@@ -200,6 +200,8 @@ export type NormalizedAdministrationObservation = Readonly<{
   teamManagers?: import('../aggregator/team-managers').TeamManagersNormalization;
   /** Separately opted-in field evidence; never changes complete-primary v1 normalization. */
   teamManagerEvidence?: import('../aggregator/team-managers').TeamManagerEvidenceNormalization;
+  /** Independent users-directory facts; legacy v1 values and content identities stay unchanged. */
+  managerDirectory?: import('../aggregator/team-managers').ManagerDirectoryNormalization;
   leagueSettings?: import('../aggregator/league-settings').LeagueSettingsNormalization;
 }>;
 

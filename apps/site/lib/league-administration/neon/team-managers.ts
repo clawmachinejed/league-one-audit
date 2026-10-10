@@ -4,6 +4,7 @@ import { CURRENT_ROSTER_POLICY, currentRosterScope, type RosterAttempt } from '.
 import { TEAM_MANAGERS_POLICY, teamManagersScope, type AcceptedTeamManagersRead,
   type ProviderManagerIdentity, type TeamManagerRelationships, TEAM_MANAGER_EVIDENCE_POLICY, teamManagerEvidenceScope,
   teamManagerEvidenceCoverage, type AcceptedTeamManagerEvidenceRead, type TeamManagerEvidenceRelationships } from '../../aggregator/team-managers';
+import { MANAGER_DIRECTORY_VERSION, type ManagerDirectoryCaptureRead } from '../../aggregator/team-managers';
 import { assertAcceptedResource, assertProviderReference } from '../../aggregator/validation';
 import type { AcceptedResource } from '../../aggregator/contracts';
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from '../source-mapping';
@@ -31,7 +32,109 @@ function attempt(value: unknown): RosterAttempt {
   return { id: id(row.id), scopeId: id(row.scopeId), ordinal: integer(row.ordinal), expectedGeneration: integer(row.expectedGeneration, 0) };
 }
 
+/** Receipt selection never follows the mutable users head or an account entitlement. */
+export const MANAGER_DIRECTORY_CAPTURE_READ_SQL = `/* league-administration:read-manager-directory-capture */
+  SELECT capture.id AS capture_id,capture.intake_id,capture.source_mapping,capture.content_id,
+    capture.legacy_observation_id,capture.request_started_at,capture.request_completed_at,
+    capture.source_observed_at,capture.recorded_at,capture.league_season_id,
+    content.provider,content.external_league_id,content.family,content.week,content.accepted,
+    content.normalizer_version,content.completeness,content.content_hash,content.payload,
+    version.normalizer_version AS directory_version,version.manager_count,
+    (SELECT COALESCE(jsonb_agg(jsonb_build_object('providerManagerId',manager.id,
+      'externalManagerId',manager.external_manager_id,'sourceValue',entry.source_value,
+      'commissionerState',entry.commissioner_state,'commissionerValue',entry.commissioner_value,
+      'invalidRaw',entry.invalid_raw,'legacySourceValue',legacy.source_value)
+      ORDER BY manager.external_manager_id),'[]'::jsonb)
+      FROM public.league_manager_directory_entries entry
+      JOIN public.league_source_manager_accounts manager ON manager.id=entry.manager_id AND manager.provider=content.provider
+      JOIN public.league_administration_manager_entries legacy
+        ON legacy.content_id=entry.content_id AND legacy.manager_id=entry.manager_id
+      WHERE entry.content_id=content.id AND entry.normalizer_version=version.normalizer_version
+        AND entry.league_season_id=capture.league_season_id) AS managers
+  FROM public.public_data_directory_captures capture
+  JOIN public.league_administration_contents content ON content.id=capture.content_id
+    AND content.league_season_id=capture.league_season_id
+  JOIN public.league_administration_observations observation ON observation.id=capture.legacy_observation_id
+    AND observation.content_id=content.id AND observation.league_season_id=capture.league_season_id
+    AND observation.family='users' AND observation.week=0
+  JOIN public.league_manager_directory_versions version ON version.content_id=content.id
+    AND version.league_season_id=capture.league_season_id
+  JOIN public.league_source_connections connection ON connection.id=$2::uuid
+    AND connection.league_season_id=capture.league_season_id
+    AND connection.provider=content.provider AND connection.external_league_id=content.external_league_id
+  WHERE capture.id=$1::uuid AND capture.source_mapping=$3::jsonb
+    AND connection.current_mapping_revision_id=$4::uuid AND connection.mapping_generation=$5
+    AND version.normalizer_version=$6`;
+
+function timestamp(value: unknown): string {
+  if (!(value instanceof Date) && typeof value !== 'string') throw new Error('Invalid manager capture timestamp.');
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) throw new Error('Invalid manager capture timestamp.');
+  return date.toISOString();
+}
+
 export function teamManagerMethods(client: DatabaseClient) {
+  async function readManagerDirectoryCapture(mapping: AdministrationSourceMapping, captureId: string): Promise<ManagerDirectoryCaptureRead> {
+    if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
+    try {
+      id(captureId);
+      const rows = await client.query(MANAGER_DIRECTORY_CAPTURE_READ_SQL, [captureId, mapping.connectionId,
+        JSON.stringify(mapping), mapping.revisionId, mapping.generation, MANAGER_DIRECTORY_VERSION]);
+      if (!rows.length) return { status: 'missing' };
+      if (rows.length !== 1) throw new Error('Ambiguous manager directory capture.');
+      const row = rows[0];
+      if (row.capture_id !== captureId || !isAdministrationSourceMapping(row.source_mapping)
+        || compatibleRevision(row.source_mapping) !== compatibleRevision(mapping)
+        || row.league_season_id !== mapping.leagueSeasonId || row.provider !== mapping.scope.provider
+        || row.external_league_id !== mapping.scope.externalLeagueId || row.family !== 'users' || integer(row.week, 0) !== 0
+        || row.accepted !== true || row.normalizer_version !== 'sleeper-administration-v1'
+        || row.completeness !== 'complete' || row.directory_version !== MANAGER_DIRECTORY_VERSION) {
+        throw new Error('Invalid manager directory capture lineage.');
+      }
+      const capture = { id: id(row.capture_id), intakeId: id(row.intake_id), contentId: id(row.content_id),
+        legacyObservationId: id(row.legacy_observation_id), requestStartedAt: timestamp(row.request_started_at),
+        requestCompletedAt: timestamp(row.request_completed_at), sourceObservedAt: timestamp(row.source_observed_at),
+        recordedAt: timestamp(row.recorded_at) };
+      if (capture.sourceObservedAt !== capture.requestCompletedAt) throw new Error('Invalid manager directory capture clocks.');
+      const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+        normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: mapping.scope,
+        family: 'users', week: null, completeness: 'complete', payload: row.payload as AdministrationEnvelope['payload'],
+        provenance: { origin: 'network', requestStartedAt: capture.requestStartedAt, requestCompletedAt: capture.requestCompletedAt,
+          // Validate the source interval on its own clock. R039 witnesses do not
+          // require database recorded_at to follow the collector's clock.
+          sourceObservedAt: capture.sourceObservedAt, checkedAt: capture.requestCompletedAt } });
+      const projection = normalized.managerDirectory;
+      if (normalized.status !== 'accepted' || normalized.value?.family !== 'users'
+        || normalized.contentHash !== row.content_hash || projection?.status !== 'complete' || !projection.managers
+        || !Array.isArray(row.managers) || integer(row.manager_count, 0) !== projection.managers.length
+        || row.managers.length !== projection.managers.length) throw new Error('Invalid manager directory content.');
+      const byNativeId = new Map<string, Record<string, unknown>>(); const managerIds = new Set<string>();
+      for (const raw of row.managers) {
+        const entry = object(raw); const managerId = id(entry.providerManagerId);
+        if (typeof entry.externalManagerId !== 'string' || byNativeId.has(entry.externalManagerId) || managerIds.has(managerId)) {
+          throw new Error('Invalid manager directory identity.');
+        }
+        byNativeId.set(entry.externalManagerId, entry); managerIds.add(managerId);
+      }
+      const profiles = new Map(normalized.value.managers.map(manager => [manager.externalManagerId, manager]));
+      const managers = projection.managers.map(manager => {
+        const stored = byNativeId.get(manager.externalManagerId); const profile = profiles.get(manager.externalManagerId);
+        const fact = manager.commissioner;
+        if (!stored || !profile || compatibleRevision(stored.sourceValue) !== compatibleRevision(manager)
+          || compatibleRevision(stored.legacySourceValue) !== compatibleRevision(profile)
+          || stored.commissionerState !== fact.state || stored.commissionerValue !== fact.value
+          || compatibleRevision(stored.invalidRaw) !== compatibleRevision(fact.state === 'invalid' ? fact.raw : null)) {
+          throw new Error('Unproved manager directory fact.');
+        }
+        const sourceManager = { provider: 'sleeper' as const, resourceKind: 'manager', nativeNamespace: 'account', nativeId: manager.externalManagerId };
+        assertProviderReference(sourceManager);
+        return { providerManagerId: id(stored.providerManagerId), sourceManager,
+          displayName: profile.displayName, username: profile.username, avatar: profile.avatar, commissioner: fact };
+      });
+      return { status: 'available', version: MANAGER_DIRECTORY_VERSION, leagueSeasonId: mapping.leagueSeasonId,
+        sourceMapping: mapping, captureBinding: 'intake-directory-capture', assurance: 'provider-observed', capture, managers };
+    } catch { return { status: 'unavailable', reason: 'manager_directory_capture_unavailable' }; }
+  }
   async function beginCapture(mapping: AdministrationSourceMapping, playersId: string, managersId: string,
       fence: AdministrationWriteFence | undefined) {
       const managerPolicy = TEAM_MANAGERS_POLICY;
@@ -182,6 +285,7 @@ export function teamManagerMethods(client: DatabaseClient) {
       } catch { return { status: 'unavailable', reason: 'team_manager_evidence_unavailable' }; }
     }
   return {
+    readManagerDirectoryCapture,
     beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string, fence?: AdministrationWriteFence) =>
       beginCapture(mapping, playersId, managersId, fence),
     async beginTeamManagerEvidenceAttempt(mapping: AdministrationSourceMapping, evidenceId: string, fence?: AdministrationWriteFence) {

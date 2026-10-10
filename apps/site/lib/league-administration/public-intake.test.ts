@@ -319,6 +319,79 @@ describe('public official data intake through the existing worker/writer', () =>
   });
 });
 
+describe('typed captured manager directory intake composition', () => {
+  function capturedFixture(options: { laterHead?: boolean; missingCapture?: boolean; foreignMapping?: boolean;
+    capturePatch?: Record<string, unknown>; failedRead?: boolean } = {}) {
+    const f = fixture();
+    const acquisition = { id: 'directory-capture', contentId: 'directory-content', legacyObservationId: 'directory-observation',
+      sourceMapping: options.foreignMapping ? { ...mapping, revisionId: id, generation: 2 } : mapping,
+      requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time };
+    const typed = { status: 'available', version: 'sleeper-manager-directory-v1', leagueSeasonId: mapping.leagueSeasonId,
+      sourceMapping: mapping, captureBinding: 'intake-directory-capture', assurance: 'provider-observed',
+      capture: { id: acquisition.id, intakeId: id, contentId: acquisition.contentId, legacyObservationId: acquisition.legacyObservationId,
+        requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time, recordedAt: time, ...options.capturePatch },
+      managers: [{ providerManagerId: id, sourceManager: { provider: 'sleeper', resourceKind: 'manager', nativeNamespace: 'account', nativeId: '55' },
+        displayName: 'Manager', username: null, avatar: null, commissioner: { sourcePath: 'is_owner', state: 'known', value: false } }] };
+    const readDirectory = vi.fn(async () => {
+      if (options.failedRead) throw new Error('typed directory unavailable');
+      return typed;
+    });
+    const rows = [[{ id, seasons: [2026], terminal: true, external_manager_id: '55' }], [{ season: 2026 }],
+      [{ season: 2026, external_league_id: native, name: league.name, stage: 'complete', league_season_id: mapping.leagueSeasonId,
+        settings_receipt_id: 'settings', managers_receipt_id: 'managers', players_receipt_id: 'roster',
+        users_observation_id: acquisition.legacyObservationId, directory_capture: options.missingCapture ? null : acquisition }], []];
+    const client = { enabled: true, query: vi.fn(async () => rows.shift() ?? []) } as unknown as DatabaseClient;
+    const administration = { ...f.dependencies.administration,
+      readAcceptedLeagueSettings: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['settings'] } })),
+      readAcceptedTeamManagers: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['managers'] } })),
+      readAcceptedCurrentRoster: vi.fn(async () => ({ status: 'available', accepted: { observationIds: ['roster'] } })),
+      readSource: vi.fn(async () => ({ status: 'available', observationId: options.laterHead ? 'later-observation' : acquisition.legacyObservationId })),
+      readManagerDirectoryCapture: readDirectory,
+    } as unknown as LeagueAdministrationStore;
+    return { f, typed, readDirectory, run: () => readPublicSleeperIntake(client, administration, id) };
+  }
+
+  it('composes the exact stored directory capture without source calls or changing the existing completion rule', async () => {
+    const f = capturedFixture(); const result = await f.run();
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.status).toBe('available');
+    expect(result.leagues[0].resources?.managerDirectory).toEqual(f.typed);
+    expect(f.readDirectory).toHaveBeenCalledExactlyOnceWith(mapping, 'directory-capture');
+    expect(f.f.source.core).not.toHaveBeenCalled();
+  });
+
+  it('preserves historical captured facts after a later users head without claiming current intake completion', async () => {
+    const f = capturedFixture({ laterHead: true }); const result = await f.run();
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.status).toBe('partial');
+    expect(result.leagues[0].resources?.managerDirectory).toEqual(f.typed);
+    expect(result.leagues[0].resources?.directory).toMatchObject({ status: 'unavailable', reason: 'intake-capture-not-current-head' });
+  });
+
+  it.each([{ intakeId: 'another-intake' }, { id: 'another-capture' }, { contentId: 'another-content' },
+    { legacyObservationId: 'another-observation' }])('refuses foreign capture composition %j', async capturePatch => {
+    const result = await capturedFixture({ capturePatch }).run();
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.leagues[0].resources?.managerDirectory).toEqual({ status: 'unavailable', reason: 'intake-directory-capture-mismatch' });
+    expect(result.status).toBe('available');
+  });
+
+  it.each([{ missingCapture: true }, { foreignMapping: true }])('does not look up an uncaptured or remapped directory %j', async options => {
+    const f = capturedFixture(options); const result = await f.run();
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.leagues[0].resources?.managerDirectory).toMatchObject({ status: 'unavailable' });
+    expect(f.readDirectory).not.toHaveBeenCalled();
+  });
+
+  it('isolates a typed directory read failure from ownership and the original directory read', async () => {
+    const result = await capturedFixture({ failedRead: true }).run();
+    if (result.status === 'missing') throw new Error('Missing fixture.');
+    expect(result.status).toBe('available');
+    expect(result.leagues[0].resources).toMatchObject({ teamManagers: { status: 'available' }, directory: { status: 'available' },
+      managerDirectory: { status: 'unavailable', reason: 'manager-directory-read-failed' } });
+  });
+});
+
 describe('bounded shared Sleeper transport captures', () => {
   it('retains invalid raw lists without describing them as a complete filtered list', async () => {
     const payload = [league, { ...league, league_id: 'broken' }];

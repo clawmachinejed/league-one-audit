@@ -117,7 +117,10 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       if (!mapping || mapping.leagueSeasonId !== candidate.league_season_id || mapping.scope.season !== identity.season) {
         throw new Error('Stored source mapping changed.');
       }
-      const [settings, teamManagers, heldRoster, directory, teamManagerEvidence] = await Promise.all([
+      const acquisition = candidate.directory_capture && typeof candidate.directory_capture === 'object'
+        ? candidate.directory_capture as Record<string, unknown> : null;
+      const directoryCurrent = acquisition && isAdministrationSourceMapping(acquisition.sourceMapping) && compatibleRevision(acquisition.sourceMapping) === compatibleRevision(mapping);
+      const [settings, teamManagers, heldRoster, directory, teamManagerEvidence, capturedManagers] = await Promise.all([
         administration.readAcceptedLeagueSettings(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'settings-read-failed' })),
         administration.readAcceptedTeamManagers(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-managers-read-failed' })),
         administration.readAcceptedCurrentRoster(mapping, { includeSeasonOverview: true, includePlayerLinks: true }).catch(() => ({ status: 'unavailable' as const, reason: 'held-roster-read-failed' })),
@@ -125,10 +128,20 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
         options.managerEvidenceVersion === 'v2'
           ? administration.readAcceptedTeamManagerEvidence?.(mapping).catch(() => ({ status: 'unavailable' as const, reason: 'team-manager-evidence-read-failed' }))
             ?? { status: 'unavailable' as const, reason: 'team-manager-evidence-unsupported' } : undefined,
+        administration.readManagerDirectoryCapture
+          ? directoryCurrent && typeof acquisition.id === 'string'
+            ? administration.readManagerDirectoryCapture(mapping, acquisition.id)
+              .catch(() => ({ status: 'unavailable' as const, reason: 'manager-directory-read-failed' }))
+            : { status: 'unavailable' as const, reason: 'intake-directory-capture-unavailable' } : undefined,
       ]);
-      const acquisition = candidate.directory_capture && typeof candidate.directory_capture === 'object'
-        ? candidate.directory_capture as Record<string, unknown> : null;
-      const directoryCurrent = acquisition && isAdministrationSourceMapping(acquisition.sourceMapping) && compatibleRevision(acquisition.sourceMapping) === compatibleRevision(mapping);
+      const managerDirectory = capturedManagers?.status === 'available'
+        ? capturedManagers.capture.id === acquisition?.id && capturedManagers.capture.intakeId === requestId
+          && capturedManagers.capture.contentId === acquisition.contentId
+          && capturedManagers.capture.legacyObservationId === candidate.users_observation_id
+          && capturedManagers.leagueSeasonId === mapping.leagueSeasonId
+          && compatibleRevision(capturedManagers.sourceMapping) === compatibleRevision(mapping)
+          ? capturedManagers : { status: 'unavailable' as const, reason: 'intake-directory-capture-mismatch' }
+        : capturedManagers;
       leagues.push({ ...identity, name: String(candidate.name), leagueSeasonId: mapping.leagueSeasonId,
         leagueKey: mapping.scope.leagueKey, collection: String(candidate.stage),
         resources: { settings: receiptBound(settings, candidate.settings_receipt_id),
@@ -137,6 +150,9 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
           // explicitly not a receipt-bound completion claim for this request.
           ...(teamManagerEvidence ? { teamManagerEvidence: { ...teamManagerEvidence,
             captureBinding: 'latest-for-current-source-mapping' as const } } : {}),
+          // Exact retained directory facts remain useful after a later users head.
+          // Their availability never changes the existing intake completion rule.
+          ...(managerDirectory ? { managerDirectory } : {}),
           heldRoster: receiptBound(heldRoster, candidate.players_receipt_id),
           directory: directory.status === 'available'
             ? directory.observationId !== candidate.users_observation_id || !directoryCurrent

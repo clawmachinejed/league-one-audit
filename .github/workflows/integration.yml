@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-team-manager-facts-v1
           - data-roster-player-links-v1
           - data-live-player-directory-v1
           - data-player-directory-v1
@@ -70,6 +71,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-team-manager-facts-v1)
+              pnpm test:integration --profile=data-team-manager-facts-v1
               ;;
             workflow_dispatch:data-roster-player-links-v1)
               pnpm test:integration --profile=data-roster-player-links-v1

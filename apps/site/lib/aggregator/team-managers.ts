@@ -1,5 +1,5 @@
 import type { AcceptedResource, ProviderReference, SourceScope } from './contracts';
-import type { AdministrationDiagnostic } from '../league-administration/contracts';
+import type { AdministrationDiagnostic, JsonValue } from '../league-administration/contracts';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
 import type { AcceptedCurrentRosterRead, RosterAttempt } from './current-roster';
 
@@ -97,3 +97,33 @@ export function teamManagerEvidenceCoverage(projection: TeamManagerEvidenceNorma
     pagination: 'complete', nextCursor: null, completeness: projection.status,
     reasons: [...new Set(projection.diagnostics.map(diagnostic => diagnostic.code))].sort() } as const;
 }
+
+/** Sleeper league users.is_owner describes commissioner status, never roster ownership. */
+export const MANAGER_DIRECTORY_VERSION = 'sleeper-manager-directory-v1' as const;
+export type CommissionerFact = Readonly<{ sourcePath: 'is_owner' }> & (
+  | Readonly<{ state: 'known'; value: boolean }>
+  | Readonly<{ state: 'absent' | 'null'; value: null }>
+  | Readonly<{ state: 'invalid'; value: null; raw: JsonValue }>);
+export type SourceManagerDirectoryEntry = Readonly<{
+  externalManagerId: string; commissioner: CommissionerFact;
+}>;
+export type ManagerDirectoryNormalization = Readonly<{
+  version: typeof MANAGER_DIRECTORY_VERSION;
+  /** Complete covers the directory inventory; every commissioner field states its own evidence. */
+  status: 'complete' | 'invalid'; managers: readonly SourceManagerDirectoryEntry[] | null;
+  diagnostics: readonly AdministrationDiagnostic[];
+}>;
+export type ManagerDirectoryCaptureRead = Readonly<{
+  status: 'available'; version: typeof MANAGER_DIRECTORY_VERSION;
+  leagueSeasonId: string; sourceMapping: AdministrationSourceMapping;
+  /** Immutable intake evidence can remain readable after the directory head changes. */
+  captureBinding: 'intake-directory-capture'; assurance: 'provider-observed';
+  capture: Readonly<{
+    id: string; intakeId: string; contentId: string; legacyObservationId: string;
+    requestStartedAt: string; requestCompletedAt: string; sourceObservedAt: string; recordedAt: string;
+  }>;
+  managers: readonly (ProviderManagerIdentity & Readonly<{
+    displayName: string | null; username: string | null; avatar: string | null;
+    commissioner: CommissionerFact;
+  }>)[];
+}> | Readonly<{ status: 'missing' | 'unavailable' | 'disabled'; reason?: string }>;
