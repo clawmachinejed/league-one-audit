@@ -14,7 +14,7 @@ export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const TEAM_MANAGER_FACTS_PROFILE = 'data-team-manager-facts-v1';
 export const TEAM_MANAGER_FACTS_MODULE = 'integration/team-manager-facts.integration-case.ts';
 // New nine-case CP7 fixture; execution requires independent exact-source review and a separate allowance.
-export const TEAM_MANAGER_FACTS_SOURCE_DIGEST = '22955191422cb8601647cd31254c9e8aa3b9d555c2d8080bc59f986509127e23';
+export const TEAM_MANAGER_FACTS_SOURCE_DIGEST = 'cf206755ad34e916cb9606eb9c12259340ef3f603362c2f87d2299a52c0e058d';
 export const TEAM_MANAGER_FACTS_SUITE = 'current season manager and commissioner facts through restricted PostgreSQL';
 export const TEAM_MANAGER_FACTS_TESTS = [
   'stores commissioner presence independently from owners coowners and vacancies',

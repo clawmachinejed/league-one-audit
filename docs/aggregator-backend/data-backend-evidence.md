@@ -1,11 +1,17 @@
 # DATA backend evidence and remaining qualification
 
-## CP7 manager and commissioner facts — authored source, October 10, 2026
+## CP7 manager and commissioner facts — failed qualification, October 10, 2026
 
-**AUTHORED; PostgreSQL qualification pending.** This increment starts from
-`d073c86042398da56f0dc23abc40e7dc18d0182e` on `codex/data-manager-facts`.
-It does not transfer CP5 or CP6 results to changed CP7 source, close backend
-readiness, or authorize a SQL run, credentials, installation, merge or release.
+**SQL qualification rejected; disposable cleanup accepted.** The single approved
+attempt tested exact source `be4bb9ef1252d3b57217989769311668e9e996a1` on
+`codex/data-manager-facts`, based on
+`d073c86042398da56f0dc23abc40e7dc18d0182e`. It reported two passing and seven
+failing cases. The failed source remains in the history of draft
+[PR 296](https://github.com/clawmachinejed/league-one-audit/pull/296); source checks,
+preview inspection and cleanup do not turn this result into qualification.
+Local fixture repairs remain SQL-unqualified. The one-run authorization is
+consumed; no retry, retained installation, merge or production release follows.
+CP5 and CP6 evidence remains bound to its original source.
 
 1. **Data resource:** current-2026 league/season-scoped teams, primary owners,
    vacancies and co-owners, plus independent official Sleeper `users.is_owner`
@@ -20,48 +26,149 @@ readiness, or authorize a SQL run, credentials, installation, merge or release.
    current source-mapping guard; `public-intake-reader.ts` composes it as retained
    evidence. Existing v1 primary-owner completion and v2 latest-mapping evidence
    remain distinct. No provider call or alternate worker is added.
-3. **Persisted result:** the authored schema independently checks raw-to-typed
-   commissioner parity, identity and population completeness, including a
-   complete-empty marker, inside the existing writer transaction. Exact capture
-   time and database recording time retain their separate meanings. Old captures
-   can remain readable after a directory-head correction while a source remap
-   prevents use through an obsolete mapping. Runtime tables remain SELECT-only;
-   private helpers, immutable history, CP6 roster links and the 20-second work
-   deadline remain protected. A failed directory cannot erase accepted roster
-   relationships or turn retained evidence into intake completion.
-4. **Real evidence and gaps:** source-path purposes received peer review from
-   `/root/cp7_contracts`, `/root/cp7_storage` and `/root/cp7_qualification` under
-   `DATA-CP7-2026-10-10-MANAGER-FACTS`; these are engineering review records, not
-   infrastructure authority. Substantive peer review accepted the TS resource
-   path, separate SQL/provisioner changes and the nine-case fixture. The reader's
-   incorrect comparison of database recording time with collector source time
-   was independently reproduced and corrected. Focused source checks passed
-   327 tests; independent normalizer/reader/migration-source checks passed 41
-   tests across three files. These sets overlap and are not additive.
+3. **Persisted result:** the implemented contract checks raw-to-typed commissioner
+   parity, identity and population completeness, including a complete-empty marker,
+   inside the existing writer transaction. Exact capture time and database
+   recording time retain separate meanings. Typed commissioner presence and raw
+   parity were observed before the first case failed; the ordinary case also
+   passed initial typed-capture readback and normalizer/binding assertions.
+   Forged-evidence/fence rejection and restricted-role checks completed in the two
+   passing cases. This partial evidence does not establish the nine-case contract:
+   ownership history, empty-directory recovery, historical capture/remap gates
+   and the new late-write rollback exercise were not completed. CP6 roster links,
+   immutable prior migrations and original worker deadlines remain in source.
+4. **Real evidence and gaps:** file-purpose and substantive peer reviews are
+   recorded under `DATA-CP7-2026-10-10-MANAGER-FACTS` by
+   `/root/cp7_contracts`, `/root/cp7_storage` and `/root/cp7_qualification`;
+   these are engineering reviews, not infrastructure authority. The reader's
+   database-clock/collector-clock mismatch was independently reproduced and
+   corrected before the frozen run. Focused source checks passed 327 tests;
+   independent normalizer/reader/migration-source checks passed 41 tests across
+   three files. These sets overlap and are not additive.
+
    **Both default full local verification attempts remain failed:** each passed
-   dependency, lint and type checks, then reported 6,594 passing unit tests,
-   one failure and one existing skip across 295 files. The unchanged diagnostics
-   test exceeded its 5,000 ms limit at 5,092 ms and 5,055 ms respectively, so
-   neither workflow reached its build step. The exact diagnostics case passed
-   in isolation, as did its unchanged 220-test file; no assertion defect or
-   timeout cause was reproduced, and no timeout, code or configuration was
-   changed to force a pass. The separate skip is the existing scoped-IPv6
-   listener case on a host without scoped IPv6. Both failed logs and the
-   successful isolated check remain retained. A separate production build
-   passed with exit 0; both complete local workflows remain failed. Immutable
-   hosted CI, exact-source preview and published revision are pending.
-   The new closed `data-team-manager-facts-v1` profile
-   authors nine cases with one setup/teardown pair: relationship and commissioner
-   parity, corrections/history/replay, uncertain ownership, ordering/remaps,
-   independent directory failures, forged evidence/fences, observed lock rollback,
-   actual restricted privileges, and ordinary intake plus changed refresh readback.
-   Its authored allowance is 27 minutes (eight 60-second cases, one 900-second
-   case and two 120-second hooks), before other harness overhead; this is not
-   measured fit. No CP7 SQL case, live-source capture, role installation or cleanup
-   has been executed by this increment. Older migration bytes 001–042, fixture
-   bodies, profile pins and historical results remain bound to their original
-   sources. Actual PostgreSQL version, runtime behavior, duration and cleanup
-   still require a separately authorized frozen-source run.
+   dependency, lint and type checks, then reported 6,594 passing tests, one failure
+   and one existing scoped-IPv6 skip across 295 files. The unchanged diagnostics
+   test exceeded its 5,000 ms limit at 5,092 ms and 5,055 ms, so neither workflow
+   reached build. Its exact isolated case and unchanged 220-test file passed;
+   the timeout cause remains unproved. No timeout/configuration workaround was
+   applied. Both failed logs remain retained. A separate local build passed.
+
+   [Hosted CI 38063134792](https://github.com/clawmachinejed/league-one-audit/actions/runs/38063134792)
+   passed dependency, lint, type and build checks and all 6,596 unit tests across
+   295 files, with zero skips. The diagnostic case passed in 1,446 ms. Public
+   browser checks passed 121 cases in 6.3 minutes with 20 intentional account
+   exclusions; all 20 account cases passed separately in 23.5 seconds. No failed
+   or flaky summary appeared. Both served-build provenance checks used clean
+   merge checkout `9db86f957686d27abfc2320cd9139cc2db58f3a5`, whose tree
+   `1e7b9e260e73856001e30043f445d789226cfff9` matches the reviewed head.
+   The Ready [exact-source preview](https://leagueonefantasy-febmbfoqx-robert-finchums-projects.vercel.app)
+   was inspected in the built-in browser: My Fantasy guest state, 12 League One
+   cards, 12 League Two cards, 10 Dynasty cards, 2026/History tabs and scoped
+   navigation. No layout regression was seen in the inspected Dynasty view.
+   This is existing UI evidence, separate from SQL qualification.
+
+   **Approved attempt and failure.**
+   [Disposable run 38068331831, attempt 1](https://github.com/clawmachinejed/league-one-audit/actions/runs/38068331831)
+   selected only `data-team-manager-facts-v1` at `be4bb9e`, with fixture LF SHA-256
+   `22955191422cb8601647cd31254c9e8aa3b9d555c2d8080bc59f986509127e23`.
+   The report proves all nine cases executed once in source/chronological order,
+   one beforeAll/afterAll pair each started and ended once, zero retries, repeats,
+   skips, flaky cases or unhandled errors. Cases 6 and 8 passed: forged directory
+   facts/source mappings/worker fences and actual restricted privileges. The
+   maintained report and artifact validators correctly reject the seven failures.
+
+   Cases 1–5 and 7 stopped at their initial accepted-manager read returning
+   `missing`. Case 1 had already passed all six commissioner presence/value/raw
+   assertions, exact stored projection parity and season binding. Case 7 stopped
+   before either observed lock, either 15-second fence expiry or any late-write
+   rollback assertion. Corrections/history/replay, uncertain-owner/co-owner,
+   reservation/remap and directory-failure assertions in the other failed cases
+   were not reached. The two passing cases do not prove a nonempty accepted-manager
+   baseline or genuinely fresh-role provisioning.
+
+   Case 9 passed initial ordinary intake, six HTTP requests, typed directory
+   normalizer/capture/mapping/season parity and initial primary-manager readback.
+   It reached the changed refresh and unavailable users response, with 12 requests
+   asserted, then failed at fixture line 510: the expected one-element teams array
+   did not match the returned three teams. The thirteenth-request empty-directory
+   recovery, historical capture, stored-only read gate, unrelated/missing mapping,
+   server witness and final remap assertions after that point were not reached.
+   Passing statements before failure are partial observations, not passed cases.
+
+   **Offline reproduction and fixture-only repair.** Separate local checks used
+   the actual registrar, normalizer and readers with a fake database boundary.
+   Configured registration with empty `scoringRules: {}` produces hash
+   `44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a`,
+   while normalization of empty official `scoring_settings: {}` produces null.
+   The official-data empty control returns null on both sides; the configured
+   `{ rec: 0.5 }` control produces matching hashes. The actual readers return
+   `missing` when their query yields no accepted head. A model of the frozen
+   R037/R039 predicates predicts that the mismatch records a configuration
+   conflict, removes usable roster-population evidence and prevents acceptance.
+   That predicate evaluation is not PostgreSQL execution, and the failed artifact
+   does not retain the rejected acceptance row needed to directly witness the
+   complete SQL rejection chain. The narrower proven facts are the actual
+   registration/normalization mismatch and the failed run's missing reader result.
+
+   A separate network-blocked reproduction using installed Vitest first passed
+   one test expecting the original one-team nested `toMatchObject` assertion to
+   fail against the documented three-team result. Its expanded two-test check
+   also passed: the repaired assertion extracted from fixture source accepts all
+   three teams and rejects an extra team, wrong owner, lost vacancy/co-owner or
+   wrong native team ID, with zero network attempts. Both outputs are retained. Fixture-only repairs align synthetic registration
+   and captured scoring rules, add immediate acceptance checks, and assert all
+   three changed-refresh teams. No application or migration repair is selected.
+   These offline checks and source repairs do not reexecute the SQL cases or
+   qualify the unreached history, recovery, mapping or rollback assertions.
+   Their evidence is retained in `cp7-offline-population-repro.mts/.log`,
+   `cp7-offline-population-repair.mts/.log` and the run folder's
+   `offline-case9-repro` files. The repair check extracts the shared scoring rules
+   from the current fixture and confirms the matching actual hashes while
+   retaining the original empty-scoring mismatch as a control.
+
+   The combined fixture-only repair received independent source review; only
+   its CP7 profile pin changes to LF SHA-256
+   `cf206755ad34e916cb9606eb9c12259340ef3f603362c2f87d2299a52c0e058d`.
+   Names, nine-case order, hook inventory, prior profile pins, worker limits and
+   application/migration bytes are unchanged. Focused repair checks passed all
+   192 tests across three files; targeted fixture/profile ESLint and final Node24
+   `next typegen && tsc --noEmit` passed. An initial repair type check failed
+   because ignored diagnostic `.ts` scripts were included by the broad app
+   configuration. That failed output remains retained; the scripts were renamed
+   byte-for-byte to `.mts`, and the repeat passed without tracked configuration
+   changes. This separate local diagnostic failure is not either original full
+   verification timeout or the SQL failure. The original `be4bb9e` failure and
+   fixture digest remain unchanged. Hosted CI and preview results above bind
+   only the original source; repaired source has no SQL execution or qualification.
+
+   Vitest took 657.21 seconds, including 627.31 seconds reported for tests/hooks;
+   the supervisor lifecycle was 670,614 ms (about 11m11s). The nine authored case
+   limits remain eight at 60 seconds and one at 900 seconds, with two 120-second
+   hooks: 27 minutes before harness overhead. A failed early-stop measurement is
+   not a successful workload-fit guarantee. The original 20-second worker,
+   30-minute work, 40-minute lifecycle and 50-minute CI limits were unchanged.
+
+   **Cleanup accepted separately.** Immutable journal sequences 0001–0012 retain
+   the failed run. The final acknowledged receipt and failed process exit agree:
+   `tests=failed`, `qualification=failed`, `failures=["tests"]`, no cancellation
+   and no unresolved resources. Child process-group closure, schema cleanup,
+   generated credential revocation and child deletion are all verified. The global
+   cleanup acknowledgment binds report LF SHA-256
+   `29e56eeef64fe71147c1c31f7b02274ed000b709be35a857e94984443726b3dc`;
+   no sticky timeout/reporter/cleanup-failure marker exists. The terminal receipt
+   raw SHA-256 is
+   `0b3085bf8568c43517710138eb7c71e82e3a1cdb96fee7eb3c2b1ce8c5e05167`.
+   Root independently observed the approved Neon project's branch list afterward:
+   only `integration-test-base` remained; child `br-bitter-hill-b7g57p9k` was absent.
+   The run used one 0.25-CU child on PostgreSQL major 18; the patch version was not
+   measured. Authorization was up to $1, not an enforced provider billing cap;
+   actual billed cost/invoice was not measured. No live Sleeper request or
+   production write was selected. Sanitized logs, source/report/cleanup bindings,
+   journal snapshots, provider observations and independent rejection validation
+   remain under `apps/site/test-results/data-backend/cp7-run-38068331831` locally.
+   Any repaired source needs its own independently reviewed binding and separately
+   authorized qualification; this failure is never relabeled as a pass.
 
 ## Current core recovery — October 9, 2026
 

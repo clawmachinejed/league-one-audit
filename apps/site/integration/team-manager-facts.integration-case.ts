@@ -19,6 +19,7 @@ import { createIndependentDatabase, createPinnedIntegrationDatabase, ownerQuery,
 type Fixture = { leagueKey: string; leagueId: string; leagueSeasonId: string; externalLeagueId: string;
   mapping: AdministrationSourceMapping; population: RosterPopulationEvidence };
 type Attempts = RosterCaptureAttempts & { evidence: RosterCaptureAttempts['managers'] };
+const fixtureScoringRules = { rec: 0.5 };
 const initialRosters: JsonValue = [
   { roster_id: 1, owner_id: 'owner-a', co_owners: ['co-a'], players: [], starters: [] },
   { roster_id: 2, owner_id: 'owner-b', co_owners: [], players: [], starters: [] },
@@ -94,15 +95,22 @@ describe.sequential('current season manager and commissioner facts through restr
   }
   async function population(f: Pick<Fixture, 'leagueKey' | 'externalLeagueId'>): Promise<RosterPopulationEvidence> {
     const input = await capture(f, { league_id: f.externalLeagueId, season: '2026', sport: 'nfl', total_rosters: 3,
-      scoring_settings: {}, roster_positions: ['QB', 'BN'] }, 'league');
+      scoring_settings: fixtureScoringRules, roster_positions: ['QB', 'BN'] }, 'league');
     const result = await store.recordObservation(input);
+    expect(result, 'CP7 population publication: ' + JSON.stringify(result)).toMatchObject({
+      status: expect.stringMatching(/^(?:changed|unchanged|replayed)$/u), observationId: expect.any(String),
+    });
     if (!result.observationId) throw new Error('Missing CP7 population evidence.');
+    expect(await store.readSource({ ...input.envelope.scope, family: 'league', week: null }),
+      'CP7 population must be the accepted legacy configuration before roster publication.').toMatchObject({
+      status: 'available', observationId: result.observationId,
+    });
     return { observationId: result.observationId, contentHash: input.contentHash, envelope: input.envelope };
   }
   async function fixture(): Promise<Fixture> {
     const leagueKey = 'cp7-' + randomUUID(), externalLeagueId = '8' + BigInt('0x' + randomUUID().replaceAll('-', '').slice(0, 15));
     const result = await createProjectionStore(connection.database).registerLeagueSeason({ leagueKey, leagueName: 'CP7 isolated DATA fixture',
-      season: 2026, sleeperLeagueId: externalLeagueId, scoringRules: {} });
+      season: 2026, sleeperLeagueId: externalLeagueId, scoringRules: fixtureScoringRules });
     if (result.kind !== 'stored') throw new Error('Missing CP7 canonical registration.');
     await ownerQuery(`INSERT INTO public.league_administration_enrollments(league_id,provider,evidence)
       VALUES($1,'sleeper','CP7 isolated enrollment prerequisite')`, [result.value.leagueId]);
@@ -122,6 +130,13 @@ describe.sequential('current season manager and commissioner facts through restr
     undefined, undefined, undefined, undefined, undefined, { attempt: attempts.evidence, population: f.population });
   async function roster(f: Fixture, rows: JsonValue = initialRosters) {
     const attempts = await reserve(f); const input = await capture(f, rows); const result = await publish(f, input, attempts);
+    if (rows === initialRosters) {
+      expect(result, 'CP7 initial roster publication: ' + JSON.stringify(result)).toMatchObject({
+        rosterAcceptance: { status: 'accepted', receiptId: expect.any(String) },
+        teamManagerAcceptance: { status: 'accepted', receiptId: expect.any(String) },
+        teamManagerEvidenceAcceptance: { status: 'accepted', receiptId: expect.any(String) },
+      });
+    }
     return { attempts, input, result };
   }
   async function managers(f: Fixture, evidence = true) {
@@ -508,7 +523,14 @@ describe.sequential('current season manager and commissioner facts through restr
       await progress(true, 'users', 'unavailable'); expect(requestUrls).toHaveLength(12);
       const afterFailure = await readPublicDataRefresh(connection.database, store, target.targetId, { managerEvidenceVersion: 'v2' });
       expect(afterFailure).toMatchObject({ status: 'available', intake: { leagues: [{ resources: {
-        teamManagers: { status: 'available', teams: [{ primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: 'co-a' } } } }] },
+        teamManagers: { status: 'available', teams: [
+          { sourceTeam: { nativeId: '1' }, primaryOwner: { state: 'owned', manager: { sourceManager: { nativeId: 'co-a' } } },
+            coManagers: { state: 'known', managers: [] } },
+          { sourceTeam: { nativeId: '2' }, primaryOwner: { state: 'unowned', manager: null },
+            coManagers: { state: 'known', managers: [{ sourceManager: { nativeId: 'vacant-co' } }] } },
+          { sourceTeam: { nativeId: '3' }, primaryOwner: { state: 'unowned', manager: null },
+            coManagers: { state: 'known', managers: [] } },
+        ] },
         teamManagerEvidence: { status: 'available', captureBinding: 'latest-for-current-source-mapping' },
         directory: { status: 'unavailable', reason: 'intake-capture-not-current-head' }, managerDirectory: { status: 'unavailable', reason: 'intake-directory-capture-unavailable' },
       } }] } });
