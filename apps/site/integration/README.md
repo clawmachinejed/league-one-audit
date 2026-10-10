@@ -532,3 +532,56 @@ run and its ordered cases, source pins, report and acknowledged cleanup pass
 independent validation. Source checks do not authorize that run. Actual results,
 version, duration, costs and remaining limits belong in the
 [evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP10 exact native lineup and score value qualification
+
+The authored closed `data-exact-matchup-values-v1` profile selects seven ordered
+cases in `exact-matchup-values.integration-case.ts` and one shared hook pair.
+Only after separate exact-source authorization, the fixed command is
+`pnpm test:integration --profile=data-exact-matchup-values-v1`. The protected
+manual workflow offers that literal choice. Normal full discovery adds one module
+(53 to 54); all older fixture bytes, selected inventories and source pins remain
+unchanged. Authoring does not authorize credentials, provisioning, migration
+application, a paid SQL run, live capture or production activity.
+
+The fixture is designed to compare synthetic source payloads with the new immutable
+relational values and the actual restricted stored reader. It distinguishes
+missing, null, supplied empty and supplied zero; preserves source row and starter
+order, vacancy scores, every player-map key, raw scores and custom overrides; and
+checks decimal, negative and exponent values without recalculating official team
+scores. Equality is for parsed JSON values, not discarded numeric lexical scale.
+An official custom zero overrides the raw score. Tied values and unpaired rows
+remain native evidence. Repeated native matchup IDs in two separate period
+captures do not establish a playoff round, multiweek aggregate, winner or finality.
+
+Independent cases cover immutable corrections, fresh equal-content receipts,
+exact replay, both out-of-order completion orders, invalid and partial last-good
+preservation, unrelated receipt/source mapping rejection and restricted grants.
+A pinned restricted writer must actually wait on the new typed relation until its
+original 12-second synthetic worker fence expires. After release, all new typed
+rows, legacy history, receipt and acceptance must roll back. Stored reads run with
+provider calls blocked and reject mutation statements. Existing-role reprovisioning
+runs only inside a rolled-back transaction; it is not fresh-role qualification.
+
+The ordinary case uses the existing Sleeper adapter, intake owner, real minute
+admissions, dispatch witnesses, stores and readers. It completes one explicitly
+requested 2026 native period in each of an initial intake and a changed refresh.
+Each cycle follows identity, discovery, bootstrap, exact period, core and users:
+12 admissions and 16 synthetic GETs across both cycles, plus a final zero-GET owner
+claim that records the complete refresh outcome. The original exact receipt must
+remain readable after the correction, while default current-head checks keep their
+existing behavior. This case does not claim acquisition of all 18 periods, live
+provider coverage, fleet capacity, the complete SQL suite or production release.
+
+Six 60-second cases, one 900-second case and two 120-second hooks total a 25-minute
+authored allowance before other harness overhead. This is not measured fit or a
+cost guarantee. The existing 20-second ordinary work, real 60-second admission,
+30-minute supervisor work, 40-minute lifecycle, 50-minute CI and one-hour expiry
+limits remain unchanged. No automatic SQL retry or cleanup exception is added.
+
+CP10 remains **authored and SQL-unqualified** until a separately authorized run of
+the reviewed frozen source passes every case and its report, hooks, source pin and
+acknowledged cleanup are independently verified. Offline selector/report checks,
+TypeScript, source inspection and numeric parser tests do not establish PostgreSQL
+execution. Record the actual database version, duration, cleanup and remaining
+gaps in the [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).

@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-exact-matchup-values-v1
           - data-period-settings-context-v1
           - data-period-inventory-v1
           - data-team-manager-facts-v1
@@ -73,6 +74,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-exact-matchup-values-v1)
+              pnpm test:integration --profile=data-exact-matchup-values-v1
               ;;
             workflow_dispatch:data-period-settings-context-v1)
               pnpm test:integration --profile=data-period-settings-context-v1

@@ -85,7 +85,7 @@ function sourceNumber(value: JsonValue | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 /** The shortest round-trippable decimal of the parsed JSON number, never a claim about lost source lexical scale. */
-function decimal(value: number | null): Decimal | null {
+export function parsedOfficialDecimal(value: number | null): Decimal | null {
   if (value === null) return null;
   const source = Object.is(value, -0) ? '0' : String(value);
   if (!/[eE]/.test(source)) return source;
@@ -100,7 +100,7 @@ function decimal(value: number | null): Decimal | null {
       : `${digits.slice(0, offset)}.${digits.slice(offset)}`;
   return negative ? `-${expanded}` : expanded;
 }
-function score(value: JsonValue | undefined): Decimal | null { return decimal(sourceNumber(value)); }
+function score(value: JsonValue | undefined): Decimal | null { return parsedOfficialDecimal(sourceNumber(value)); }
 function ids(value: JsonValue | undefined): string[] | null {
   return Array.isArray(value) ? value as string[] : null;
 }
@@ -179,7 +179,7 @@ export function projectExactMatchups(
     return { seasonTeamId, externalRosterId: entry.externalRosterId, nativeMatchupId: entry.externalMatchupId,
       players: rawPlayers, starters, bench, nonstarters, reserveAndTaxi: { state: 'unknown', reason: 'period_reserve_evidence_missing' },
       officialPlayerPoints: pointMap ? Object.fromEntries(Object.entries(pointMap).map(([id, points]) => [id, score(points)])) : null,
-      officialTeamPoints: { raw: decimal(entry.points), custom: decimal(entry.customPoints), effective: decimal(effective),
+      officialTeamPoints: { raw: parsedOfficialDecimal(entry.points), custom: parsedOfficialDecimal(entry.customPoints), effective: parsedOfficialDecimal(effective),
         adjustment: entry.customPoints !== null ? 'custom-override' : entry.points !== null ? 'none' : 'unknown',
         adjustmentReason: null },
       coverage: { status: reasons.length ? 'partial' : 'complete', reasons } };
