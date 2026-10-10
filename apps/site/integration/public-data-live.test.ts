@@ -23,7 +23,7 @@ const league = (id: string) => ({ league_id: id, season: '2026', sport: 'nfl', n
 const rosters = [{ roster_id: 1, owner_id: JOURNEY_MANAGER, co_owners: null, players: ['123', 'BUF'] }];
 const users = [{ user_id: JOURNEY_MANAGER }];
 const payload = (url: string, leagueIds: readonly string[] = JOURNEY_LEAGUES) => url.includes('/leagues/nfl/') ? leagueIds.map(league)
-  : url.includes('/user/') ? { user_id: JOURNEY_MANAGER, username: 'dannypak', display_name: 'Live source shape' }
+  : url.includes('/user/') ? { user_id: JOURNEY_MANAGER, username: JOURNEY_USERNAME.toLowerCase(), display_name: 'Live source shape' }
     : url.endsWith('/rosters') ? rosters : url.endsWith('/users') ? users : league(url.split('/').at(-1)!);
 function witness(index: number, step: ReturnType<typeof createLiveJourney>['steps'][number] = initialSteps[index]): PublicCaptureWitness {
   const common = { requestId: uuid(step.cycle), revision: index };
@@ -46,7 +46,7 @@ async function stepCapture(source: ReturnType<typeof createLiveJourney>, index: 
         : [await source.source.core(step.leagueId!, step.kind === 'bootstrap' ? 'league' : 'users', signal, w)];
   source.finishStep(true); return { values, w };
 }
-it.each([1, 2, 4])('discovers %i unrelated leagues in shuffled order and preserves every original seal through both collections', async count => {
+it.each([1, 2, 3, 4])('discovers %i unrelated leagues in shuffled order and preserves every original seal through both collections', async count => {
   const ids = JOURNEY_LEAGUES.slice(0, count), shuffled = [...ids].reverse();
   let live = 0, max = 0, lists = 0;
   const transport = vi.fn<typeof fetch>(async url => {
@@ -186,7 +186,7 @@ it('refuses same-count raw/normalized ID disagreement in an originally sealed ad
   expect(source.snapshot()).toMatchObject({ failure: { reason: 'discovery-invalid', attempt: 2 }, discovery: [{ rawCount: 4, normalizedCount: 4, accepted: false }] });
   expect(transport).toHaveBeenCalledTimes(2);
 });
-it.each([1, 2, 4].flatMap(count => ['missing-step', 'missing-capture', 'extra-capture'].map(mode => ({ count, mode }))))('requires exact steps/GETs/captures with $mode at $count discoveries', async ({ count, mode }) => {
+it.each([1, 2, 3, 4].flatMap(count => ['missing-step', 'missing-capture', 'extra-capture'].map(mode => ({ count, mode }))))('requires exact steps/GETs/captures with $mode at $count discoveries', async ({ count, mode }) => {
   const transport = vi.fn<typeof fetch>(async url => new Response(JSON.stringify(payload(String(url), JOURNEY_LEAGUES.slice(0, count)))));
   const source = createLiveJourney(transport); vi.stubGlobal('fetch', source.fetch);
   for (let i = 0; i < source.steps.length; i++) {
@@ -233,6 +233,36 @@ it('uses declared league identity for raw oracles and preserves the prior League
     const raw = liveRawOracle(league(id), rosters, users, { leagueId: id, season: 2026 });
     expect(raw).toMatchObject({ rules: { zero: 0, int: -2 }, teams: [{ players: ['123', 'BUF'], owner: JOURNEY_MANAGER, coOwners: { state: 'unknown' } }] });
     expect(() => liveRawOracle(league(id), rosters, users, { leagueId: id, season: 2025 })).toThrow('boundary rejected');
+  }
+});
+it('preserves twelve empty pre-draft rosters, repeated starter vacancies and explicit ownership in the raw oracle and normalizer', () => {
+  const id = JOURNEY_LEAGUES[0], slots = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'FLEX', 'K', 'DEF', 'BN', 'BN', 'BN', 'BN', 'BN'];
+  const sourceLeague = { ...league(id), status: 'pre_draft', total_rosters: 12, roster_positions: slots };
+  const sourceRosters = Array.from({ length: 12 }, (_, index) => ({ league_id: id, roster_id: index + 1,
+    owner_id: index === 0 ? JOURNEY_MANAGER : null, co_owners: null, players: [], starters: Array<string>(10).fill('0'), reserve: [], taxi: [] }));
+  const raw = liveRawOracle(sourceLeague, sourceRosters, users, { leagueId: id, season: JOURNEY_SEASON });
+  expect(raw.metadata.totalRosters).toBe(12); expect(raw.slots).toEqual(slots); expect(raw.directory).toEqual([JOURNEY_MANAGER]);
+  expect(raw.teams).toHaveLength(12); expect(raw.teams.filter(team => team.owner === JOURNEY_MANAGER)).toHaveLength(1);
+  expect(raw.teams.filter(team => team.owner === null)).toHaveLength(11);
+  for (const team of raw.teams) expect(team).toMatchObject({ players: [], coOwners: { state: 'unknown', reason: 'co_managers_null', ids: null } });
+  const scope = { leagueKey: 'sleeper-' + id, provider: 'sleeper' as const, externalLeagueId: id, season: JOURNEY_SEASON };
+  const time = '2026-10-09T00:00:00.000Z';
+  const document = { week: null, requestStartedAt: time, requestCompletedAt: time, sourceObservedAt: time };
+  const settings = normalizeLiveCapture(scope, { ...document, family: 'league', payload: sourceLeague }, time, 12);
+  expect(settings.status).toBe('accepted'); expect(settings.leagueSettings?.value?.lifecycle).toMatchObject({ state: 'known', value: 'pre_draft' });
+  const normalized = normalizeLiveCapture(scope, { ...document, family: 'rosters', payload: sourceRosters }, time, 12);
+  expect(normalized.status).toBe('accepted'); expect(normalized.envelope.payload).toEqual(sourceRosters);
+  if (normalized.value?.family !== 'rosters') throw new Error('Expected complete empty roster population.');
+  expect(normalized.value.teams.map(team => ({ externalRosterId: team.externalRosterId, players: team.playerExternalIds,
+    owner: team.primaryOwnerExternalId })).sort((a, b) => a.externalRosterId.localeCompare(b.externalRosterId)))
+    .toEqual(raw.teams.map(({ externalRosterId, players, owner }) => ({ externalRosterId, players, owner })));
+  for (const team of normalized.value.teams) expect(team).toMatchObject({ playerExternalIds: [], starterExternalIds: Array(10).fill('0'),
+    reserveExternalIds: [], taxiExternalIds: [] });
+  expect(normalized.teamManagers?.teams).toHaveLength(12); expect(normalized.teamManagerEvidence?.teams).toHaveLength(12);
+  for (const projection of [normalized.teamManagers, normalized.teamManagerEvidence]) {
+    expect(projection?.teams?.filter(team => team.primaryOwner.state === 'owned')).toHaveLength(1);
+    expect(projection?.teams?.filter(team => team.primaryOwner.state === 'unowned')).toHaveLength(11);
+    for (const team of projection?.teams ?? []) expect(team.coManagers).toMatchObject({ state: 'unknown', reason: 'co_managers_null', externalManagerIds: null });
   }
 });
 it('keeps the authored case on one shared owner with fixed acquisition/finalization budgets and no owner seeding', async () => {

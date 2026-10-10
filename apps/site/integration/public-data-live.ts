@@ -5,8 +5,8 @@ import type { PublicIntakeDependencies } from '../lib/league-administration/publ
 import { qualificationDigest } from './qualification-profile';
 
 // Qualification data only. The shared product has no named-league eligibility rule.
-export const JOURNEY_USERNAME = 'DannyPak';
-export const JOURNEY_MANAGER = '79628519873069056';
+export const JOURNEY_USERNAME = 'ClawMachineJedi';
+export const JOURNEY_MANAGER = '862823517857697792';
 export const JOURNEY_SEASON = 2026;
 export const JOURNEY_MAX_LEAGUES = 4;
 export const JOURNEY_MAX_GETS = 36;
