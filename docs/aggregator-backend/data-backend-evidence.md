@@ -1,5 +1,68 @@
 # DATA backend evidence and remaining qualification
 
+## CP7 manager and commissioner facts — authored source, October 10, 2026
+
+**AUTHORED; PostgreSQL qualification pending.** This increment starts from
+`d073c86042398da56f0dc23abc40e7dc18d0182e` on `codex/data-manager-facts`.
+It does not transfer CP5 or CP6 results to changed CP7 source, close backend
+readiness, or authorize a SQL run, credentials, installation, merge or release.
+
+1. **Data resource:** current-2026 league/season-scoped teams, primary owners,
+   vacancies and co-owners, plus independent official Sleeper `users.is_owner`
+   commissioner facts. Commissioner true/false, absent, null and invalid raw
+   values stay distinct; multiple commissioners are allowed. Commissioner
+   status proves neither roster ownership nor website/account authority.
+2. **Existing path:** the existing Sleeper users/roster captures and
+   `normalizeAdministrationObservation` feed the same administration writer.
+   Additive migration `043_manager_directory_facts.sql` stores a version marker
+   and immutable typed facts beside existing users content and manager identities.
+   `neon/team-managers.ts` reads the exact existing directory capture with the
+   current source-mapping guard; `public-intake-reader.ts` composes it as retained
+   evidence. Existing v1 primary-owner completion and v2 latest-mapping evidence
+   remain distinct. No provider call or alternate worker is added.
+3. **Persisted result:** the authored schema independently checks raw-to-typed
+   commissioner parity, identity and population completeness, including a
+   complete-empty marker, inside the existing writer transaction. Exact capture
+   time and database recording time retain their separate meanings. Old captures
+   can remain readable after a directory-head correction while a source remap
+   prevents use through an obsolete mapping. Runtime tables remain SELECT-only;
+   private helpers, immutable history, CP6 roster links and the 20-second work
+   deadline remain protected. A failed directory cannot erase accepted roster
+   relationships or turn retained evidence into intake completion.
+4. **Real evidence and gaps:** source-path purposes received peer review from
+   `/root/cp7_contracts`, `/root/cp7_storage` and `/root/cp7_qualification` under
+   `DATA-CP7-2026-10-10-MANAGER-FACTS`; these are engineering review records, not
+   infrastructure authority. Substantive peer review accepted the TS resource
+   path, separate SQL/provisioner changes and the nine-case fixture. The reader's
+   incorrect comparison of database recording time with collector source time
+   was independently reproduced and corrected. Focused source checks passed
+   327 tests; independent normalizer/reader/migration-source checks passed 41
+   tests across three files. These sets overlap and are not additive.
+   **Both default full local verification attempts remain failed:** each passed
+   dependency, lint and type checks, then reported 6,594 passing unit tests,
+   one failure and one existing skip across 295 files. The unchanged diagnostics
+   test exceeded its 5,000 ms limit at 5,092 ms and 5,055 ms respectively, so
+   neither workflow reached its build step. The exact diagnostics case passed
+   in isolation, as did its unchanged 220-test file; no assertion defect or
+   timeout cause was reproduced, and no timeout, code or configuration was
+   changed to force a pass. The separate skip is the existing scoped-IPv6
+   listener case on a host without scoped IPv6. Both failed logs and the
+   successful isolated check remain retained. A separate production build
+   passed with exit 0; both complete local workflows remain failed. Immutable
+   hosted CI, exact-source preview and published revision are pending.
+   The new closed `data-team-manager-facts-v1` profile
+   authors nine cases with one setup/teardown pair: relationship and commissioner
+   parity, corrections/history/replay, uncertain ownership, ordering/remaps,
+   independent directory failures, forged evidence/fences, observed lock rollback,
+   actual restricted privileges, and ordinary intake plus changed refresh readback.
+   Its authored allowance is 27 minutes (eight 60-second cases, one 900-second
+   case and two 120-second hooks), before other harness overhead; this is not
+   measured fit. No CP7 SQL case, live-source capture, role installation or cleanup
+   has been executed by this increment. Older migration bytes 001–042, fixture
+   bodies, profile pins and historical results remain bound to their original
+   sources. Actual PostgreSQL version, runtime behavior, duration and cleanup
+   still require a separately authorized frozen-source run.
+
 ## Current core recovery — October 9, 2026
 
 **Bounded core recovery complete; compatibility and live SQL accepted. No merge or production deployment.** This bounded recovery starts from `e8176f26a30c705e8059c40a56afadc45ac35064` on `codex/username-core-recovery`. Its outcome is the existing generic Sleeper username plus declared season path: stable provider identity, associated-league discovery, core official import through the existing adapter and shared PostgreSQL store, committed stored-only readback, replay and refresh without loss of accepted history. DannyPak and stored League Two are test inputs, not runtime identity filters or a fixed discovery count. This core milestone is distinct from the broader data-backend-v1 matrix below.

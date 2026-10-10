@@ -7,7 +7,8 @@ import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope,
   NormalizedAdministrationObservation } from './contracts';
 import type { RetainedRosterProjection } from '../aggregator/roster-bridge';
 import type { AdministrationSourceMapping } from './source-mapping';
-import type { AcceptedTeamManagersRead, AcceptedTeamManagerEvidenceRead, RosterCaptureAttempts } from '../aggregator/team-managers';
+import type { AcceptedTeamManagersRead, AcceptedTeamManagerEvidenceRead, RosterCaptureAttempts,
+  ManagerDirectoryCaptureRead } from '../aggregator/team-managers';
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
@@ -88,6 +89,8 @@ export type LeagueAdministrationStore = Readonly<{
   beginTeamManagerEvidenceAttempt?: (mapping: AdministrationSourceMapping, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedTeamManagerEvidence?: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagerEvidenceRead>;
+  /** Exact immutable public directory capture; never substitutes for a current accepted head. */
+  readManagerDirectoryCapture?: (mapping: AdministrationSourceMapping, captureId: string) => Promise<ManagerDirectoryCaptureRead>;
   beginRosterAttempt: (mapping: AdministrationSourceMapping, attemptId: string, policy?: CurrentRosterPolicy,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readRosterPlayerLinks: (selection: RosterPlayerLinksSelection) => Promise<RosterPlayerLinksRead>;

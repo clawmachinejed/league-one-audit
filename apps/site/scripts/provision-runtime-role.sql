@@ -545,3 +545,32 @@ DO $$ DECLARE link_table text; denied_privileges text:='INSERT,UPDATE,DELETE,TRU
   END IF;
 END; $$;
 -- END OPTIONAL ROSTER PLAYER LINKS GRANTS
+
+-- BEGIN OPTIONAL MANAGER DIRECTORY FACTS GRANTS
+-- CP7 adds typed facts under the existing administration writer. Commissioner
+-- observations convey no roster ownership, account authority or direct write grant.
+DO $$ DECLARE directory_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_manager_directory_versions') IS NOT NULL THEN
+    FOREACH directory_table IN ARRAY ARRAY['league_manager_directory_versions','league_manager_directory_entries'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',directory_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',directory_table);
+      IF has_table_privilege('league_one_runtime','public.'||directory_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||directory_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||directory_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect manager directory privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.project_manager_commissioner_fact(jsonb)',
+      'public.validate_manager_directory_lineage()','public.validate_manager_directory_population()',
+      'public.record_league_administration_observation_v42(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'league_one_runtime can execute private manager directory helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.record_league_administration_observation(jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime lacks manager directory writer'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL MANAGER DIRECTORY FACTS GRANTS

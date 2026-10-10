@@ -16,6 +16,8 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
+  TEAM_MANAGER_FACTS_PROFILE, TEAM_MANAGER_FACTS_MODULE, TEAM_MANAGER_FACTS_SOURCE_DIGEST, TEAM_MANAGER_FACTS_SUITE,
+  TEAM_MANAGER_FACTS_TESTS, TEAM_MANAGER_FACTS_FULL_NAMES, TEAM_MANAGER_FACTS_PATTERN,
   ROSTER_PLAYER_LINKS_PROFILE, ROSTER_PLAYER_LINKS_MODULE, ROSTER_PLAYER_LINKS_SOURCE_DIGEST, ROSTER_PLAYER_LINKS_SUITE,
   ROSTER_PLAYER_LINKS_TESTS, ROSTER_PLAYER_LINKS_FULL_NAMES, ROSTER_PLAYER_LINKS_PATTERN,
   PLAYER_DIRECTORY_PROFILE, PLAYER_DIRECTORY_MODULE, PLAYER_DIRECTORY_SOURCE_DIGEST, PLAYER_DIRECTORY_SUITE,
@@ -291,7 +293,7 @@ it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFI
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
-  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(50);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(51);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
@@ -842,7 +844,7 @@ async function livePlayerDirectoryFixture(): Promise<{ binding: QualificationBin
   };
   return { binding: { context, directory }, evidence };
 }
-it('requires a closed bound live directory profile while preserving default50 discovery and every older source pin', async () => {
+it('requires a closed bound live directory profile while preserving default51 discovery and every older source pin', async () => {
   expect(parseQualificationArguments(['--profile=' + LIVE_PLAYER_DIRECTORY_PROFILE])).toBe(LIVE_PLAYER_DIRECTORY_PROFILE);
   expect(qualificationArguments(LIVE_PLAYER_DIRECTORY_PROFILE, '/reporter')).toEqual([
     '--reporter', 'verbose', '--reporter', '/reporter', LIVE_PLAYER_DIRECTORY_MODULE, '--testNamePattern', LIVE_PLAYER_DIRECTORY_PATTERN]);
@@ -857,7 +859,7 @@ it('requires a closed bound live directory profile while preserving default50 di
   expect(() => requireLivePlayerDirectoryQualification({})).toThrow('Explicit bound');
   expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
-  expect(full.modules).toHaveLength(50);
+  expect(full.modules).toHaveLength(51);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   for (const profile of [PLAYER_DIRECTORY_PROFILE, SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE] as const) {
     const older = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), profile);
@@ -1027,5 +1029,110 @@ it('independently inventories the roster player link SQL fixture source and hook
   };
   visit(tree);
   expect(suites).toEqual([ROSTER_PLAYER_LINKS_SUITE]); expect(names).toEqual(ROSTER_PLAYER_LINKS_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+});
+
+async function teamManagerFactsFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'team-manager-facts-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), TEAM_MANAGER_FACTS_PROFILE);
+  const evidence: QualificationReport = {
+    kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0,
+    specifications: [{ path: TEAM_MANAGER_FACTS_MODULE, pattern: TEAM_MANAGER_FACTS_PATTERN, otherFilters: false }],
+    collected: [TEAM_MANAGER_FACTS_MODULE],
+    hooks: ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })),
+    modules: [{ path: TEAM_MANAGER_FACTS_MODULE, state: 'passed', errors: 0,
+      suites: [{ id: 'suite', name: TEAM_MANAGER_FACTS_SUITE, mode: 'run', errors: 0 }],
+      cases: TEAM_MANAGER_FACTS_FULL_NAMES.map((name, index) => ({ id: 'case-' + index, name, state: 'passed', mode: 'run',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }],
+  };
+  return { binding: { context, directory }, evidence };
+}
+it('binds the team manager facts profile to nine exact cases and original cleanup gates while full discovery includes its module', async () => {
+  expect(parseQualificationArguments(['--profile=' + TEAM_MANAGER_FACTS_PROFILE])).toBe(TEAM_MANAGER_FACTS_PROFILE);
+  expect(qualificationArguments(TEAM_MANAGER_FACTS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', TEAM_MANAGER_FACTS_MODULE, '--testNamePattern', TEAM_MANAGER_FACTS_PATTERN]);
+  for (const args of [
+    ['--profile=data-team-manager-facts-v2'], ['--profile', TEAM_MANAGER_FACTS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + TEAM_MANAGER_FACTS_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + TEAM_MANAGER_FACTS_PROFILE, extra]),
+  ]) expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await teamManagerFactsFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([TEAM_MANAGER_FACTS_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules.some(module => module.path === TEAM_MANAGER_FACTS_MODULE)).toBe(true);
+  const older = await fixture(INGESTION_PROFILE);
+  expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
+  const regex = new RegExp(TEAM_MANAGER_FACTS_PATTERN);
+  expect(TEAM_MANAGER_FACTS_FULL_NAMES).toHaveLength(9);
+  for (const name of TEAM_MANAGER_FACTS_FULL_NAMES) {
+    expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(regex.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(SELECTED_INVENTORY.some(name => regex.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: TEAM_MANAGER_FACTS_PROFILE,
+    collected: 9, executed: 9, passed: 9, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects incomplete team manager fact inventory, reordered execution, hook drift, retries and substituted profile evidence', async () => {
+  const { binding, evidence } = await teamManagerFactsFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].ends = 0; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const older = await fixture(INGESTION_PROFILE), oldReport = report(older);
+  expect(() => validateQualificationReport(older.context, { ...evidence, contextDigest: qualificationDigest(older.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...oldReport, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, TEAM_MANAGER_FACTS_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), TEAM_MANAGER_FACTS_PROFILE))
+    .rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories the team manager fact SQL fixture source and hooks without importing its execution', async () => {
+  const path = fileURLToPath(new URL('../' + TEAM_MANAGER_FACTS_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(TEAM_MANAGER_FACTS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+        suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) hooks.push(expression);
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual([TEAM_MANAGER_FACTS_SUITE]); expect(names).toEqual(TEAM_MANAGER_FACTS_TESTS);
   expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
 });
