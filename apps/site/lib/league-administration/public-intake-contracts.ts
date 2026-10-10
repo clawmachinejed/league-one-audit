@@ -5,9 +5,13 @@ export type { PublicIntakeWork } from './contracts';
 
 export const PUBLIC_INTAKE_JOB = 'league-administration-public-intake';
 export const PUBLIC_INTAKE_VERSION = 'sleeper-public-intake-v1';
+export const PUBLIC_PERIOD_INVENTORY = 'sleeper-2026-native-period-inventory-v1' as const;
+export type PublicPeriodInventory = typeof PUBLIC_PERIOD_INVENTORY;
+export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
+export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
-  exactPeriods?: readonly PublicExactPeriod[] }>;
+  exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -62,6 +66,29 @@ export function normalizePublicExactPeriods(value: unknown, seasons: readonly nu
   return periods.sort((left, right) => left.season - right.season);
 }
 
+/** Input opt-in is separate from the unchanged legacy selector. */
+export function normalizePublicPeriodInventory(value: unknown, seasons: readonly number[]): PublicPeriodInventory | undefined {
+  if (value === undefined) return undefined;
+  if (value !== PUBLIC_PERIOD_INVENTORY || seasons.length !== 1 || seasons[0] !== 2026) {
+    throw new Error('Invalid public native-period inventory scope.');
+  }
+  return PUBLIC_PERIOD_INVENTORY;
+}
+export function publicInventoryPeriods(): readonly PublicExactPeriod[] {
+  return Array.from({ length: 18 }, (_, index) => ({ season: 2026, nativeWeek: index + 1 }));
+}
+/** Stored full mode materializes its canonical requests; these are not source availability. */
+export function normalizeStoredPublicPeriods(value: unknown, seasons: readonly number[], mode: unknown) {
+  const periodInventory = normalizePublicPeriodInventory(mode ?? undefined, seasons);
+  if (!periodInventory) return { exactPeriods: normalizePublicExactPeriods(value ?? undefined, seasons), periodInventory };
+  const exactPeriods = publicInventoryPeriods();
+  if (!Array.isArray(value) || value.length !== 18 || value.some((entry, index) => !entry || typeof entry !== 'object'
+    || Array.isArray(entry) || Object.keys(entry).length !== 2 || entry.season !== 2026 || entry.nativeWeek !== index + 1)) {
+    throw new Error('Invalid stored public native-period inventory.');
+  }
+  return { exactPeriods, periodInventory };
+}
+
 export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInput {
   if (!input || typeof input !== 'object') throw new Error('Invalid public intake scope.');
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(input.id)
@@ -69,7 +96,9 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
     || !Array.isArray(input.seasons) || input.seasons.length < 1 || input.seasons.length > 3
     || input.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
+  const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
+  if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), username: input.username, seasons: [...input.seasons].sort((a, b) => a - b),
-    ...(exactPeriods.length ? { exactPeriods } : {}) };
+    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}) };
 }

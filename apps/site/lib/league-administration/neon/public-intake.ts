@@ -26,6 +26,17 @@ async function requireExactPeriodCapability(client: DatabaseClient): Promise<voi
   if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public exact-period intake requires installed R038.');
 }
 
+async function requirePeriodInventoryCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:period-inventory-capability */
+    SELECT to_regclass('public.public_data_period_inventory_plans') IS NOT NULL
+      AND to_regclass('public.public_data_period_inventory_sources') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='period_inventory' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='period_inventory' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public native-period inventory requires installed R044.');
+}
+
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
     await client.query(`/* public-data-intake:checkpoint */
@@ -35,7 +46,8 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
-      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+      if (validated.periodInventory) await requirePeriodInventoryCapability(client);
+      else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
         [JSON.stringify(validated)]);
     },
@@ -142,7 +154,8 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
-      if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+      if (validated.periodInventory) await requirePeriodInventoryCapability(client);
+      else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       const rows = await client.query('/* public-data-refresh:configure */ SELECT public.configure_public_data_refresh($1::jsonb) AS result',
         [JSON.stringify(validated)]);
       if (rows.length !== 1) throw new Error('Missing refresh configuration result.');

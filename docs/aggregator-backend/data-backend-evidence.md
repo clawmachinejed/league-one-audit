@@ -1,5 +1,81 @@
 # DATA backend evidence and remaining qualification
 
+## CP8 current-2026 native-period inventory — authored, PostgreSQL qualification pending
+
+1. **Data resource:** explicit `periodInventory: 'sleeper-2026-native-period-inventory-v1'`
+   with seasons exactly `[2026]`. Weeks 1–18 are requested endpoint coverage, not
+   a provider-advertised availability list. Mixed `exactPeriods` are rejected;
+   omitted and legacy exact selectors retain their prior wire and behavior.
+   Retained references are `settings.leg`, `settings.last_scored_leg`,
+   `settings.start_week` and `settings.playoff_week_start`. Absent, null,
+   invalid, known zero and positive values stay distinct. Known references
+   above 18 produce explicit coverage gaps without out-of-range acquisition,
+   endpoint-availability, competition-phase or historical-settings claims.
+2. **Existing path:** existing public Sleeper identity/list/bootstrap/matchup
+   captures and administration acceptance → existing fenced intake tasks and
+   checkpoints, extended by migration 044 → `public-intake-reader.ts` and
+   `public-refresh-reader.ts`, with bounded metadata composition in
+   `neon/public-period-inventory-reader.ts` through the existing store facade.
+   Contracts/adapters require installed 044 before a new-mode mutation. Refresh configuration, cycle and request
+   identities are checked independently. No provider, normalizer, coordinator,
+   worker, queue or scoring pipeline is added. CP9 phase/settings and CP10
+   exact-score parity remain later work.
+3. **Persisted result:** one immutable plan per retained candidate, at most
+   1,000; the existing owner admits at most 20 in its original selection order,
+   with 18 durable tasks each, at most 360. Other candidates retain explicit
+   capacity accounting. Task identity includes league, 2026 and native week.
+   Immutable source records preserve every raw list occurrence by ordinal,
+   including conflicting duplicates, and each retained bootstrap capture.
+   Readers verify the complete task matrix, exact source manifests, raw field,
+   timestamp and acquisition parity using the maintained typed settings
+   normalizer. Global collection status/counts are separate from current
+   resource acceptance and detailed page coverage (default/max 20). Pagination
+   cannot imply completed collection or invent pending work. Capacity, source
+   gaps, missing scopes and terminal discovery failures remain explicit; phase
+   stays unknown.
+4. **Real evidence and gaps:** authored on `codex/data-period-inventory` from
+   CP7 closeout `864e5a4d8b26a467eb854dc90b5d7610e83974e0`; source is not yet
+   frozen or PostgreSQL-qualified. Exact scope confirmation is recorded under
+   `DATA-CP8-2026-10-10-PERIOD-INVENTORY`. Focused intake/refresh/reader tests
+   passed 283/283 across four files: 1,000-candidate accounting, unsorted admitted
+   subsets, duplicate/bootstrap omission rejection, 360-complete collection
+   versus 20-item pages, 17-of-18 rejection, source states and terminal discovery.
+   Source checks and independent review are separate from SQL proof. The new
+   six-case `data-period-inventory-v1` profile is authored but unexecuted:
+   bounded metadata, replay, roles and rollback, plus ordinary synthetic week
+   1/2 captures, lost acknowledgment, failure/retry and one refresh with 16
+   periods still pending in each intake. Its 27-minute authored test/hook
+   allowance is unmeasured; the existing 20-second worker, 60-second admission
+   and 30/40/50-minute work/lifecycle/CI limits remain unchanged. No all-18
+   acquisition completion, live Sleeper, sustained recurrence, fleet/freshness,
+   fresh-role provisioning, full SQL suite, production installation or backend
+   completion is claimed. No paid run, credentials, provisioning, migration
+   application, merge or release was authorized or performed for this increment.
+   The initial complete source verification recorded 6,667 passes, two failures
+   and one skip across 297 files. The unchanged architecture rule identified
+   SQL outside the Neon package; the helper was relocated and exposed through
+   the existing store facade without changing the rule. The correction passed
+   302/302 architecture and intake/refresh tests, scoped lint and type checking;
+   dependency inspection found no store-to-intake-reader back-edge. The other
+   failure was the unchanged diagnostics test exceeding its original five-second
+   timeout.
+   That complete diagnostics file subsequently passed 220/220 in isolation
+   (12.29 seconds); the timeout's cause is unproved. The one skip was the
+   existing scoped-IPv6 listener case on a host with no scoped IPv6 interface.
+   No timeout or test allowance was changed. The second complete source run
+   after relocation exited 1 with 6,668 passes, one failure and one platform
+   skip across 297 files in 36.80 seconds. Architecture passed; the sole failure
+   was the same unchanged diagnostics case timing out at 5,041 ms against its
+   5,000 ms limit. The isolated 220-case pass does not replace either failed
+   complete run, and the cause remains unproved. Logs are retained at
+   `apps/site/test-results/data-backend/cp8/verify-full-source.log`,
+   `verify-full-source-r2.log` and `diagnostics-isolated.log`. The standalone
+   `pnpm build` then passed (exit 0), recorded in `cp8/build-source.log`; this
+   completes build verification separately and does not make either local full
+   verification run pass. Source publication, hosted complete CI and preview
+   inspection remain pending. No further local full rerun is scheduled without
+   a new reason. Earlier CP5–7 source/result bindings below remain unchanged.
+
 ## CP7 manager and commissioner facts — accepted nine-case qualification, October 10, 2026
 
 **Checkpoint 7 implementation and resource qualification are complete within the

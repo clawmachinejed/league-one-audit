@@ -4,6 +4,7 @@ import { getDatabase, withDatabaseAbortSignal, type Database } from '../database
 import { createLeagueAdministrationMethods } from './neon/administration';
 export { createAccountEnrollmentMethods as createAccountEnrollmentStore } from './neon/account-enrollment';
 export { createPublicIntakeStore, createPublicDataRefreshStore } from './neon/public-intake';
+export { readPublicPeriodTaskRows, readPublicPeriodInventory } from './neon/public-period-inventory-reader';
 import { createProjectionExactMatchupCompatibilityReader, createProjectionStore } from '../projection-store';
 import { createBundleOneReadService } from '../aggregator/bundle-one';
 import { EXACT_MATCHUPS_READ_SQL, readAcceptedExactMatchupsRows } from './neon/exact-matchups';
