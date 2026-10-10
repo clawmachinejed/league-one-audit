@@ -1,7 +1,7 @@
 import capture from '../../test-support/fixtures/sleeper-2026-season-schedule.json';
 import { createSleeperCalendarEvidence } from './period-mapping';
 import { describe, expect, it, vi } from 'vitest';
-import { beginCalculationSourceCapture, recordCapturedAdministration } from './runtime';
+import { beginCalculationSourceCapture, recordCapturedAdministration, recordCapturedPlayerDirectory } from './runtime';
 import { createLeagueAdministrationStore } from './store';
 import { loadAdministrationRegistry, loadIsolatedAdministrationRegistry } from './registry';
 import { administrationMaintenanceSelection, runAdministrationMaintenance } from './maintenance';
@@ -17,7 +17,8 @@ const document = { family: 'league' as const, week: null,
   payload: { league_id: scope.externalLeagueId, season: '2026', sport: 'nfl', name: 'League One',
     total_rosters: 1, roster_positions: ['QB', 'BN'], settings: { playoff_week_start: 15 }, scoring_settings: { pass_yd: 0.04 } } };
 function fakeStore(): LeagueAdministrationStore {
-  return { enabled: true, recordObservation: vi.fn(async () => ({ status: 'changed' as const,
+  return { enabled: true, beginPlayerDirectoryAttempt: vi.fn(), recordPlayerDirectoryCapture: vi.fn(),
+    readAcceptedPlayerDirectory: vi.fn(async () => ({ status: 'missing' as const })), recordObservation: vi.fn(async () => ({ status: 'changed' as const,
     observationId: 'observation', versionId: 'version', generation: 2 })),
   readSource: vi.fn(async () => ({ status: 'missing' as const })),
   readSourceMapping: vi.fn(async () => null),
@@ -486,4 +487,28 @@ it('reserves sibling v2 before changed-cache verification while retaining both v
   expect(call[0].teamManagerEvidence).toMatchObject({ status: 'partial', teams: [{
     primaryOwner: { state: 'unknown', reason: 'primary_owner_invalid' }, coManagers: { state: 'known', externalManagerIds: ['co'] } }] });
   expect(result.results[0].result.teamManagerEvidenceAcceptance?.status).toBe('accepted');
+});
+
+
+describe('shared directory capture writer boundary', () => {
+  it('accepts only the original sealed transport capture for its reserved attempt and requires a fence', async () => {
+    const { loadCompletePlayerCatalog } = await import('../sleeper-player-catalog');
+    const attempt = { id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', nonce: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      ordinal: 1, expectedGeneration: 0, reservedAt: time };
+    const fence = { jobKey: 'league-administration-public-intake', workerId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', generation: 1,
+      deadlineAt: '2026-10-09T12:00:20.000Z' };
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"x":{"player_id":"x"}}'));
+    try {
+      const capture = await loadCompletePlayerCatalog({ attempt, signal: new AbortController().signal });
+      const store = fakeStore(), signal = new AbortController().signal;
+      vi.mocked(store.recordPlayerDirectoryCapture).mockResolvedValue({ status: 'accepted', reason: 'changed', receiptId: 'receipt',
+        contentId: 'content', acceptedVersionId: 'version', generation: 1 });
+      expect(await recordCapturedPlayerDirectory(attempt, capture, { store, fence, signal })).toMatchObject({ status: 'accepted' });
+      expect(store.recordPlayerDirectoryCapture).toHaveBeenCalledWith(attempt, capture, fence);
+      await expect(recordCapturedPlayerDirectory(attempt, { ...capture }, { store, fence, signal })).rejects.toThrow(/Original/);
+      await expect(recordCapturedPlayerDirectory({ ...attempt, nonce: attempt.id }, capture, { store, fence, signal })).rejects.toThrow(/Original/);
+      await expect(recordCapturedPlayerDirectory(attempt, capture, { store, fence: undefined as never, signal })).rejects.toThrow(/writer/);
+      expect(store.recordPlayerDirectoryCapture).toHaveBeenCalledTimes(1);
+    } finally { fetcher.mockRestore(); }
+  });
 });

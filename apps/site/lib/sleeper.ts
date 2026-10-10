@@ -1,4 +1,5 @@
 import 'server-only';
+import { readPublicCaptureJson } from './sleeper-public-response';
 import { publicCaptureForRequest, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
 
 import { cache } from 'react';
@@ -194,76 +195,6 @@ const readAdministration = cache(async (
   }
   return readOfficialAdministration(leagueId, family, week, revalidate);
 });
-
-// DATA acquisition resource limits, not Sleeper limits or a coverage guarantee.
-// Bytes are the actual response.body bytes after fetch content decoding. Values
-// count the parsed root, containers and scalar values (not object member names);
-// the root has depth 1. Native JSON.parse has byte-bounded input; the subsequent
-// iterative checks bound work entering the existing normalizers and capture seal.
-const PUBLIC_CAPTURE_MAX_BYTES = 8 * 1024 * 1024;
-const PUBLIC_CAPTURE_MAX_VALUES = 250_000;
-const PUBLIC_CAPTURE_MAX_DEPTH = 64;
-
-function assertPublicCaptureStructure(payload: unknown): void {
-  const pending = [{ value: payload, depth: 1 }];
-  let values = 1;
-  while (pending.length) {
-    const { value, depth } = pending.pop()!;
-    if (value === null || typeof value !== 'object') continue;
-    const keys = Array.isArray(value) ? null : Object.keys(value);
-    const children = keys ? keys.length : (value as unknown[]).length;
-    // Count before pushing children so the traversal's own stack stays bounded.
-    if (children > PUBLIC_CAPTURE_MAX_VALUES - values) throw new Error('Public DATA response value limit exceeded.');
-    if (children && depth >= PUBLIC_CAPTURE_MAX_DEPTH) throw new Error('Public DATA response depth limit exceeded.');
-    values += children;
-    for (let index = 0; index < children; index++) {
-      pending.push({ value: keys ? (value as Record<string, unknown>)[keys[index]] : (value as unknown[])[index], depth: depth + 1 });
-    }
-  }
-}
-
-async function readPublicCaptureJson(response: Response, signal: AbortSignal): Promise<unknown> {
-  const reader = response.body?.getReader();
-  // Keep the existing JSON syntax failure for a successful response with no body.
-  if (!reader) { signal.throwIfAborted(); return JSON.parse(''); }
-  let ended = false, failure: unknown;
-  // A single listener closes pending reads without retaining a promise reaction
-  // per chunk. Stream cancellation settles reads before its source acknowledges.
-  const onAbort = () => { void reader.cancel(signal.reason).catch(() => undefined); };
-  let bytes = new Uint8Array(16 * 1024), length = 0;
-  try {
-    signal.throwIfAborted();
-    signal.addEventListener('abort', onAbort, { once: true });
-    while (true) {
-      const chunk = await reader.read();
-      signal.throwIfAborted();
-      if (chunk.done) { ended = true; break; }
-      if (chunk.value.byteLength > PUBLIC_CAPTURE_MAX_BYTES - length) throw new Error('Public DATA response byte limit exceeded.');
-      const required = length + chunk.value.byteLength;
-      if (required > bytes.byteLength) {
-        const grown = new Uint8Array(Math.min(PUBLIC_CAPTURE_MAX_BYTES, Math.max(required, bytes.byteLength * 2)));
-        grown.set(bytes.subarray(0, length));
-        bytes = grown;
-      }
-      bytes.set(chunk.value, length);
-      length = required;
-    }
-    // Decode once after the bounded read: split UTF-8 code points, BOM handling
-    // and replacement of malformed bytes retain Response.json() semantics.
-    const payload: unknown = JSON.parse(new TextDecoder().decode(bytes.subarray(0, length)));
-    assertPublicCaptureStructure(payload);
-    return payload;
-  } catch (error) {
-    failure = error;
-    throw error;
-  } finally {
-    signal.removeEventListener('abort', onAbort);
-    // Cancelling closes pending reads immediately; an underlying source may never
-    // acknowledge cancellation, so it cannot extend the existing request deadline.
-    if (!ended) void reader.cancel(failure).catch(() => undefined);
-    reader.releaseLock();
-  }
-}
 
 async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal,
   requestPolicy?: Readonly<{ redirect: 'error'; boundedPublicCapture: true }>): Promise<unknown> {

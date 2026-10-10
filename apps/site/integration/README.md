@@ -156,7 +156,7 @@ CI permits one run at a time. A preflight inventory also refuses more than two e
 
 The checked-in `disposable-integration` workflow supports manual dispatch (`workflow_dispatch`) and pushes only to branches matching `codex/integration-qualification-*` in the canonical repository. [Manual dispatch requires the workflow to exist on the default branch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch); once registered there, select an approved internal branch in GitHub. Before merge, an explicitly reviewed commit can instead be published to a dedicated qualification ref named `codex/integration-qualification-<shortSHA>`. That ref must point to the exact full reviewed SHA without another code commit; [push workflows can run before merge](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push). Each matching push queues a run, so publish only a commit ready for qualification and environment review. Ordinary development branches and pull-request events do not trigger this workflow.
 
-Manual dispatch offers the closed `profile` choices `full` (default), `data-core-compatibility-v1`, `data-core-ingestion-v1`, `data-core-refresh-v1`, `data-live-league-two-v1`, `data-live-public-intake-v1`, `data-official-preconfiguration-v1`, `data-ingestion-guards-v1`, `data-refresh-concurrency-v1`, `data-late-write-rollback-v1`, `data-intake-recovery-v1`, `data-refresh-history-v1`, `data-period-recovery-v1` and `data-period-exhaustion-v1`. Each choice maps to a fixed existing supervisor command; unknown values fail closed. Qualification-branch pushes continue to run the full suite. The same protected environment secret, approval boundary, concurrency group and original deadlines apply to every choice.
+Manual dispatch offers the closed `profile` choices `full` (default), `data-player-directory-v1`, `data-core-compatibility-v1`, `data-core-ingestion-v1`, `data-core-refresh-v1`, `data-live-league-two-v1`, `data-live-public-intake-v1`, `data-official-preconfiguration-v1`, `data-ingestion-guards-v1`, `data-refresh-concurrency-v1`, `data-late-write-rollback-v1`, `data-intake-recovery-v1`, `data-refresh-history-v1`, `data-period-recovery-v1` and `data-period-exhaustion-v1`. Each choice maps to a fixed existing supervisor command; unknown values fail closed. Qualification-branch pushes continue to run the full suite. The same protected environment secret, approval boundary, concurrency group and original deadlines apply to every choice.
 
 Both paths require review of the immutable `github.sha` recorded for the run and qualify that exact checkout; there is no arbitrary SHA input. The canonical-repository guard and protected `integration-test` environment apply to qualification pushes as well as manual dispatch. No fork code receives the control-plane credential. The workflow has read-only repository permissions, does not persist checkout credentials, serializes integration jobs without cancelling an active cleanup, and has a 50-minute limit. This leaves a nominal ten-minute allowance for dependency installation and artifact upload around the supervisor's 40-minute local lifecycle; installation consumes part of that allowance. Cleanup is already inside the supervisor budget. Individual API operation limits remain, but all requests, polling and teardown waits also share the remaining aggregate lifecycle budget. Expiry or a local hard stop never substitutes for verified remote deletion. The API key is supplied only to the test-runner step. Sanitized receipts and synthetic measurement JSON from each run's artifact directory are uploaded even after failure when available.
 
@@ -265,3 +265,75 @@ Set `COLLECTION_CAPACITY_OUTPUT` to a new absolute JSON path. `COLLECTION_CAPACI
 The supervisor requires empty application schemas, acquires exclusive integration admission, and then retains shared ownership with its pinned child until child closure and cleanup verification. Unknown or active database sessions fail closed. Previously recorded idle Neon HTTP pool backends are accepted only by exact process/start identity from a closed, clean run; active transactions are never accepted and database sessions are never terminated. Allow unexplained pooled sessions to expire naturally and investigate other test activity before retrying. A mutex coordinates cooperating runners; the checks support “no competing owner observed,” not proof that no other task exists.
 
 Direct Vitest invocation is refused without the live supervisor's database ownership proof. A successful measurement also needs its successful cleanup receipt. This harness resets the same disposable schemas as the standard integration suite; it must never target production or retained pilot users.
+
+
+## CP5 shared player directory qualification
+
+The closed `data-player-directory-v1` profile selects only
+`integration/player-directory.integration-case.ts`: six ordered cases in one
+sequential suite, with exactly one `beforeAll` and one `afterAll`. The existing
+supervisor command is `pnpm test:integration --profile=data-player-directory-v1`.
+The module also joins the normal full fixture discovery; the prior 48-module
+inventory remains historical. Older closed profiles keep their original selected
+modules, cases and source digests.
+
+The authored cases cover full native rows and bounded stored-only reads;
+unchanged content versus fresh observations, corrections/removals and exact replay;
+last-good preservation for partial, invalid, conflicting, empty and unavailable
+captures; serialized reservations and forged evidence; actual restricted-LOGIN
+privileges, immutable history and restoration of optional grants; and shared
+60-second admission, the catalog daily reservation, failure and observed lock
+expiry. The fixed profile binds the reviewed LF source digest, exact names/order,
+complete collection, hook balance, zero retries/skips and acknowledged cleanup.
+Source checks and the network-blocked synthetic reporter tests execute no SQL and
+do not qualify these database claims.
+
+Every directory reservation and acceptance uses the genuine runtime LOGIN and a
+current fence for the existing public-intake job. Multiple-observation fixtures
+explicitly age only the mutable head's operational `last_network_at` and
+`next_network_at` using the guarded owner as synthetic cadence prerequisites.
+Immutable attempts, capture/source times, native evidence and accepted history
+are not aged. This setup is not elapsed 24-hour refresh proof, an unrestricted
+runtime write path, or production scheduling. Grant-restoration checks are not
+proof of a genuinely fresh role unless a separately recorded test creates one.
+
+This is source-only qualification wiring. No SQL/provider execution, credentials,
+provisioning, retained installation, dispatch, migration application or release is
+authorized here. Any later run needs its exact reviewed source and separate
+bounded authorization. Preserve the existing 30-minute work/40-minute lifecycle,
+real-login identity/TLS/sentinel/denylist/ownership guards, protected environment,
+immutable reports and acknowledged child/schema/credential/branch cleanup.
+Full-catalog 16 MiB/2,000,000-value/depth-64/100,000-row bounds are authored limits;
+actual full-size provider, database request-size and 20-second work-budget fit
+remain unqualified. No public roster linkage, projection, account or frontend
+behavior is changed by this fixture profile.
+
+## Live full-directory budget qualification
+
+The separate manual-only `data-live-player-directory-v1` profile selects exactly
+one case in `integration/player-directory.live-integration-case.ts`, with a
+reviewed LF source pin, a matching supervisor context and one hook pair. Run
+only through the existing protected disposable supervisor after exact-source
+review and separate bounded run authorization. The new live suffix is excluded
+from normal full discovery, which remains 49 modules; all older profiles and
+source pins remain unchanged.
+
+This case requires one real public Sleeper `/players/nfl` GET through the existing
+catalog owner, restricted runtime Neon HTTP storage, and every version-pinned
+reader page to finish under the same original 20-second deadline. The clock
+includes claim, reservation, acquisition, normalization, acceptance, job
+completion and full stored-page audit. It is never restarted for readback.
+Stage timings distinguish accepted ingestion from a later readback failure;
+ingestion alone is not a passing end-to-end result. The 45-second test allowance
+covers failure reporting and cleanup, without extending the success budget.
+
+The existing 16 MiB source, 2,000,000-value, depth-64, 100,000-row, 64 MiB storage
+envelope and 200-row page bounds remain unchanged. Exactly one acquisition is
+permitted: no redirects, fallback feed, retry, prefetch or second observation.
+Only bounded aggregate measurements and sanitized outcomes are reported, never
+raw catalogs, player identities, query parameters or credentials. Nonsecret
+source hashes and attempt, receipt and version UUIDs may bind retained evidence.
+Production scheduling,
+roster links and production installation remain off. Source/offline checks are
+not evidence of live capacity or fit; only a separately authorized exact-source
+run with verified report and cleanup can qualify the observed catalog.

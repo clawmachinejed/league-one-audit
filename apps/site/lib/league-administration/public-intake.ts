@@ -4,7 +4,9 @@ import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSl
 import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import type { CapturedAdministrationDocument } from './contracts';
-import { recordCapturedAdministration } from './runtime';
+import { recordCapturedAdministration, recordCapturedPlayerDirectory } from './runtime';
+import { loadCompletePlayerCatalog } from '../sleeper-player-catalog';
+import type { PlayerDirectoryOutcome } from './player-directory-contracts';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
 import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness, type PublicCaptureWitness } from './public-capture-witness';
@@ -41,14 +43,19 @@ export async function runPublicIntakeStep(requestId: string, dependencies: Publi
 
 export async function runPublicDataRefreshStep(dependencies: PublicIntakeDependencies & Readonly<{ refresh: PublicDataRefreshStore }>,
   signal: AbortSignal): Promise<PublicDataRefreshOutcome> {
-  return runOwnedPublicIntakeStep(undefined, dependencies, signal);
+  return runOwnedPublicIntakeStep(undefined, dependencies, signal) as Promise<PublicDataRefreshOutcome>;
+}
+
+/** Explicit shared resource selection, using the existing owner without a league or intake request. */
+export async function runPublicPlayerDirectoryStep(dependencies: PublicIntakeDependencies, signal: AbortSignal): Promise<PlayerDirectoryOutcome> {
+  return runOwnedPublicIntakeStep(undefined, dependencies, signal, 'player-directory') as Promise<PlayerDirectoryOutcome>;
 }
 
 async function runOwnedPublicIntakeStep(requestId: string | undefined,
   dependencies: PublicIntakeDependencies & Readonly<{ refresh?: PublicDataRefreshStore }>,
-  signal: AbortSignal): Promise<PublicDataRefreshOutcome> {
+  signal: AbortSignal, mode: 'intake' | 'player-directory' = 'intake'): Promise<PublicDataRefreshOutcome | PlayerDirectoryOutcome> {
   const { intake, jobs, administration } = dependencies;
-  const refresh = requestId === undefined ? dependencies.refresh : undefined;
+  const refresh = mode === 'intake' && requestId === undefined ? dependencies.refresh : undefined;
   const phase = refresh ? dependencies.preAdmission : undefined;
   const phaseSignal = phase?.signal ?? signal;
   const phaseIntake = phase?.intake ?? intake;
@@ -65,7 +72,8 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   // All public intakes share one owner and a minimum minute between successful steps.
   const claim = await (phase?.jobs ?? jobs).acquireJob({ jobKey: PUBLIC_INTAKE_JOB, jobType: PUBLIC_INTAKE_JOB, workerId,
     scheduledFor: new Date(Math.floor(now().getTime() / 60_000) * 60_000).toISOString(),
-    leaseSeconds: 25, minimumIntervalSeconds: 60, payload: refresh
+    leaseSeconds: 25, minimumIntervalSeconds: 60, payload: mode === 'player-directory'
+      ? { policy: 'public-player-directory-v1', mode: 'player-directory' } : refresh
       ? { policy: 'public-data-refresh-v1', mode: 'recurring' } : { requestId, policy: 'public-data-intake-v1' } });
   if (claim.kind !== 'acquired') return { status: 'busy', providerRequests: 0 };
   const fence = { jobKey: PUBLIC_INTAKE_JOB, workerId, generation: claim.attempt,
@@ -78,6 +86,26 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   try {
     signal.throwIfAborted();
     phaseSignal.throwIfAborted();
+    if (mode === 'player-directory') {
+      if (!administration.enabled || !administration.beginPlayerDirectoryAttempt || !administration.recordPlayerDirectoryCapture) {
+        throw new Error('Player directory persistence is unavailable.');
+      }
+      // The DB clock reserves both the once-daily full GET and the shared minute
+      // admission under this exact job fence before any provider work begins.
+      const reservation = await administration.beginPlayerDirectoryAttempt(randomUUID(), fence);
+      if (reservation.status === 'backoff') {
+        if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
+        return { status: 'backoff', resource: 'player-directory', providerRequests: 0 };
+      }
+      signal.throwIfAborted();
+      const capture = await loadCompletePlayerCatalog({ attempt: reservation.attempt, signal });
+      requests = capture.providerRequests;
+      const result = await recordCapturedPlayerDirectory(reservation.attempt, capture, { store: administration, fence, signal });
+      if (result.status === 'disabled') throw new Error('Player directory persistence was disabled.');
+      if (!await jobs.completeJob(PUBLIC_INTAKE_JOB, workerId)) throw new Error('Intake lease lost.');
+      return { status: result.status === 'preserved' ? 'unavailable' : 'progress',
+        resource: 'player-directory', providerRequests: requests, result };
+    }
     if (refresh) {
       // No target failure can be attributed to setup/claim exhaustion. Once this
       // call starts, a null acknowledgment may still have a durable owner binding.
@@ -231,6 +259,7 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
     }
     if (work && typeof work === 'object') await cleanup.intake.fail(work, fence).catch(() => undefined);
     await cleanup.jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'public-data-intake-step-failed').catch(() => false);
-    return { status: 'unavailable', ...(work && typeof work === 'object' ? { resource: work.kind } : {}), providerRequests: requests };
+    return { status: 'unavailable', ...(mode === 'player-directory' ? { resource: 'player-directory' as const }
+      : work && typeof work === 'object' ? { resource: work.kind } : {}), providerRequests: requests };
   }
 }

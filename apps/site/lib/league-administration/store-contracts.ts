@@ -1,3 +1,5 @@
+import type { PlayerDirectoryAttempt, PlayerDirectoryCapture, PlayerDirectoryRead, PlayerDirectoryReadSelection,
+  PlayerDirectoryReservation, PlayerDirectoryWriteResult } from './player-directory-contracts';
 import type { SleeperCalendarEvidence } from './period-mapping';
 import type { CalculationSourceCapture } from './calculation-capture';
 import type { AdministrationEnvelope, AdministrationFamily, AdministrationScope, AdministrationWriteFence,
@@ -56,6 +58,10 @@ export type AdministrationEnrollmentSelector = Readonly<{ leagueKey: string }>
 export type { AdministrationWriteFence } from './contracts';
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
+  beginPlayerDirectoryAttempt: (id: string, fence: AdministrationWriteFence) => Promise<PlayerDirectoryReservation>;
+  recordPlayerDirectoryCapture: (attempt: PlayerDirectoryAttempt, capture: PlayerDirectoryCapture,
+    fence: AdministrationWriteFence) => Promise<PlayerDirectoryWriteResult>;
+  readAcceptedPlayerDirectory: (selection?: PlayerDirectoryReadSelection) => Promise<PlayerDirectoryRead>;
   recordObservation: (input: NormalizedAdministrationObservation, fence?: AdministrationWriteFence,
     mapping?: AdministrationSourceMapping, acceptance?: RosterAcceptanceInput,
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,

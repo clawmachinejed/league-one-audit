@@ -18,6 +18,9 @@ export type { LeagueAdministrationStore, LeagueAdministrationStoreRead } from '.
 export function createLeagueAdministrationStore(database: Database): LeagueAdministrationStore {
   if (!database.enabled) return {
     enabled: false,
+    beginPlayerDirectoryAttempt: async () => { throw new Error('Administration persistence disabled.'); },
+    recordPlayerDirectoryCapture: async () => { throw new Error('Administration persistence disabled.'); },
+    readAcceptedPlayerDirectory: async () => ({ status: 'disabled' }),
     // Disabled stores deliberately do not inspect inputs or construct a client.
     recordObservation: async () => ({ status: 'disabled' }),
     readSourceMapping: async () => null,

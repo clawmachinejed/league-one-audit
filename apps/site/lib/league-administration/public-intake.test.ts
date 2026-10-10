@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { runPublicDataRefreshStep, runPublicIntakeStep, type PublicIntakeDependencies } from './public-intake';
+import { runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep, type PublicIntakeDependencies } from './public-intake';
 import type { PublicDataRefreshStore } from './public-refresh-contracts';
 import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from './public-intake-contracts';
 import { createLeagueAdministrationStore } from './store';
@@ -1111,4 +1111,57 @@ describe('public intake response bounds through real captures with offline state
           retryWitness.fence);
       } finally { fetch.mockRestore(); }
     });
+});
+
+
+describe('explicit shared player directory selection through the existing intake owner', () => {
+  const reservation = { id, nonce: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', ordinal: 1, expectedGeneration: 0, reservedAt: time };
+  const accepted = { status: 'accepted' as const, reason: 'changed', receiptId: 'receipt', contentId: 'content', acceptedVersionId: 'version', generation: 1 };
+  it('reserves the DB daily slot under the existing live job before its single shared GET and writer', async () => {
+    const f = fixture(), events: string[] = [];
+    const reserve = vi.fn(async () => { events.push('reserved'); return { status: 'reserved' as const, attempt: reservation }; });
+    const write = vi.fn(async () => { events.push('written'); return accepted; });
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      events.push('fetched'); return new Response('{"8063":{"player_id":"8063","position":"DT","full_name":"Player"}}');
+    });
+    try {
+      const outcome = await runPublicPlayerDirectoryStep({ ...f.dependencies,
+        administration: { ...f.administration, beginPlayerDirectoryAttempt: reserve, recordPlayerDirectoryCapture: write } }, new AbortController().signal);
+      expect(outcome).toMatchObject({ status: 'progress', resource: 'player-directory', providerRequests: 1, result: accepted });
+      expect(events).toEqual(['reserved', 'fetched', 'written']);
+      expect(f.dependencies.jobs.acquireJob).toHaveBeenCalledWith(expect.objectContaining({ jobKey: 'league-administration-public-intake',
+        minimumIntervalSeconds: 60, leaseSeconds: 25, payload: { policy: 'public-player-directory-v1', mode: 'player-directory' } }));
+      expect(reserve).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ jobKey: 'league-administration-public-intake', generation: 1 }));
+      expect(f.intake.recover).not.toHaveBeenCalled(); expect(f.intake.next).not.toHaveBeenCalled(); expect(f.intake.admit).not.toHaveBeenCalled();
+      expect(f.administration.readSourceMapping).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally { fetcher.mockRestore(); }
+  });
+  it('honors durable DB backoff without asking an unrelated intake or issuing HTTP', async () => {
+    const f = fixture(); const fetcher = vi.spyOn(globalThis, 'fetch');
+    const reserve = vi.fn(async () => ({ status: 'backoff' as const, retryAt: '2026-10-10T12:00:00Z' }));
+    try {
+      expect(await runPublicPlayerDirectoryStep({ ...f.dependencies, administration: { ...f.administration,
+        beginPlayerDirectoryAttempt: reserve, recordPlayerDirectoryCapture: vi.fn() } }, new AbortController().signal))
+        .toEqual({ status: 'backoff', resource: 'player-directory', providerRequests: 0 });
+      expect(fetcher).not.toHaveBeenCalled(); expect(f.intake.next).not.toHaveBeenCalled(); expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce();
+    } finally { fetcher.mockRestore(); }
+  });
+  it('retains partial native evidence and reports that the prior accepted head was preserved', async () => {
+    const f = fixture(), write = vi.fn(async () => ({ ...accepted, status: 'preserved' as const, reason: 'partial' }));
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"x":{"player_id":"y"}}'));
+    try {
+      expect(await runPublicPlayerDirectoryStep({ ...f.dependencies, administration: { ...f.administration,
+        beginPlayerDirectoryAttempt: async () => ({ status: 'reserved', attempt: reservation }), recordPlayerDirectoryCapture: write } }, new AbortController().signal))
+        .toMatchObject({ status: 'unavailable', resource: 'player-directory', providerRequests: 1, result: { status: 'preserved' } });
+      expect(write).toHaveBeenCalledWith(reservation, expect.objectContaining({ status: 'partial', reasons: ['conflicting-player-identities'] }), expect.any(Object));
+    } finally { fetcher.mockRestore(); }
+  });
+  it('makes no provider call when another existing owner holds the job', async () => {
+    const f = fixture(); vi.mocked(f.dependencies.jobs.acquireJob).mockResolvedValue({ kind: 'busy' });
+    const fetcher = vi.spyOn(globalThis, 'fetch');
+    try { expect(await runPublicPlayerDirectoryStep(f.dependencies, new AbortController().signal)).toEqual({ status: 'busy', providerRequests: 0 });
+      expect(fetcher).not.toHaveBeenCalled(); expect(f.intake.next).not.toHaveBeenCalled(); }
+    finally { fetcher.mockRestore(); }
+  });
 });

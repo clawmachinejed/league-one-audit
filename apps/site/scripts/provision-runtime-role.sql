@@ -486,3 +486,33 @@ DO $$ DECLARE period_table text; BEGIN
       public.record_league_administration_observation_v30(jsonb) FROM league_one_runtime;
   END IF;
 END; $$;
+
+-- BEGIN OPTIONAL SHARED PLAYER DIRECTORY GRANTS
+-- CP5 is a shared native resource under the existing administration owner. Late
+-- provisioning exposes only fenced reservations/acceptance and SELECT readback.
+DO $$ DECLARE relation text; helper text; BEGIN
+  IF to_regclass('public.league_player_directory_heads') IS NOT NULL THEN
+    FOREACH relation IN ARRAY ARRAY['heads','attempts','contents','entries','captures','source_slices','versions'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime','league_player_directory_'||relation);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime','league_player_directory_'||relation);
+      IF has_table_privilege('league_one_runtime','public.league_player_directory_'||relation,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
+        OR NOT has_table_privilege('league_one_runtime','public.league_player_directory_'||relation,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class object JOIN pg_namespace namespace ON namespace.oid=object.relnamespace
+          JOIN pg_roles owner ON owner.oid=object.relowner WHERE namespace.nspname='public'
+            AND object.relname='league_player_directory_'||relation AND owner.rolname='league_one_runtime') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect player directory table privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.player_directory_native_row(text,jsonb)','public.player_directory_json_shape(text)',
+      'public.assert_player_directory_owner(jsonb)','public.validate_player_directory_lineage()',
+      'public.admit_public_data_dispatch_v40(jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private directory helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_player_directory_attempt(uuid,jsonb),public.record_player_directory_capture(jsonb,jsonb,jsonb),
+      public.admit_public_data_dispatch(jsonb,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_player_directory_attempt(uuid,jsonb)','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime','public.record_player_directory_capture(jsonb,jsonb,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime lacks required directory entry points'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL SHARED PLAYER DIRECTORY GRANTS

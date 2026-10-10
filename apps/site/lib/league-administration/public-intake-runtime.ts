@@ -4,7 +4,7 @@ import { createProjectionStore } from '../projection-store';
 import { createLeagueAdministrationStore, createPublicIntakeStore, createPublicDataRefreshStore } from './store';
 import { validatePublicIntake, type PublicIntakeInput } from './public-intake-contracts';
 import { validatePublicDataRefresh, type PublicDataRefreshConfiguration } from './public-refresh-contracts';
-import { runPublicDataRefreshStep, runPublicIntakeStep } from './public-intake';
+import { runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep } from './public-intake';
 
 /** Operator/backend composition only. No current route supplies this selection.
  * Explicit enablement, installed 034 and its runtime grants are release prerequisites.
@@ -95,4 +95,29 @@ export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshS
       // phase signal cannot cancel a successful later provider acquisition.
       cleanup: () => cleanup(workDeadline) },
     cleanup: () => cleanup(deadline) }, signal);
+}
+
+
+/** No current route/cron selects this shared resource. Installed CP5 storage and explicit selection are required. */
+export type PublicPlayerDirectorySelection = Readonly<{ enabled: true }>;
+export async function runSelectedPublicPlayerDirectory(selection: PublicPlayerDirectorySelection | null | undefined, invocationStartedAt: number) {
+  if (selection?.enabled !== true) return { status: 'disabled', providerRequests: 0 } as const;
+  const workDeadline = invocationStartedAt + 20_000;
+  if (!Number.isFinite(workDeadline) || workDeadline - Date.now() < 15_000) return { status: 'deadline', providerRequests: 0 } as const;
+  const database = getDatabase();
+  if (!database.enabled) return { status: 'disabled', providerRequests: 0 } as const;
+  const remaining = workDeadline - Date.now();
+  if (remaining <= 0) return { status: 'deadline', providerRequests: 0 } as const;
+  const signal = AbortSignal.timeout(remaining);
+  const bounded = withDatabaseAbortSignal(database, signal);
+  if (!bounded.enabled) return { status: 'disabled', providerRequests: 0 } as const;
+  return runPublicPlayerDirectoryStep({ intake: createPublicIntakeStore(bounded), administration: createLeagueAdministrationStore(bounded),
+    jobs: createProjectionStore(bounded), deadlineAt: new Date(workDeadline).toISOString(), cleanup: () => {
+      const remainingCleanup = Math.max(0, Math.min(2_000, invocationStartedAt + 22_000 - Date.now()));
+      const cleanupSignal = remainingCleanup > 0 ? AbortSignal.timeout(remainingCleanup)
+        : AbortSignal.abort(new Error('Player directory cleanup budget exhausted.'));
+      const cleanupDatabase = withDatabaseAbortSignal(database, cleanupSignal);
+      if (!cleanupDatabase.enabled) throw new Error('Player directory cleanup storage unavailable.');
+      return { intake: createPublicIntakeStore(cleanupDatabase), jobs: createProjectionStore(cleanupDatabase) };
+    } }, signal);
 }

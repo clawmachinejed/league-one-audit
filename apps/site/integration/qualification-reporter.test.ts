@@ -4,14 +4,18 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import ts from 'typescript';
 import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PROFILE,
   OFFICIAL_PROFILE, OFFICIAL_SUITE, OFFICIAL_FULL_NAMES, GUARDS_PROFILE, GUARDS_FULL_NAMES,
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
-  CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CLOSEOUT_PROFILES, validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
+  CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CLOSEOUT_PROFILES,
+  PLAYER_DIRECTORY_PROFILE, PLAYER_DIRECTORY_MODULE, PLAYER_DIRECTORY_SUITE, PLAYER_DIRECTORY_TESTS, PLAYER_DIRECTORY_FULL_NAMES,
+  LIVE_PLAYER_DIRECTORY_PROFILE, LIVE_PLAYER_DIRECTORY_MODULE, LIVE_PLAYER_DIRECTORY_SUITE, LIVE_PLAYER_DIRECTORY_FULL_NAME,
+  LIVE_PLAYER_DIRECTORY_PATTERN, qualificationCleanup,
+  validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
 const site = fileURLToPath(new URL('..', import.meta.url));
@@ -374,3 +378,87 @@ it('runs the fixed three-module core compatibility selection with actual beforeE
   expect(report.hooks.filter(hook => hook.key.endsWith(':beforeEach'))).toHaveLength(2);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 89, executed: 7, passed: 7, filtered: 82 });
 }, 30_000);
+
+
+it.each(['source', 'reversed'] as const)('reports the six directory cases with actual installed-runner hooks and rejects %s order when needed', async order => {
+  const directory = await mkdtemp(join(tmpdir(), 'player-directory-runner-')); directories.push(directory);
+  await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), PLAYER_DIRECTORY_PROFILE);
+  const names = order === 'source' ? [...PLAYER_DIRECTORY_TESTS] : [...PLAYER_DIRECTORY_TESTS].reverse();
+  let body = 'import {it,expect,describe,beforeAll,afterAll} from ' + JSON.stringify(pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href) + ';\n';
+  body += 'let setup=0,executed=0;describe.sequential(' + JSON.stringify(PLAYER_DIRECTORY_SUITE) + ',()=>{';
+  body += 'beforeAll(()=>{expect(setup++).toBe(0)});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(6)});';
+  names.forEach((name, index) => {
+    body += 'it(' + JSON.stringify(name) + ',async()=>{expect(setup).toBe(1);expect(executed).toBe(' + index + ');' +
+      'await new Promise(resolve=>setTimeout(resolve,10));expect(executed++).toBe(' + index + ')});';
+  });
+  body += '});\n';
+  await writeFile(join(directory, PLAYER_DIRECTORY_MODULE), body);
+  // Only synthetic module bytes reach Vitest; the maintained SQL fixture is never imported.
+  context.modules[0].sourceDigest = qualificationSourceDigest(body);
+  await writeFile(join(directory, 'setup.ts'), 'import {qualificationBinding,qualificationCleanup} from ' + JSON.stringify(helperPath) +
+    ';export default function(){const binding=qualificationBinding();return async()=>qualificationCleanup(async()=>{},binding)}');
+  await writeFile(join(directory, 'config.mjs'), 'export default {test:{environment:"node",include:["integration/*.integration-case.ts"],globalSetup:["./setup.ts"],fileParallelism:false,maxWorkers:1}}');
+  const guard = join(directory, 'network-block.mjs');
+  await writeFile(guard, "import {createRequire} from 'node:module';const require=createRequire(import.meta.url);" +
+    "const deny=()=>{throw Error('NETWORK_BLOCKED_FIXTURE')};for(const m of ['http','https']){require(m).request=deny;require(m).get=deny;}" +
+    "require('net').Socket.prototype.connect=deny;globalThis.fetch=deny;");
+  const allow = new Set(['path','systemroot','windir','comspec','temp','tmp','tmpdir','home','userprofile','localappdata','appdata','pathext']);
+  const binding = { context, directory: join(directory, 'artifacts') };
+  const child = spawnSync(process.execPath, ['--import', pathToFileURL(guard).href, join(site, 'node_modules/vitest/vitest.mjs'),
+    'run', '--config', join(directory, 'config.mjs'), ...qualificationArguments(context.profile, reporterPath)],
+  { cwd: directory, env: { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => allow.has(key.toLowerCase()))), NODE_ENV: 'test',
+    [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    encoding: 'utf8', timeout: 20_000, windowsHide: true, maxBuffer: 2_000_000 });
+  expect(child.status, (child.stdout ?? '') + (child.stderr ?? '')).toBe(0);
+  expect(child.error).toBeUndefined();
+  const report: QualificationReport = JSON.parse(await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8'));
+  expect(report.hooks).toHaveLength(2);
+  expect(report.hooks.map(hook => [hook.starts, hook.ends])).toEqual([[1, 1], [1, 1]]);
+  expect(report.modules[0].cases.map(test => test.name)).toEqual(names.map(name => PLAYER_DIRECTORY_SUITE + ' > ' + name));
+  expect(report.modules[0].cases.every(test => test.state === 'passed')).toBe(true);
+  if (order === 'source') {
+    expect(report.modules[0].cases.map(test => test.name)).toEqual(PLAYER_DIRECTORY_FULL_NAMES);
+    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 6, executed: 6, passed: 6, filtered: 0 });
+  } else await expect(validateQualificationArtifacts(binding)).rejects.toThrow('source order');
+}, 30_000);
+
+it('records the exact live directory public reporter events against pinned bytes without importing or executing the live module', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'live-directory-reporter-')); directories.push(directory);
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), LIVE_PLAYER_DIRECTORY_PROFILE);
+  const binding = { context, directory };
+  const previousContext = process.env[QUALIFICATION_CONTEXT_ENV];
+  const previousArtifacts = process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('OFFLINE_REPORTER_NETWORK_REFUSED'));
+  try {
+    process.env[QUALIFICATION_CONTEXT_ENV] = JSON.stringify(context);
+    process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY = directory;
+    const reporter = new QualificationReporter();
+    reporter.onInit({ config: { root: site, testNamePattern: new RegExp(LIVE_PLAYER_DIRECTORY_PATTERN) } } as Parameters<QualificationReporter['onInit']>[0]);
+    await reporter.onTestRunStart([{ moduleId: join(site, LIVE_PLAYER_DIRECTORY_MODULE) }] as unknown as Parameters<QualificationReporter['onTestRunStart']>[0]);
+    const test = { id: 'case', fullName: LIVE_PLAYER_DIRECTORY_FULL_NAME, options: { mode: 'run' },
+      result: () => ({ state: 'passed', errors: [] }),
+      diagnostic: () => ({ retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 }) };
+    const suite = { id: 'suite', fullName: LIVE_PLAYER_DIRECTORY_SUITE, options: { mode: 'run' }, errors: () => [] };
+    const testModule = { relativeModuleId: LIVE_PLAYER_DIRECTORY_MODULE, state: () => 'passed', errors: () => [],
+      children: { allSuites: () => [suite], allTests: () => [test] } } as unknown as Parameters<QualificationReporter['onTestModuleCollected']>[0];
+    reporter.onTestModuleCollected(testModule);
+    for (const name of ['beforeAll', 'afterAll']) {
+      const hook = { name, entity: suite } as unknown as Parameters<QualificationReporter['onHookStart']>[0];
+      reporter.onHookStart(hook); reporter.onHookEnd(hook);
+    }
+    reporter.onTestCaseReady(test as unknown as Parameters<QualificationReporter['onTestCaseReady']>[0]);
+    reporter.onTestCaseResult(test as unknown as Parameters<QualificationReporter['onTestCaseResult']>[0]);
+    await reporter.onTestRunEnd([testModule], [], 'passed');
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+    await qualificationCleanup(async () => {}, binding);
+    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: LIVE_PLAYER_DIRECTORY_PROFILE,
+      collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    fetch.mockRestore();
+    if (previousContext === undefined) delete process.env[QUALIFICATION_CONTEXT_ENV]; else process.env[QUALIFICATION_CONTEXT_ENV] = previousContext;
+    if (previousArtifacts === undefined) delete process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY;
+    else process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY = previousArtifacts;
+  }
+});

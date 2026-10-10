@@ -11,6 +11,29 @@ export const QUALIFICATION_MAX_BYTES = 4 * 1024 * 1024;
 export const SELECTED_PROFILE = 'data-core-refresh-v1';
 export const INGESTION_PROFILE = 'data-core-ingestion-v1';
 export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
+export const PLAYER_DIRECTORY_PROFILE = 'data-player-directory-v1';
+export const PLAYER_DIRECTORY_MODULE = 'integration/player-directory.integration-case.ts';
+// Reviewed six-case fixture source; any body change requires a new independent review and pin.
+export const PLAYER_DIRECTORY_SOURCE_DIGEST = 'c35a72eab57663a635a4e053f2a3ff2a17dcb7c4d44d610ed7af76c51322eaa9';
+export const PLAYER_DIRECTORY_SUITE = 'shared Sleeper player directory through restricted PostgreSQL';
+export const PLAYER_DIRECTORY_TESTS = [
+  'stores full native rows and bounded stored-only pages through the shared owner',
+  'shares unchanged content without restamping replay and retains corrections and removals',
+  'preserves last good data through partial invalid conflicting empty and unavailable captures',
+  'serializes reservations and rejects raw typed hash and nonce conflicts',
+  'denies direct history mutation and private helpers and restores late optional grants',
+  'preserves shared admission and daily limits through failed capture and an observed lock expiry',
+] as const;
+export const PLAYER_DIRECTORY_FULL_NAMES = PLAYER_DIRECTORY_TESTS.map(name => PLAYER_DIRECTORY_SUITE + ' > ' + name);
+export const PLAYER_DIRECTORY_PATTERN = closedPattern(PLAYER_DIRECTORY_FULL_NAMES);
+export const LIVE_PLAYER_DIRECTORY_PROFILE = 'data-live-player-directory-v1';
+export const LIVE_PLAYER_DIRECTORY_MODULE = 'integration/player-directory.live-integration-case.ts';
+// Independently reviewed one-case live fixture; changed bytes require renewed review and pin.
+export const LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST = '4db8a8e3be986589d2a8e65c8662b20485347db48be83108b259500f5e574e9c';
+export const LIVE_PLAYER_DIRECTORY_SUITE = 'live Sleeper full player directory within the existing work deadline';
+export const LIVE_PLAYER_DIRECTORY_TEST = 'fetches stores and reads every native row under one real twenty-second owner budget';
+export const LIVE_PLAYER_DIRECTORY_FULL_NAME = LIVE_PLAYER_DIRECTORY_SUITE + ' > ' + LIVE_PLAYER_DIRECTORY_TEST;
+export const LIVE_PLAYER_DIRECTORY_PATTERN = closedPattern([LIVE_PLAYER_DIRECTORY_FULL_NAME]);
 export const LIVE_PROFILE = 'data-live-league-two-v1';
 export const LIVE_MODULE = 'integration/league-two.live-integration-case.ts';
 export const LIVE_SOURCE_DIGEST = 'bcb3bee63bf12658da7d099fd34397fada96757a5799e05a586456761b173f74';
@@ -26,7 +49,7 @@ export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated l
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
-  | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
+  | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
@@ -123,6 +146,8 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === LIVE_PLAYER_DIRECTORY_PROFILE) return { names: [LIVE_PLAYER_DIRECTORY_FULL_NAME], pattern: LIVE_PLAYER_DIRECTORY_PATTERN };
+  if (profile === PLAYER_DIRECTORY_PROFILE) return { names: PLAYER_DIRECTORY_FULL_NAMES, pattern: PLAYER_DIRECTORY_PATTERN };
   if (profile === CORE_COMPATIBILITY_PROFILE) return { names: CORE_COMPATIBILITY_FULL_NAMES, pattern: CORE_COMPATIBILITY_PATTERN };
   const closeout = CLOSEOUT_PROFILES.find(selection => selection.profile === profile);
   if (closeout) return closeout;
@@ -290,10 +315,10 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
-  return profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
+  return profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
-  return profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
+  return profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_SOURCE_DIGEST : profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
 }
 function selectedModules(profile: QualificationProfile) {
   return profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES
@@ -304,7 +329,7 @@ function selectedInventory(profile: QualificationProfile, path?: string): readon
     const spec = CORE_COMPATIBILITY_MODULES.find(module => module.path === path);
     assert(spec, 'Unexpected core compatibility module.'); return spec.inventory;
   }
-  return profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
+  return profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
   if (profile === CORE_COMPATIBILITY_PROFILE) return qualificationDigest({ version: 1, profile,
@@ -314,6 +339,8 @@ function profileDigest(profile: QualificationProfile) {
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
+  if (args.length === 1 && args[0] === '--profile=' + LIVE_PLAYER_DIRECTORY_PROFILE) return LIVE_PLAYER_DIRECTORY_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + PLAYER_DIRECTORY_PROFILE) return PLAYER_DIRECTORY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CORE_COMPATIBILITY_PROFILE) return CORE_COMPATIBILITY_PROFILE;
   const closeout = CLOSEOUT_PROFILES.find(selection => args.length === 1 && args[0] === '--profile=' + selection.profile);
   if (closeout) return closeout.profile;
@@ -325,10 +352,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -341,7 +368,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === 'full' || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -350,7 +377,7 @@ function validateContext(value: QualificationContext): QualificationContext {
     assert.match(entry.sourceDigest, /^[0-9a-f]{64}$/u);
   }
   unique(value.modules.map(module => module.path));
-  if (value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE) assert.equal(value.modules[0].sourceDigest, selectedDigest(value.profile));
+  if (value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE) assert.equal(value.modules[0].sourceDigest, selectedDigest(value.profile));
   if (value.profile === 'full') assert(value.modules.every(module => !module.path.endsWith('.live-integration-case.ts')));
   if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), selectedModules(value.profile).map(module => module.path));
   return value;
@@ -475,6 +502,28 @@ export function validateQualificationReport(context: QualificationContext, repor
           'Core compatibility cases must execute in chronological source order.');
       }
     }
+    if (context.profile === LIVE_PLAYER_DIRECTORY_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), [LIVE_PLAYER_DIRECTORY_FULL_NAME]);
+      assert.equal(entry.suites.length, 1, 'Live directory requires exactly one suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, LIVE_PLAYER_DIRECTORY_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Live directory hooks must execute exactly once.');
+    }
+    if (context.profile === PLAYER_DIRECTORY_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), PLAYER_DIRECTORY_FULL_NAMES,
+        'Player directory cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Player directory requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, PLAYER_DIRECTORY_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Player directory hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Player directory cases must execute in chronological source order.');
+      }
+    }
     const sharedSuite = context.profile === CONCURRENCY_PROFILE
       ? { names: CONCURRENCY_FULL_NAMES, suite: SELECTED_SUITE, label: 'Refresh concurrency' }
       : context.profile === LATE_WRITE_PROFILE
@@ -560,7 +609,8 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
-  return profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES.map(module => module.path)
+  return profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_MODULE] : profile === PLAYER_DIRECTORY_PROFILE ? [PLAYER_DIRECTORY_MODULE]
+    : profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES.map(module => module.path)
     : profile === LIVE_PROFILE ? [LIVE_MODULE] : profile === JOURNEY_PROFILE ? [JOURNEY_MODULE] : ['integration/**/*.integration-case.ts'];
 }
 export function requireLiveQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
@@ -571,5 +621,11 @@ export function requireLiveQualification(environment: Record<string, string | un
 export function requireJourneyQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
   const binding = qualificationBinding(environment);
   assert(binding?.context.profile === JOURNEY_PROFILE, 'Explicit bound live public DATA intake profile required.');
+  return binding;
+}
+
+export function requireLivePlayerDirectoryQualification(environment: Record<string, string | undefined> = process.env): QualificationBinding {
+  const binding = qualificationBinding(environment);
+  assert(binding?.context.profile === LIVE_PLAYER_DIRECTORY_PROFILE, 'Explicit bound live player directory profile required.');
   return binding;
 }
