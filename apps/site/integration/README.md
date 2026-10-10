@@ -484,3 +484,51 @@ the full SQL suite, retained installation or production release. Offline reader
 tests of terminal aggregation are separate from this representative acquisition
 witness. Record actual version, timing and remaining limits in the
 [evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP9 exact-period settings context qualification
+
+The authored closed `data-period-settings-context-v1` profile selects seven
+source-ordered cases in `period-settings-context.integration-case.ts` and exactly
+one beforeAll/afterAll pair. Its fixed command is
+`pnpm test:integration --profile=data-period-settings-context-v1`. Existing
+supervisor, protected environment, restricted LOGIN, source/report binding and
+cleanup gates remain unchanged. Default discovery gains one ordinary module
+(52 to 53); all older fixture bytes, selected inventories and pins remain intact.
+
+The fixture is designed to verify exact captured settings and receipt lineage;
+independent scoring, roster and competition applicability; inclusive boundaries;
+missing, invalid and contradictory evidence; corrections and exact replay;
+current source mapping fences; and restricted reads and immutable history.
+Historical positives use the existing owner-only activation API with explicit
+synthetic owner attestations. They establish the latest evidenced decision, not
+provider-effective history or what was known when a capture occurred. Newer
+unproved decisions must remain unknown rather than falling back. Original
+observations remain observation-only. Native NFL regular-week identity is distinct
+from the derived relationship to evidenced fantasy competition boundaries;
+official fantasy phase, round, leg and competition end remain unknown.
+
+One ordinary fixture uses the existing intake and refresh coordinators with real
+DB-issued witnesses, original minute spacing and synthetic HTTP. It acquires
+weeks 1 and 2 in each of two 18-task requests: 11 admissions and 16 GET attempts,
+including one committed checkpoint whose acknowledgment is lost and one failed
+week-2 attempt followed by ordinary recovery. Four checkpoints retain eight typed
+receipt witnesses. Each request still has 16 pending tasks. Changed settings in
+refresh must leave the original exact context readable while legacy current-head
+resource checks retain their existing unavailable result. Stored-only readers
+must make no provider requests. The profile does not claim acquisition of all
+18 periods, nonempty terminal inventory completion or live-provider evidence.
+
+Six 60-second cases, one 840-second ordinary case and two existing 120-second
+hooks total a 24-minute authored allowance before other harness overhead. This
+is not a measured fit or cost guarantee. The existing 20-second worker,
+60-second admission, 30-minute work, 40-minute lifecycle and 50-minute CI limits
+remain unchanged; no automatic SQL retry is permitted. No new writer or schema
+is introduced, so this read extension adds no late-write claim. Role checks
+include reprovisioning an existing role in a rolled-back transaction, not a
+fresh-role lifecycle qualification.
+
+CP9 is **authored and SQL-unqualified** until a separately authorized exact-source
+run and its ordered cases, source pins, report and acknowledged cleanup pass
+independent validation. Source checks do not authorize that run. Actual results,
+version, duration, costs and remaining limits belong in the
+[evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).

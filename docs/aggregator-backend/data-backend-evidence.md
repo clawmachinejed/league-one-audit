@@ -1,5 +1,12 @@
 # DATA backend evidence and remaining qualification
 
+## CP9 competition phase and period-applicable settings — source work authorized, October 10, 2026
+
+1. **Data resource:** exact 2026 native-period context, observed settings and independently evidenced scoring, roster and competition applicability. Native official phase, owner-confirmed applicability and derived boundary interpretation remain separate; missing historical evidence remains unknown.
+2. **Existing path:** retained R029 typed settings/configuration receipts, R031 calendar evidence and R016 owner-only component activations → new read-only Neon exact-period context helper → existing optional store capability and opt-in selected-page public intake composition. Exact files/purposes are recorded under `DATA-CP9-2026-10-10-PERIOD-SETTINGS-CONTEXT` in the scope manifest. No new migration, writer, provider capture or grant is proposed.
+3. **Persisted result:** reuse immutable original matchup/configuration content and the actual settings/matchup intake checkpoint pair. Preserve observed field presence/raw values, calendar identity and latest owner-confirmed decision reference/generation/time per component. Current settings, lifecycle, capture proximity and native leg cannot prove earlier applicability. Derived boundaries do not assert active playoffs, round, multiweek leg or finality.
+4. **Real evidence and gaps:** clean isolated branch `codex/data-period-settings` starts at `290de3996026145a2dcf452f121383c62df7d3d7`. Fresh local/GitHub main and Ready Vercel production match `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; canonical repository and production binding were rechecked. Independent reciprocal scope review accepted these files before implementation. Source verification, exact-source preview and seven-case PostgreSQL qualification remain pending. The closed `data-period-settings-context-v1` fixture is source work only; no CP9 paid run, credentials, provisioning, retained migration, merge or production release is authorized. Earlier CP5–8 evidence keeps its original source/run bindings.
+
 ## CP8 current-2026 native-period inventory — accepted six-case qualification, October 10, 2026
 
 **Checkpoint 8 implementation and resource qualification are accepted within

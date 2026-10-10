@@ -1,5 +1,6 @@
 import 'server-only';
 import type { DatabaseClient, DatabaseRow } from '../database';
+import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from '../aggregator/exact-period-context';
 import { normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
 import { readPublicPeriodTaskRows, readPublicPeriodInventory } from './store';
 import type { LeagueAdministrationStore } from './store-contracts';
@@ -13,7 +14,8 @@ function receiptBound<T extends { status: string }>(resource: T, expected: unkno
 }
 
 async function readExactPeriods(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
-  selection: readonly PublicExactPeriod[], candidates: readonly DatabaseRow[], inventoryRows?: readonly DatabaseRow[]) {
+  selection: readonly PublicExactPeriod[], candidates: readonly DatabaseRow[], inventoryRows?: readonly DatabaseRow[],
+  periodContextVersion?: PublicIntakeReadOptions['periodContextVersion']) {
   const rows = inventoryRows ?? await readPublicPeriodTaskRows(client, requestId);
   const maxOrdinal = inventoryRows ? 360 : 20;
   const identities = new Set<string>(); const ordinals = new Set<number>();
@@ -33,7 +35,8 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
     const task = { ...identity, ordinal, collection: String(row.status), failureCount: Number(row.failure_count), reason: row.reason,
       phase: { status: 'unknown' as const, reason: 'native-period-phase-not-evidenced' as const } };
     if (row.status !== 'complete') {
-      periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'period-capture-not-complete' }, acquisition: null });
+      periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'period-capture-not-complete' }, acquisition: null,
+        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'period-capture-not-complete' } } : {}) });
       continue;
     }
     try {
@@ -43,26 +46,51 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
         || compatibleRevision(mapping) !== compatibleRevision(row.source_mapping)
         || typeof row.settings_receipt_id !== 'string' || typeof row.matchups_receipt_id !== 'string'
         || typeof row.configuration_content_id !== 'string') throw new Error('Stored period mapping or checkpoint changed.');
-      const exact = await administration.readAcceptedExactMatchups(mapping, nativeWeek);
+      const exact = await administration.readAcceptedExactMatchups(mapping, nativeWeek).catch(error => {
+        if (!periodContextVersion) throw error;
+        return { status: 'unavailable' as const, reason: 'exact-matchups-read-failed' };
+      });
       const resource = exact.status !== 'available' ? exact
         : exact.receipt.id === row.matchups_receipt_id && exact.receipt.configurationContentId === row.configuration_content_id
           ? exact : { status: 'unavailable' as const, reason: 'intake-capture-not-current-head', retained: exact };
+      let periodContext: ExactPeriodContextRead | undefined;
+      if (periodContextVersion) {
+        try {
+          periodContext = administration.readExactPeriodContext
+            ? await administration.readExactPeriodContext(mapping, { nativeWeek, matchupsReceiptId: row.matchups_receipt_id,
+              intakeCapture: { intakeId: requestId, settingsReceiptId: row.settings_receipt_id } })
+              .catch(() => ({ status: 'unavailable' as const, reason: 'period-context-read-failed' }))
+            : { status: 'unavailable', reason: 'period-context-unsupported' };
+          if (periodContext.status === 'available' && (periodContext.version !== EXACT_PERIOD_CONTEXT_VERSION
+            || periodContext.period.season !== season || periodContext.period.nativeWeek !== nativeWeek
+            || periodContext.sourceMappingRevisionId !== mapping.revisionId
+            || periodContext.capture.matchupsReceiptId !== row.matchups_receipt_id
+            || periodContext.capture.settingsReceiptId !== row.settings_receipt_id
+            || periodContext.capture.configurationContentId !== row.configuration_content_id
+            || periodContext.observedConfiguration.contentId !== row.configuration_content_id)) {
+            periodContext = { status: 'unavailable', reason: 'intake-period-context-mismatch' };
+          }
+        } catch { periodContext = { status: 'unavailable', reason: 'period-context-read-failed' }; }
+      }
       // The settings receipt is historical capture evidence. A later core refresh
       // need not leave that settings head current for this exact matchup to remain current.
-      periods.push({ ...task, resource, acquisition: { sourceMapping: row.source_mapping, workerId: row.worker_id,
+      periods.push({ ...task, resource, ...(periodContext ? { periodContext } : {}), acquisition: { sourceMapping: row.source_mapping, workerId: row.worker_id,
         generation: row.generation, settingsReceiptId: row.settings_receipt_id, matchupsReceiptId: row.matchups_receipt_id,
         configurationContentId: row.configuration_content_id, settingsProvenance: row.settings_provenance, recordedAt: row.recorded_at } });
     } catch {
-      periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' }, acquisition: null });
+      periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' }, acquisition: null,
+        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' } } : {}) });
     }
   }
   return periods;
 }
 
-/** Backend-only stored read. No provider call, registration, calculation or write.
+/** Backend-only stored read. No provider call, registration or write.
+ * Optional context classifies evidenced boundaries without calculating scores or ranks.
  * Discovery membership is public source evidence, never an ownership entitlement. */
 export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
   options: PublicIntakeReadOptions = {}) {
+  if (options.periodContextVersion !== undefined && options.periodContextVersion !== 'v1') throw new Error('Unsupported public period context version.');
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(requestId)) throw new Error('Invalid public intake identity.');
   const requests = await client.query(`/* public-data-intake:read-request */
     SELECT request.id,request.username AS requested_username,request.seasons,request.revision,request.terminal,
@@ -158,7 +186,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     }
   }
   const inventoryRead = mode ? await readPublicPeriodInventory(client, requestId, candidates, lists, options.periodInventoryPage, storedHeader.terminal === true) : undefined;
-  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows) : undefined;
+  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows, options.periodContextVersion) : undefined;
   const completePeriods = (!inventoryRead || inventoryRead.inventory.collection === 'complete' && inventoryRead.inventory.readCoverage === 'complete')
     && (!exactPeriods || exactPeriods.every(period => period.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity' && selection.some(period => period.season === candidate.season))
@@ -176,7 +204,10 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
-      ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : [])],
+      ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []),
+      ...(selection.length && options.periodContextVersion ? ['exact-period-context'] : [])],
       notRequested: [...(selection.length ? [] : ['exact-matchups']), 'official-results', 'transactions', 'drafts', 'playoff-brackets', 'annual-history'],
-      note: 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;
+      note: options.periodContextVersion && selection.length
+        ? 'Provider standings fields are retained with the roster; optional period context derives only evidenced competition boundaries, not results or ranks.'
+        : 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;
 }
