@@ -175,7 +175,7 @@ export const SELECTED_INVENTORY = [
 // This one fixed profile reuses the existing three modules and their shared harness.
 // Inventories include filtered cases; source order and each selected hook are part of the contract.
 export const CORE_COMPATIBILITY_MODULES = [
-  { path: "integration/all-player-pregame-empty.integration-case.ts", sourceDigest: "5a5db7170e981180c618d66a856d0b07daf4313378d9a67695a23800e32d58cb",
+  { path: "integration/all-player-pregame-empty.integration-case.ts", sourceDigest: "18d3a5c9d9604042069fef3e5d77c1d73ad8278bda2a487bac98a2e9671efb34",
     suite: "018 verified empty pregame outcome under the real SQL ownership guard", beforeEach: true,
     names: [
     "018 verified empty pregame outcome under the real SQL ownership guard > reports the initial genuine restricted LOGIN all-DATA/NULL zero-eligible pregame refusal",
@@ -204,7 +204,7 @@ export const CORE_COMPATIBILITY_MODULES = [
     "018 verified empty pregame outcome under the real SQL ownership guard > rejects operator at durable completion",
   ],
   },
-  { path: "integration/all-player-statistics.integration-case.ts", sourceDigest: "e94b8c77e08e4bea7dec9027f7684ad69bf83de3f5224971b4e5a613f7169d38",
+  { path: "integration/all-player-statistics.integration-case.ts", sourceDigest: "5d60a8962fc8149c96e6b03c689eea13a4093c5062c9f372e0bc5360e700ab0a",
     suite: "all-player statistics foundation", beforeEach: false,
     names: [
     "all-player statistics foundation > refuses all-DATA/NULL publication atomically under the first genuine restricted LOGIN admission",

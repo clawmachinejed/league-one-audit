@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
   createProjectionStore,
   type PersistenceOutcome,
@@ -600,7 +601,7 @@ describe('all-player statistics foundation', () => {
   });
 
   it('keeps configured publication ready through a genuine runtime replay after exact DATA/NULL enrollment', async () => {
-    // R037 AUTHORED / UNEXECUTED. Owner creates only immutable enrollment
+    // Owner creates only immutable enrollment
     // metadata; the same restricted LOGIN runs the maintained batch writer.
     expect((await database.database.query('SELECT session_user AS role'))[0].role).toBe('league_one_runtime');
     const key = 'official-only-mixed-publication';
@@ -623,7 +624,8 @@ describe('all-player statistics foundation', () => {
     await expect(database.database.query('SELECT public.all_player_score_set_is_publication_ready($1::uuid,$2::jsonb,$3::uuid)',
       [before[0].all_player_score_set_id, JSON.stringify([...profileIds].sort()), before[0].all_player_stat_observation_id]))
       .rejects.toThrow(/permission denied/iu);
-    const result = stored(await store.recordAllPlayerBatch(await batch(observation(1, 'etag:integration-one', '2026-09-15T00:00:01.000Z'))));
+    const replay = await batch(observation(1, 'etag:integration-one', '2026-09-15T00:00:01.000Z'));
+    const result = stored(await store.recordAllPlayerBatch(replay));
     expect(result.scoreSets.every(set => set.pointerOutcome === 'verified')).toBe(true);
     expect(await pointers()).toEqual(before);
     expect(await database.database.query('SELECT id,rules_hash,rules FROM scoring_profiles WHERE id=ANY($1::uuid[]) ORDER BY id', [profileIds])).toEqual(profiles);
@@ -631,14 +633,12 @@ describe('all-player statistics foundation', () => {
       .toEqual({ scoring_profile_id: null });
     expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1', [registration.leagueSeasonId])).toEqual([]);
 
-    // Baseline reproduction before the additive compatibility repair. The real
-    // registry excludes unadopted DATA even when registration has a valid profile,
-    // but R037 still requires its profile/parity in legacy publication. Keep the
-    // explicit failure expectations until a supervised baseline run proves them.
+    // Baseline 7d81 reproduced both exact P0001 failures. The same runtime
+    // population now remains publication-ready with unadopted DATA profiles.
     const inventory = await readEnrollmentInventory(database.database, DATABASE_SEASON);
     expect(inventory.entries.map(entry => entry.intended.leagueKey).sort()).toEqual(['league1', 'league2']);
     expect(inventory.entries.every(entry => entry.status === 'ready')).toBe(true);
-    const publicationSnapshot = () => ownerQuery(`SELECT jsonb_build_object(
+    const publicationSnapshot = async () => (await ownerQuery<{ state: Record<string, unknown> }>(`SELECT jsonb_build_object(
       'contents',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_contents row),
       'entries',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY all_player_stat_content_id,ordinal),'[]') FROM all_player_stat_entries row),
       'observations',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_stat_observations row),
@@ -648,39 +648,116 @@ describe('all-player statistics foundation', () => {
       'pointers',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY provider,season,season_type,week,scoring_profile_id,scorer_version),'[]') FROM current_all_player_score_sets row),
       'acceptances',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY id),'[]') FROM all_player_league_acceptances row),
       'leagueHeads',(SELECT COALESCE(jsonb_agg(to_jsonb(row) ORDER BY league_season_id,provider,season,season_type,week,scorer_version),'[]') FROM current_all_player_league_scores row),
-      'job',(SELECT to_jsonb(row) FROM projection_jobs row WHERE job_key=$1)) AS state`, [fence.jobKey]);
-    for (const scenario of [
-      { name: 'shared', weight: 4, message: 'all-player score batch is missing a canonical scoring profile' },
-      { name: 'distinct', weight: 8, message: 'all-player score batch does not cover the canonical league scoring profiles' },
-    ] as const) {
+      'job',(SELECT to_jsonb(row) FROM projection_jobs row WHERE job_key=$1)) AS state`, [fence.jobKey]))[0].state;
+    const accounting = () => ownerQuery(`SELECT payload->'requestStarts' AS starts,payload->'requestGeneration' AS generation,
+      payload->'period' AS period,payload->'lastWeeklyRequestAt' AS weekly FROM projection_jobs WHERE job_key=$1`, [fence.jobKey]);
+    let adoptedLeagueId = '';
+    for (const scenario of [{ name: 'shared', weight: 4 }, { name: 'distinct', weight: 8 }] as const) {
       const dataKey = `unadopted-data-nonnull-${scenario.name}`;
       const data = stored(await store.registerLeagueSeason({ leagueKey: dataKey, leagueName: dataKey,
         season: DATABASE_SEASON, sleeperLeagueId: dataKey, scoringRules: { pass_td: scenario.weight } }));
       expect(data.scoringProfileId).toBeTruthy();
       expect(profileIds.includes(data.scoringProfileId)).toBe(scenario.name === 'shared');
-      // Only enrollment metadata is owner-seeded. Registration, parity capture
-      // and the attempted atomic publication all use the restricted LOGIN.
+      // Owner seeds enrollment metadata only; actual publication uses a real
+      // restricted LOGIN with its genuinely marked request and complete parity.
       await ownerQuery(`INSERT INTO league_administration_enrollments(league_id,provider,active,evidence)
         VALUES($1,'sleeper',false,'public-data-intake-v1')`, [data.leagueId]);
       await ownerQuery(`INSERT INTO league_administration_enrollment_seasons(league_id,season,provider,evidence)
         VALUES($1,$2,'sleeper','public-data-intake-v1')`, [data.leagueId, DATABASE_SEASON]);
       expect(await readEnrollmentInventory(database.database, DATABASE_SEASON)).toEqual(inventory);
-      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON, { leagueKey: dataKey }))
-        .toEqual({ entries: [] });
-      const candidate = await batch(observation(1, `unadopted-data-nonnull-${scenario.name}`,
-        scenario.name === 'shared' ? '2026-09-15T00:00:04.000Z' : '2026-09-15T00:00:05.000Z'));
-      expect(candidate.scoreSets.map(set => set.scoringProfileId).sort()).toEqual([...profileIds].sort());
-      expect(candidate.scoreSets.every(set => set.quality === 'complete' && set.parityMismatchCount === 0)).toBe(true);
+      expect(await readEnrollmentInventory(database.database, DATABASE_SEASON, { leagueKey: dataKey })).toEqual({ entries: [] });
       expect((await database.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
         .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
-      const beforeRejected = await publicationSnapshot();
-      await expect(store.recordAllPlayerBatch(candidate)).rejects.toMatchObject({ code: 'P0001', message: scenario.message });
-      expect(await publicationSnapshot()).toEqual(beforeRejected);
+      // Preserve the exact fresh baseline workload as a successful runtime
+      // statement; rollback keeps later fixture histories and pointers intact.
+      const fresh = await batch(observation(1, dataKey,
+        scenario.name === 'shared' ? '2026-09-15T00:00:04.000Z' : '2026-09-15T00:00:05.000Z'));
+      const beforeFresh = await publicationSnapshot();
+      const capture = await createPinnedIntegrationDatabase('runtime');
+      try {
+        await capture.database.query('BEGIN');
+        expect((await capture.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+          .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+        const published = stored(await createProjectionStore(capture.database).recordAllPlayerBatch(fresh));
+        expect(published.scoreSets).toHaveLength(profileIds.length);
+        expect(published.scoreSets.every(set => set.pointerOutcome === 'advanced' || set.pointerOutcome === 'verified')).toBe(true);
+        expect(await capture.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1',
+          [data.leagueSeasonId])).toEqual([]);
+      } finally {
+        try { await capture.database.query('ROLLBACK'); } finally { await capture.close(); }
+      }
+      expect(await publicationSnapshot()).toEqual(beforeFresh);
+      const beforeReplay = await publicationSnapshot(); const beforeAccounting = await accounting();
+      expect(stored(await store.recordAllPlayerBatch(replay)).scoreSets.every(set => set.pointerOutcome === 'verified')).toBe(true);
+      // Successful replay may refresh job.lastPublication; material history and
+      // consumed request accounting must remain byte-for-byte equivalent.
+      expect({ ...await publicationSnapshot(), job: null }).toEqual({ ...beforeReplay, job: null });
+      expect(await accounting()).toEqual(beforeAccounting);
       expect(await database.database.query('SELECT * FROM current_all_player_league_scores WHERE league_season_id=$1',
         [data.leagueSeasonId])).toEqual([]);
+      if (scenario.name === 'distinct') adoptedLeagueId = data.leagueId;
     }
-    // Immutable synthetic memberships remain until the guarded global teardown;
-    // this focused baseline profile runs no later configured-publication cases.
+
+    const publisher = await createPinnedIntegrationDatabase('runtime');
+    const adopter = await createPinnedIntegrationDatabase('owner');
+    let adoption: Promise<unknown> | undefined;
+    let publication: Promise<unknown> | undefined;
+    try {
+      await publisher.database.query('BEGIN');
+      expect((await publisher.database.query('SELECT session_user AS role,current_user AS effective_role'))[0])
+        .toEqual({ role: 'league_one_runtime', effective_role: 'league_one_runtime' });
+      expect(stored(await createProjectionStore(publisher.database).recordAllPlayerBatch(replay)).scoreSets
+        .every(set => set.pointerOutcome === 'verified')).toBe(true);
+      const pid = (await adopter.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      adoption = adopter.database.query(`UPDATE league_administration_enrollments SET active=true,evidence='account-onboarding-v1',
+        data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1`, [adoptedLeagueId, DATABASE_SEASON]);
+      const settled = Promise.allSettled([adoption]);
+      let waiting = false;
+      for (let attempt = 0; attempt < 60 && !waiting; attempt += 1) {
+        waiting = (await publisher.database.query<{ waiting: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND relation='public.league_administration_enrollments'::regclass
+            AND mode='RowExclusiveLock' AND NOT granted) AS waiting`, [pid]))[0].waiting;
+        if (!waiting) await delay(25);
+      }
+      expect(waiting, 'Adoption must wait for the publication transaction parent SHARE lock.').toBe(true);
+      await publisher.database.query('ROLLBACK');
+      const outcome = (await settled)[0]; if (outcome.status === 'rejected') throw outcome.reason;
+      adoption = undefined;
+      // Reverse the race: publication reaches SHARE while adoption is still
+      // uncommitted, then must read the newly included profile after its wait.
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [adoptedLeagueId]);
+      const beforeRefusal = await publicationSnapshot();
+      const publisherPid = (await publisher.database.query<{ pid: number }>('SELECT pg_backend_pid() AS pid'))[0].pid;
+      await adopter.database.query('BEGIN');
+      await adopter.database.query(`UPDATE league_administration_enrollments SET active=true,evidence='account-onboarding-v1',
+        data_adopted_seasons=ARRAY[$2]::integer[] WHERE league_id=$1`, [adoptedLeagueId, DATABASE_SEASON]);
+      publication = createProjectionStore(publisher.database).recordAllPlayerBatch(replay)
+        .then(value => ({ value }), error => ({ error }));
+      waiting = false;
+      for (let attempt = 0; attempt < 60 && !waiting; attempt += 1) {
+        waiting = (await adopter.database.query<{ waiting: boolean }>(`SELECT EXISTS(SELECT 1 FROM pg_locks
+          WHERE pid=$1 AND relation='public.league_administration_enrollments'::regclass
+            AND mode='ShareLock' AND NOT granted) AS waiting`, [publisherPid]))[0].waiting;
+        if (!waiting) await delay(25);
+      }
+      expect(waiting, 'Publication must reach SHARE before the adopter commits.').toBe(true);
+      await adopter.database.query('COMMIT');
+      expect(await publication).toMatchObject({ error: { code: 'P0001',
+        message: 'all-player score batch does not cover the canonical league scoring profiles' } });
+      publication = undefined;
+      expect((await readEnrollmentInventory(database.database, DATABASE_SEASON)).entries
+        .some(entry => entry.intended.leagueId === adoptedLeagueId && entry.status === 'ready')).toBe(true);
+      expect(await publicationSnapshot()).toEqual(beforeRefusal);
+    } finally {
+      // Release the blocker before awaiting either queued session.
+      if (publication) { await adopter.database.query('ROLLBACK'); await publication; }
+      await publisher.database.query('ROLLBACK');
+      if (adoption) await adoption.catch(() => undefined);
+      await adopter.database.query('ROLLBACK');
+      await ownerQuery('UPDATE league_administration_enrollments SET active=false WHERE league_id=$1', [adoptedLeagueId]);
+      await publisher.close(); await adopter.close();
+    }
+    expect(await readEnrollmentInventory(database.database, DATABASE_SEASON)).toEqual(inventory);
   });
 
   it('derives player total points and PPG from current pointers with profile isolation', async () => {
