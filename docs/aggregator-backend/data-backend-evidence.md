@@ -1,6 +1,116 @@
 # DATA backend evidence and remaining qualification
 
-## CP7 manager and commissioner facts — failed qualification, October 10, 2026
+## CP7 manager and commissioner facts — accepted nine-case qualification, October 10, 2026
+
+**Checkpoint 7 implementation and resource qualification are complete within the
+bounded current-2026 scope.** [Run 38071709157, attempt 1](https://github.com/clawmachinejed/league-one-audit/actions/runs/38071709157)
+qualified exact source `62b9f7710b8dda31e5723a6942911b85515bd014` on
+`codex/data-manager-facts`, using only `data-team-manager-facts-v1`.
+The separately approved corrected-source attempt collected, executed and passed
+all nine cases once, with zero failed, skipped, filtered, retried, repeated or
+flaky cases and zero unhandled errors. The single beforeAll/afterAll pair each
+started and ended once. The earlier failed attempt remains recorded below;
+neither its partial passes nor offline repairs supply this qualification.
+
+1. **Data resource:** season-scoped team and provider-manager identities, primary
+   ownership, vacancies, co-owners and ownership changes, plus independent
+   Sleeper `users.is_owner` commissioner facts. True, false, absent, null and
+   invalid raw values remain distinct; multiple commissioners are supported
+   without inferring ownership or website/account authority.
+2. **Existing path:** existing Sleeper captures and administration normalization,
+   writer, relational identities and immutable storage, extended by migration
+   043. Existing backend readers compose an exact retained directory capture
+   under the current mapping guard. V1 primary-owner intake completion and V2
+   latest-current-mapping evidence retain their separate meanings. No provider,
+   worker, account or projection pipeline was added.
+3. **Persisted result:** all nine restricted-LOGIN SQL cases passed raw/typed
+   commissioner parity, identity reuse and immutable corrections/history/replay;
+   unknown primary ownership beside valid co-owners; reservation ordering and
+   source remapping; independent partial, malformed and unavailable directories;
+   forged facts/mappings/fences; observed late-write rollback for both
+   relationships and typed directory facts; and actual role/private-helper
+   denials. Ordinary intake and one changed-ownership refresh passed a users
+   failure followed by complete-empty directory recovery, exact historical
+   capture readback, mapping gates and stored-only composition.
+4. **Real evidence and gaps:** the maintained report and artifact validators
+   accepted the exact source/profile/module/report/context bindings. Independent
+   review verified all twelve immutable journal sequences and terminal cleanup
+   acknowledgment and accepted the bounded result. HTTP inputs were synthetic: this
+   proves
+   the selected PostgreSQL behavior, not live Sleeper acquisition, sustained
+   recurrence, fleet targets, genuinely fresh-role provisioning, full SQL-suite
+   coverage, production installation or complete backend readiness.
+
+The fixture LF SHA256 is
+`cf206755ad34e916cb9606eb9c12259340ef3f603362c2f87d2299a52c0e058d`;
+profile digest is
+`ac2e58e56ba384f418d3e71a66f1ab291fd4dd11daf219197f95307b618afbe7`;
+context digest is
+`871d6b142d230156c233859099cdefc50e3db1f4199eeca389413a1f0eb0b1cf`.
+The two-deadline rollback case took 34,607.834 ms; the ordinary intake/refresh
+case took 614,556.483 ms. These whole-case measurements include multiple work
+attempts and do not expand the unchanged 20-second ordinary-worker limit.
+Vitest took 771.02 seconds, and the supervisor lifecycle was 784,612 ms within
+the unchanged 30-minute work / 40-minute lifecycle / 50-minute CI limits.
+
+Supervisor run `008e2692-2ddd-4dcd-8626-09360de901a0` ran from
+`2026-10-10T17:26:37.070Z` to `17:39:41.579Z`; terminal acknowledgment at
+`17:39:41.5899538Z` reports tests and qualification passed, POSIX child-tree
+closure, schema cleanup, generated credential revocation and deletion of child
+`br-odd-sun-b7z587py`, with empty failures/unresolved resources and no
+production writes. Fresh read-only Neon Console navigation at
+`17:40:55.8179472Z` independently showed only baseline
+`br-plain-bread-b7sgfdl8` in project `steep-glitter-44680287`.
+During-run Console evidence bound the exact child to provider-reported
+PostgreSQL 18 and 0.25 CU. Patch/build and actual billing were not measured.
+Deletion was observed before the fallback expiry. The second single-run
+authorization is consumed; its $1 allowance was not a provider billing cap.
+
+Artifacts remain under
+`apps/site/test-results/data-backend/cp7-run-38071709157`; report and global
+cleanup are in
+`artifacts/integration-62b9f7710b8dda31e5723a6942911b85515bd014-1/artifacts/run-evCwbk`.
+SHA256 values:
+
+- Report: `dcdbae285c36916b200e214bc9e5c875ea5b79c318933d97f6f1f22b543e38dd`.
+- Global cleanup acknowledgment: `6624517ef9c35f9286236825f9437c3a8645d70a05748faedb8c48cf97675ebc`.
+- Terminal journal 0012: `3382886399444e5e23816970cc98086dac757518abba4a72b8219676c183ee56`.
+- Workflow log: `2bf0713f4b6dded4589cfc4eb5e820d06421a80bc69c2a3daf87ad4edec2082a`.
+- Provider cleanup observation: `4173ef13aab115907603fbcc34169bfc688448de0ca396305eb6500399b7fa39`.
+- Independent `storage-validation.json`: `87910cd0cfa184fc37ae0f4fb779c3bb0fcfcfcfd667e4462ef5a1cdd6748061`.
+
+Corrected-source [CI 38069762290](https://github.com/clawmachinejed/league-one-audit/actions/runs/38069762290)
+passed scope, dependency, lint, type and build checks plus all 6,596 unit tests
+across 295 files with zero skips. The merge checkout
+`f4be7d57e084defb62bbb4eaf017222b180e640b` and executed source share exact
+tree `42ae6bc76021105924d7fa6384f28a307a54a8bd`. Public Chromium checks passed
+121 cases with 20 intentional account-fixture exclusions; the separate account
+command passed all 20 cases with zero skips. No retry/flaky summary was observed.
+Both browser commands verified a clean local served build; they were separate
+from deployed-site inspection. The retained source-CI summary binds these
+results to `62b9f77`, not the original failed candidate.
+
+Ready deployment `J9RAvnvNgHGQxF8V7JmroKfkyKnm` at the
+[corrected-source preview](https://leagueonefantasy-he3ao2n0d-robert-finchums-projects.vercel.app)
+was checked against exact `62b9f77` and inspected in the built-in browser:
+My Fantasy guest state, 12 League One cards, 12 League Two cards, 2026/History
+tabs and scoped navigation. The original preview's Dynasty observation remains
+bound to its earlier source. Preflight local/origin/GitHub main and Ready
+production still agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`, with
+canonical repository, `apps/site` root and production branch `main`;
+no competing integration run was observed.
+
+This closeout changes only the evidence ledger and preserves executed-source
+identity. CP5/CP6 evidence stays bound to its own source. Both default local
+full-verification failures and the earlier SQL/offline diagnostic failures remain
+historical evidence below. No further paid run, retained migration, activation,
+merge or production release is authorized by this result.
+
+## Historical CP7 first attempt — failed qualification, October 10, 2026
+
+> The following section preserves the state at the failed attempt and its offline
+> repair, before the separately authorized successful run recorded above. Its
+> present-tense unqualified statements apply to that historical state only.
 
 **SQL qualification rejected; disposable cleanup accepted.** The single approved
 attempt tested exact source `be4bb9ef1252d3b57217989769311668e9e996a1` on
@@ -660,7 +770,7 @@ Current repaired source: `592a60a79639a648a35dda14f53d787003d357bf`, independent
 | --- | --- | --- |
 | Discovery: username → stable user ID → associated leagues for declared seasons | `sleeper.ts` → `A/public-intake.ts`, `A/neon/public-intake.ts` → `A/public-intake-reader.ts` | **Verified:** `f20eab3`, complete four-league 2026 list and two live collections. **Verified r2 B at `592a60a79639a648a35dda14f53d787003d357bf`:** two controlled empty-list refresh cycles with retained prior typed history. Current bounds: 1–3 seasons, 1,000 list rows/season, 20 selected candidates and shared 16-league enrollment ceiling. **Unverified:** other users/seasons, changed/invalid lists and remaining list/enrollment-limit behavior. Qualify those through the same path; the selected pending-request/paused-target cases are not general discovery-limit or acquisition-capacity proof. Capacity exclusions are not invalid official formats. |
 | Leagues, settings and seasons: native league/season IDs, scoring/roster/competition/waiver settings, applicability | `sleeper.ts`, `A/normalize.ts` → `A/neon/public-intake.ts`, `A/neon/league-settings.ts`, `projections/adapters/neon/identities.ts` → `A/public-intake-reader.ts` | **Verified:** core at `2f19b7e9`, `e85c798`, `f20eab3`; nine-state preconfiguration and committed-bootstrap recovery at `cbfc938`; A at `0c9f318` adds interrupted typed-core recovery, explicit existing-consumer adoption and generation-one admission after the maintained completed-job retention path. A new nonempty numeric rule set may create a profile; missing/null/empty rules leave NULL; an existing season's binding stays immutable. **Missing:** bounded DATA annual predecessor/successor acquisition and evidenced applicability coverage. Extend registration/source mapping using existing `A/applicability.ts`, `A/neon/administration.ts` and migration016's `connect_league_administration_season`; retain predecessor evidence and qualify conflicting/missing years. Existing applicability/version mechanisms are implemented, not a new history pipeline. |
-| Teams, managers and co-owners: season-scoped roster IDs, user IDs, vacancies/changes; commissioner separate | `sleeper.ts`, `A/normalize.ts` → `A/neon/team-managers.ts`, `A/neon/administration.ts` → `A/public-intake-reader.ts` | **Verified:** core and optional directory at `2f19b7e9`, `e85c798`, `f20eab3`; changed manager/player fixture at `91aec119`. R035 v2 can retain valid co-managers beside unknown primary ownership; its read is latest-for-current-mapping, not receipt-bound intake completion. **Unverified:** dedicated R035 remap/ordering/privilege and independent directory failure matrix. **Missing:** typed commissioner fact where supplied; add explicit presence/evidence in existing contracts/normalizer/writer/reader without ownership or account authority. |
+| Teams, managers and co-owners: season-scoped roster IDs, user IDs, vacancies/changes; commissioner separate | `sleeper.ts`, `A/normalize.ts` → `A/neon/team-managers.ts`, `A/neon/administration.ts` → `A/public-intake-reader.ts` | **Qualified within CP7 scope:** nine-case restricted-SQL [run 38071709157](https://github.com/clawmachinejed/league-one-audit/actions/runs/38071709157) at `62b9f7710b8dda31e5723a6942911b85515bd014` passed commissioner true/false/absent/null/invalid parity, ownership/co-owner/vacancy changes, identities/history/replay, partial primary ownership, ordering/remap, independent directory failures, late-write rollback, actual privileges and ordinary intake/refresh recovery. Commissioner facts remain independent of ownership and account authority. V1 completion remains primary-owner based; V2 remains latest-for-current-mapping evidence, while the typed directory read is exact-capture bound with a current mapping guard. HTTP was synthetic. Live acquisition, fresh-role provisioning, sustained recurrence/fleet targets, full SQL regression and production installation remain separate qualifications. Earlier core/directory results retain their original source bindings; documentation-only closeout is not another executed SQL source. |
 | Rosters and player identities: held players, starters/reserve/taxi and native player namespace; complete/partial changes | `sleeper.ts`, `A/normalize.ts`, `sleeper-player-catalog.ts` → existing administration acceptance and shared scoring-identity owner → `A/neon/current-roster.ts`, `A/neon/roster-player-links.ts`, `A/public-intake-reader.ts` | **Qualified within CP5–6 scope:** durable versioned directory; correctly keyed memberships/categories; evidenced player and team-defense links; explicit unresolved/conflicting identities; additions/removals/transfers, complete-empty versus incomplete input, unfamiliar positions, immutable corrections/history and stored-reader parity. CP6's nine-case restricted-SQL [run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318) qualifies source `93c18e588f7bcead866b6e3e3f087b8a691dcee6`, including ordinary intake and one refresh. HTTP is synthetic; CP5 live acquisition remains separate evidence. No name-based cross-provider inference or provider transfer timestamps are invented. Fresh roles, sustained recurrence/fleet targets, full SQL regression and production installation remain later qualifications. Any subsequent documentation-only commit records this result; it is not another executed SQL source. |
 | Lineups and matchups: native period, roster/matchup IDs, assignments/slots/grouping, byes and formats | `sleeper.ts`, `A/public-intake.ts`, `G/exact-matchups.ts` → `A/neon/exact-matchups.ts`, `A/neon/public-intake.ts` → `A/public-intake-reader.ts` | **Verified:** selector/permission SQL at `e8afd508`; A at `0c9f318` adds the twenty-ordinal/candidate-lineage/immutable-scope structural case with rolled-back owner-only prerequisites. **Verified r2 C at `592a60a79639a648a35dda14f53d787003d357bf`:** the controlled week 7/season 2179 retained-period chain, paired reservations/witnesses, stale/fenced receipt rejection, observed work-deadline expiry during an advisory-lock wait and lost-ack recovery, and failure preservation. **Verified r2 D at `592a60a`:** five failed exact-period admissions with real backoffs, then core/users completion with partial intake status and no period checkpoint. **Unverified:** stored score/custom-zero value parity and broader competing-head/remap/format behavior. **Missing:** bounded full period inventory and supplied competition-phase/multiweek/history applicability. Extend this same task and exact-reader path; unavailable exact-period reserve/taxi or historical slots cannot be filled from today's roster. |
 | Official scores, results and standings: scores/custom overrides, outcome/finality, supplied rank/seed/W-L-T/PF-PA | `G/exact-matchups.ts`, `G/season-overview-source.ts` → `A/neon/exact-matchups.ts`, `A/neon/current-roster.ts` → `A/public-intake-reader.ts`, `G/season-overview-standings.ts` / existing `G/bundle-two-reader.ts` | **Implemented/unverified:** exact raw/custom/effective scores and same-roster season facts; custom zero remains zero and local ordering is derived. The C fixture supplies custom zero but asserts period availability rather than exact stored score values, so its accepted pass does not close field/value/presence parity. Existing exact-matchup finality is explicitly unknown (`no_matchup_finality_evidence`); intake still lists official results as not requested. **Missing:** supplied official outcome/finality/phase facts and generic stored result coverage; extend existing contracts and acceptance/readers using actual source/bracket evidence, never scores alone or current standings as historical evidence. |
