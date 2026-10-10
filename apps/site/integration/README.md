@@ -307,3 +307,33 @@ Full-catalog 16 MiB/2,000,000-value/depth-64/100,000-row bounds are authored lim
 actual full-size provider, database request-size and 20-second work-budget fit
 remain unqualified. No public roster linkage, projection, account or frontend
 behavior is changed by this fixture profile.
+
+## Live full-directory budget qualification
+
+The separate manual-only `data-live-player-directory-v1` profile selects exactly
+one case in `integration/player-directory.live-integration-case.ts`, with a
+reviewed LF source pin, a matching supervisor context and one hook pair. Run
+only through the existing protected disposable supervisor after exact-source
+review and separate bounded run authorization. The new live suffix is excluded
+from normal full discovery, which remains 49 modules; all older profiles and
+source pins remain unchanged.
+
+This case requires one real public Sleeper `/players/nfl` GET through the existing
+catalog owner, restricted runtime Neon HTTP storage, and every version-pinned
+reader page to finish under the same original 20-second deadline. The clock
+includes claim, reservation, acquisition, normalization, acceptance, job
+completion and full stored-page audit. It is never restarted for readback.
+Stage timings distinguish accepted ingestion from a later readback failure;
+ingestion alone is not a passing end-to-end result. The 45-second test allowance
+covers failure reporting and cleanup, without extending the success budget.
+
+The existing 16 MiB source, 2,000,000-value, depth-64, 100,000-row, 64 MiB storage
+envelope and 200-row page bounds remain unchanged. Exactly one acquisition is
+permitted: no redirects, fallback feed, retry, prefetch or second observation.
+Only bounded aggregate measurements and sanitized outcomes are reported, never
+raw catalogs, player identities, query parameters or credentials. Nonsecret
+source hashes and attempt, receipt and version UUIDs may bind retained evidence.
+Production scheduling,
+roster links and production installation remain off. Source/offline checks are
+not evidence of live capacity or fit; only a separately authorized exact-source
+run with verified report and cleanup can qualify the observed catalog.

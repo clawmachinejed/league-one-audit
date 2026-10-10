@@ -730,3 +730,57 @@ Downloaded sanitized evidence is under `test-results/cp5-sql-38024557177/integra
 - Downloaded workflow log `test-results/cp5-sql-38024557177.log`: `4d654cf19f3d39d8b1f035c04f3122a9b2d13a833364ff3a323ecfd21bcec724`.
 
 The artifacts do not record the actual PostgreSQL server version or billed cost; both remain unmeasured. The $1 authorization was not an enforced provider billing cap. Live full-catalog acquisition, the 16 MiB transport and 64 MiB storage-envelope fit, 20-second operating fit, elapsed daily cadence, genuinely fresh-role creation and the full 49-module SQL suite remain unqualified. The source-publication failures and verification history above remain intact. This result qualifies only these six cases at the tested SHA; it does not complete CP5 or DATA or authorize another run, retained installation, merge or release.
+
+## CP5 live full-catalog qualification candidate (2026-10-10)
+
+**Data resource.** One real complete Sleeper NFL player directory, preserving native
+rows, actual source captures, source version, typed fields and immutable accepted
+history. This extends the existing six-case synthetic SQL evidence with a proposed
+real catalog-size and operating-budget measurement; it does not replace that evidence.
+
+**Existing path.** The closed manual-only `data-live-player-directory-v1` profile
+selects one separately excluded live module through the existing disposable
+supervisor and standard guarded setup. The case uses the same catalog loader,
+public-intake owner, restricted writer and version-pinned stored reader, with actual
+Neon HTTP transport and exactly one Sleeper `/players/nfl` GET. The existing limits
+remain 16 MiB raw source, 2,000,000 values, depth 64, 100,000 rows, 64 MiB storage
+envelope and 200 rows per page. No runtime, migration, scheduler or provider
+configuration change is included; default full discovery stays 49 modules.
+
+**Persisted result.** The candidate requires acquisition, normalization, guarded
+acceptance, job completion and every stored-reader page to complete under the
+same original 20-second clock, starting before claim. The clock is never restarted
+for readback. Bounded aggregate stage timings distinguish accepted ingestion from
+later readback failure; accepted ingestion alone cannot pass the combined check.
+A passing qualification also needs the exact reviewed SHA/module/profile binding,
+case and hook report, global cleanup acknowledgment and original supervisor
+child/schema/credential/branch cleanup receipts. No raw catalog, player identities,
+parameters or credentials are emitted in measurement artifacts. Source hashes and
+nonsecret attempt, receipt and version UUIDs may identify retained evidence.
+
+**Real proof and gaps.** This new candidate is authored and unexecuted. No live GET,
+SQL, credentials or provisioning ran while authoring it. The proposed test retains
+the fixed 0.25-CU disposable child and existing 30-minute work/40-minute lifecycle
+limits; its 45-second case allowance permits failure reporting and cleanup without
+extending the strict 20-second success budget. Actual full-catalog size, HTTP/SQL
+request fit, ingestion/readback timing and combined success remain unmeasured.
+The prior one-$1 synthetic SQL attempt was consumed; it does not authorize this
+new live run. A new bounded authorization is pending after exact-source review
+and publication. Production application, recurrence, CP6 roster linkage, retained
+installation, merge and release remain outside this source candidate.
+The live module was independently source-reviewed and pinned at LF SHA256
+`a3216b2fc16b50e552fd5720d5b59fb21e696eb1f8a43b25d5854834f4e30a44`.
+The focused offline profile, reporter and mocked-supervisor verification passed
+**162/162 tests across three files**, with zero failures or skips. Its report is
+`apps/site/test-results/data-backend/cp5-live-qualification-offline.json`, SHA256
+`cbce7a2594df6e877278590cb2d5d1d671101823bc2167567785691a30669247`.
+The new reporter coverage drives public callbacks against pinned source bytes
+without importing the live module; unchanged network-blocked installed-runner
+fixtures cover shared reporter mechanics. Neither exercises live PostgreSQL or
+Sleeper. Source scope and diff checks passed. Full nonincremental TypeScript and
+fixture lint passed after the development fixes; the four wiring/test files also
+passed targeted ESLint. The first TypeScript run reported reader inference and
+synthetic test typing errors, and the first wiring lint run rejected a reserved
+fixture variable name. These were corrected before the passing checks; no checks,
+source-binding guards or timeouts were weakened. Complete root verification,
+publication, a new run approval and actual live measurement remain separate gates.

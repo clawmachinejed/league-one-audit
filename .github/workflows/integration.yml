@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-live-player-directory-v1
           - data-player-directory-v1
           - data-core-compatibility-v1
           - data-core-ingestion-v1
@@ -68,6 +69,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-live-player-directory-v1)
+              pnpm test:integration --profile=data-live-player-directory-v1
               ;;
             workflow_dispatch:data-player-directory-v1)
               pnpm test:integration --profile=data-player-directory-v1

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import ts from 'typescript';
 import QualificationReporter from './qualification-reporter';
 import { createQualificationContext, qualificationArguments, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
@@ -13,6 +13,8 @@ import { createQualificationContext, qualificationArguments, qualificationDigest
   CONCURRENCY_PROFILE, CONCURRENCY_FULL_NAMES, LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_SUITE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CLOSEOUT_PROFILES,
   PLAYER_DIRECTORY_PROFILE, PLAYER_DIRECTORY_MODULE, PLAYER_DIRECTORY_SUITE, PLAYER_DIRECTORY_TESTS, PLAYER_DIRECTORY_FULL_NAMES,
+  LIVE_PLAYER_DIRECTORY_PROFILE, LIVE_PLAYER_DIRECTORY_MODULE, LIVE_PLAYER_DIRECTORY_SUITE, LIVE_PLAYER_DIRECTORY_FULL_NAME,
+  LIVE_PLAYER_DIRECTORY_PATTERN, qualificationCleanup,
   validateQualificationArtifacts, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -420,3 +422,43 @@ it.each(['source', 'reversed'] as const)('reports the six directory cases with a
     await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 6, executed: 6, passed: 6, filtered: 0 });
   } else await expect(validateQualificationArtifacts(binding)).rejects.toThrow('source order');
 }, 30_000);
+
+it('records the exact live directory public reporter events against pinned bytes without importing or executing the live module', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'live-directory-reporter-')); directories.push(directory);
+  const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), LIVE_PLAYER_DIRECTORY_PROFILE);
+  const binding = { context, directory };
+  const previousContext = process.env[QUALIFICATION_CONTEXT_ENV];
+  const previousArtifacts = process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY;
+  const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('OFFLINE_REPORTER_NETWORK_REFUSED'));
+  try {
+    process.env[QUALIFICATION_CONTEXT_ENV] = JSON.stringify(context);
+    process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY = directory;
+    const reporter = new QualificationReporter();
+    reporter.onInit({ config: { root: site, testNamePattern: new RegExp(LIVE_PLAYER_DIRECTORY_PATTERN) } } as Parameters<QualificationReporter['onInit']>[0]);
+    await reporter.onTestRunStart([{ moduleId: join(site, LIVE_PLAYER_DIRECTORY_MODULE) }] as unknown as Parameters<QualificationReporter['onTestRunStart']>[0]);
+    const test = { id: 'case', fullName: LIVE_PLAYER_DIRECTORY_FULL_NAME, options: { mode: 'run' },
+      result: () => ({ state: 'passed', errors: [] }),
+      diagnostic: () => ({ retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 }) };
+    const suite = { id: 'suite', fullName: LIVE_PLAYER_DIRECTORY_SUITE, options: { mode: 'run' }, errors: () => [] };
+    const testModule = { relativeModuleId: LIVE_PLAYER_DIRECTORY_MODULE, state: () => 'passed', errors: () => [],
+      children: { allSuites: () => [suite], allTests: () => [test] } } as unknown as Parameters<QualificationReporter['onTestModuleCollected']>[0];
+    reporter.onTestModuleCollected(testModule);
+    for (const name of ['beforeAll', 'afterAll']) {
+      const hook = { name, entity: suite } as unknown as Parameters<QualificationReporter['onHookStart']>[0];
+      reporter.onHookStart(hook); reporter.onHookEnd(hook);
+    }
+    reporter.onTestCaseReady(test as unknown as Parameters<QualificationReporter['onTestCaseReady']>[0]);
+    reporter.onTestCaseResult(test as unknown as Parameters<QualificationReporter['onTestCaseResult']>[0]);
+    await reporter.onTestRunEnd([testModule], [], 'passed');
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+    await qualificationCleanup(async () => {}, binding);
+    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: LIVE_PLAYER_DIRECTORY_PROFILE,
+      collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0 });
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    fetch.mockRestore();
+    if (previousContext === undefined) delete process.env[QUALIFICATION_CONTEXT_ENV]; else process.env[QUALIFICATION_CONTEXT_ENV] = previousContext;
+    if (previousArtifacts === undefined) delete process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY;
+    else process.env.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY = previousArtifacts;
+  }
+});
