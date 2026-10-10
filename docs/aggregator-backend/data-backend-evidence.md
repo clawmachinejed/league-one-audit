@@ -797,3 +797,120 @@ checks passed **162/162 tests across three files**, with zero failures or skips;
 has SHA256 `450927dee3d6e9e49251d276b43ef811a99fa7653690dc9aac7cb022e1b7beff`.
 The earlier report is preserved. Full TypeScript and fixture lint passed, and no
 SQL, live GET, provisioning or production action ran for this follow-up.
+
+## CP5 live full-catalog qualification result (2026-10-10)
+
+After explicit approval for one bounded $1 attempt, protected workflow
+[38050136534](https://github.com/clawmachinejed/league-one-audit/actions/runs/38050136534),
+attempt 1, passed `data-live-player-directory-v1` at exact executable SHA
+`1257f8a4087c8e542ad6ba1b0b974761e6179bda`. It collected, executed and passed
+**1/1 case in one module**, with zero failures, skips, filtered cases, retries,
+repeats or unhandled errors, and one balanced `beforeAll`/`afterAll` pair.
+This is subsequent execution evidence for the historical unexecuted candidate
+entries above; those entries and the earlier synthetic six-case result retain
+their original source bindings.
+
+The live module LF SHA256 was
+`4db8a8e3be986589d2a8e65c8662b20485347db48be83108b259500f5e574e9c`;
+profile digest was `9bdccd0ab41ad829636981a1a70a975935b342cb5cc24f1e9459c5188fac7522`.
+Run ID `30925585-6bed-47c7-8b51-db447067dd2c` and nonce
+`25beacd6-63b5-4172-92c1-19bd4c431476` bound the source, report, capacity artifact
+and cleanup acknowledgment through context digest
+`4cd586755dd556113c69a49668c556532f563032849af1f18c24835816ebc847`.
+The runtime reported Node `v24.21.0` and PostgreSQL `18.6 (c021049)` /
+`server_version_num=180006`, on the fixed 0.25-CU disposable child.
+
+The unchanged loader made **one Sleeper GET**, returning HTTP 200 and a complete
+catalog without capture reasons. The genuine restricted runtime then accepted
+one write through the existing Neon HTTP path and audited every stored page
+against the original native capture under the same original 20-second clock.
+The observed measurements were:
+
+| Measurement | Actual result | Unchanged bound |
+| --- | ---: | ---: |
+| Stream, decoded source and stored raw-text UTF-8 bytes | 14,660,285 | 16,777,216 (16 MiB) |
+| Native rows and stored rows read | 12,229 | 100,000 |
+| JSON values / maximum depth | 691,010 / 4 | 2,000,000 / 64 |
+| Compact serialized capture bytes | 37,447,585 | 67,108,864 (64 MiB) |
+| PostgreSQL capture JSONB text bytes | 39,358,847 | 67,108,864 (64 MiB) |
+| Instrumented Neon write HTTP request bytes | 44,192,256; HTTP 200 | Actual successful request; no new transport ceiling inferred |
+| Stored pages | 62; terminal cursor reached | 200 rows per page, at most 500 pages |
+| Existing owner acquisition/acceptance step, including job completion | 10,465.397552 ms | Within the original work clock |
+| Complete work through full readback and final checks | 19,770.463353 ms | 20,000 ms |
+
+All 67 observed Neon HTTP responses returned 200; the write was request ordinal 3.
+The instrumented request includes measurement SELECT text and is not asserted to
+be the exact uninstrumented production body size. The stored raw text retained
+source revision `sha256:de339e9589bbe1f6d2ef9f5ac60e48157a6bd5a4a4e66780c373f1876f4ff880`.
+Source-bound passing assertions establish raw-hash preservation, complete native
+and typed parity, immutable version-pinned traversal, all 12,229 rows read, and
+no extra provider acquisition. The artifact retains counts, hashes and nonsecret
+provenance identifiers rather than raw player data. The accepted version was
+`c6875cb4-ee64-4e1a-a03d-a599e7fb1cb0`, content
+`5f770765-cd83-460c-81f7-1a5a8292dc71`, and receipt
+`6a7db5b8-303d-4413-9820-647c91bf7a88`; isolated SQL data was subsequently removed
+by the verified supervisor teardown.
+
+The measured work left **229.536647 ms, approximately 1.15%**, below the original
+20-second ceiling. Database preflight occurred outside that clock, so this is
+one warmed, isolated observation of this catalog on 0.25 CU. It is not a cold-start,
+concurrent-load, fleet-capacity, future-catalog-growth, elapsed daily-cadence or
+recurring-freshness guarantee. The 45-second test allowance did not restart or
+extend the success clock. Vitest's case duration was 19,772.325946 ms; its whole
+invocation took 55.36 seconds including setup and teardown. Supervisor lifecycle
+elapsed was 69,569 ms, within the unchanged 30-minute work/40-minute lifecycle
+limits and 50-minute CI job allowance.
+
+All 12 ordered immutable receipt snapshots retained the same run/source identity
+and no recorded failures. Intermediate resource obligations were discharged;
+the acknowledged terminal receipt
+`run-1791633388340-ff3b3e22-b46d-4c15-876f-cf40f80c0546-0012.json` reported complete,
+tests and qualification passed, POSIX process-group child closure, verified schema
+cleanup, credential revocation and owned-branch deletion, with no unresolved
+resources. The capacity artifact's `cleanupElapsedMs=null` means the already
+completed owner needed no failure-cleanup attempt; it does not mean supervisor
+cleanup was absent. The zero-byte base journal file is a reserved path, and the
+one-hour branch expiry was fallback only. The one authorized $1 allowance is
+consumed; actual billed cost is unmeasured, and the allowance was not a provider
+billing cap. No automatic rerun occurred.
+
+Downloaded evidence is under
+`test-results/cp5-live-38050136534/integration-1257f8a4087c8e542ad6ba1b0b974761e6179bda-1`,
+with child files in `artifacts/run-rCLCkW`. Recomputed SHA256 values:
+
+- Acknowledged terminal receipt `0012`: `f3642c2d9686fc98fd0ae65b88cf1a9247258a7756553861766626b442948f03`.
+- `live-player-directory-capacity.json`: `8ca9455a766592edecbd3fb9911cf7c5fc84d97e20184a3fd4fb94b3188d3350`.
+- `qualification-report.json`: `86793a2aae2f7805943b3d05859e1a98c4a4d7f8c9f1980194033dd6b007f340`.
+- `qualification-cleanup.json`: `be09845c2cad65dfdada75e61fac66ea924b7d974adcb77e8ce26086698d9cdb`.
+- Parent `test-results/cp5-live-38050136534/workflow.log`: `c5cdf513f9595aa5f86af561e5d51e98575b20de7c557da723b7feb03104a49c`.
+
+Separately, source verification [38045361596](https://github.com/clawmachinejed/league-one-audit/actions/runs/38045361596)
+passed 6,472 unit tests across 289 files with zero failures/skips, 121 public browser
+tests with 20 skips and zero failures, and 20 account browser tests
+with zero failures/skips. The CI merge SHA
+`3703306ddbdd31351e73f83dcd1206b76d7f1fd5` and candidate
+`1257f8a4087c8e542ad6ba1b0b974761e6179bda` share exact Git tree
+`4d43df362812d26fa0ca53fdefce74207556d7c2`. These source/browser checks are distinct
+from the live SQL result. No retained installation, production migration,
+automatic recurrence, CP6 roster linkage, merge or production release follows
+from this isolated run.
+
+Independent Astra Ultra review accepted the live artifacts using the existing
+read-only qualification validator: 1/1 passed, zero skipped/filtered, exact binding
+across all 12 receipts, terminal acknowledgment in the workflow log, complete
+cleanup and the measured full-readback result. This review made no new SQL or
+provider request. It also confirmed that the implementation libraries, migrations,
+synthetic fixture, dependencies and harness carrying the six-case SQL proof at
+`370ba5a0c94cfb21fa9fcbead8049beea041a843` remain unchanged for the live source.
+That prior restricted-role proof therefore carries forward; the live run at
+`1257f8a4087c8e542ad6ba1b0b974761e6179bda` adds the sampled transport, storage and
+complete-reader qualification.
+
+**CP5 implementation and resource qualification are complete within the recorded
+acceptance-baseline scope.** The change remains unmerged and uninstalled in
+production. The narrow warmed timing result above does not establish a robust
+performance guarantee. Genuinely fresh-role creation, elapsed daily cadence,
+the full 49-module SQL suite and production rollout remain separate unqualified
+obligations; independent review did not identify them as blockers to this CP5
+resource checkpoint. This does not complete DATA as a whole or authorize another
+paid run, deployment or automatic acquisition.
