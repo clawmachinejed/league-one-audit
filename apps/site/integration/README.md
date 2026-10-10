@@ -434,3 +434,53 @@ version, lock behavior or duration. Record those results in the
 [evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
 The profile does not qualify fleet capacity, daily recurrence, the full SQL suite,
 live provider acquisition, retained installation or production release.
+
+## CP8 current-season period inventory qualification
+
+The authored closed `data-period-inventory-v1` profile selects exactly six ordered
+cases in `integration/period-inventory.integration-case.ts`, with one shared hook
+pair. Only after separate exact-source run authorization, its fixed command is
+`pnpm test:integration --profile=data-period-inventory-v1`. The existing protected
+manual workflow offers this literal choice. Default collection now includes 52
+modules; every older fixture and closed source pin remains unchanged. No run,
+credentials, provisioning or migration application follows from authoring.
+
+The fixture uses synthetic Sleeper HTTP through the ordinary adapter, restricted
+LOGIN, existing task queue, durable dispatch witnesses and typed resource readers.
+A deliberately unsorted 1,000-distinct-league list is designed to verify 20 admitted leagues times
+18 native weeks equals 360 tasks, with 980 other candidates and 17,640 unscheduled
+periods explicitly capacity-accounted. Provider list order selects the admitted
+subset; deterministic task order applies within that subset. All raw duplicate
+entries retain their own ordinal and native clues, while each logical period is
+queued once. An actual late lock on new inventory metadata must expire the
+original worker fence and roll back the delegated checkpoint and all new rows;
+ordinary retry then materializes the inventory once. Separate empty discovery
+will test zero inventory without inventing available period results.
+
+The representative ordinary case is designed to make 16 synthetic HTTP requests across one
+manual intake and one refresh cycle: genuine checkpoint acknowledgment loss,
+week 2 source failure and recovery, then changed refresh captures. Both requests
+retain all 18 durable tasks; only weeks 1/2 complete, and 16 remain pending in each.
+Stored readers distinguish requested coverage, global collection progress and
+the bounded rich-resource page. A duplicate native clue for week 19 remains an
+explicit unsupported gap, never an extra request or inferred competition phase.
+History, exact receipt/current mapping checks, configuration scope/CAS rejection,
+direct mutation denials, private helpers and existing-role reprovisioning are
+covered independently. Stored reads are checked for no provider calls or writes.
+
+The six case limits total 23 minutes: three 60-second cases, two 180-second cases,
+and one 840-second case. Existing 120-second setup and teardown hooks bring the
+authored allowance to 27 minutes before other harness overhead. This arithmetic
+is unmeasured and does not guarantee fit. The 20-second worker, real 60-second
+admission spacing, 30-minute work, 40-minute lifecycle and 50-minute CI limits remain
+unchanged, with no extra retries, cadence changes or cleanup exceptions.
+
+CP8 is **authored and SQL-unqualified** until a separately approved exact-source
+run and its report, hooks, source pins and acknowledged cleanup are independently
+validated. This profile does not claim elapsed acquisition of all 18 periods,
+terminal full-mode cycle completion or exhaustion, live provider availability,
+historical settings, phase classification, fresh-role provisioning, fleet capacity,
+the full SQL suite, retained installation or production release. Offline reader
+tests of terminal aggregation are separate from this representative acquisition
+witness. Record actual version, timing and remaining limits in the
+[evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).

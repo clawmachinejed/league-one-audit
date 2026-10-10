@@ -574,3 +574,33 @@ DO $$ DECLARE directory_table text; helper text; denied_privileges text:='INSERT
   END IF;
 END; $$;
 -- END OPTIONAL MANAGER DIRECTORY FACTS GRANTS
+
+-- BEGIN OPTIONAL PUBLIC PERIOD INVENTORY GRANTS
+-- CP8 adds evidence to the existing fenced public intake. Renamed checkpoint
+-- predecessors and validators remain private in either provisioning order.
+DO $$ DECLARE inventory_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.public_data_period_inventory_plans') IS NOT NULL THEN
+    FOREACH inventory_table IN ARRAY ARRAY['public_data_period_inventory_plans','public_data_period_inventory_sources'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',inventory_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',inventory_table);
+      IF has_table_privilege('league_one_runtime','public.'||inventory_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||inventory_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||inventory_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect period inventory privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.public_data_inventory_periods()',
+      'public.canonical_public_data_period_scope(jsonb,integer[],text)', 'public.bind_public_data_inventory_task()',
+      'public.public_data_inventory_native_fields(jsonb)', 'public.validate_public_data_inventory_plan()',
+      'public.validate_public_data_inventory_source()', 'public.preserve_public_data_inventory_bootstrap()',
+      'public.validate_public_data_inventory_population()', 'public.checkpoint_public_data_intake_v43(jsonb,jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private period inventory helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'league_one_runtime lacks public intake checkpoint'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC PERIOD INVENTORY GRANTS

@@ -1,5 +1,172 @@
 # DATA backend evidence and remaining qualification
 
+## CP8 current-2026 native-period inventory — accepted six-case qualification, October 10, 2026
+
+**Checkpoint 8 implementation and resource qualification are accepted within
+this bounded current-2026 scope.** [Run 38078013307, attempt 1](https://github.com/clawmachinejed/league-one-audit/actions/runs/38078013307)
+qualified exact source `860a6c8c1a1ab541daf2cf0bc8d469d25317597e` using
+only `data-period-inventory-v1`. All six ordered cases were collected,
+executed and passed once, with zero failed, skipped, filtered, retried,
+repeated or flaky cases and zero unhandled errors. The single beforeAll and
+afterAll hooks each started and ended once. Full nonempty 18-period acquisition
+and terminal full-mode refresh remain unqualified.
+
+1. **Data resource:** explicit `periodInventory: 'sleeper-2026-native-period-inventory-v1'`
+   with seasons exactly `[2026]`. Weeks 1–18 are requested endpoint coverage, not
+   a provider-advertised availability list. Mixed `exactPeriods` are rejected;
+   omitted and legacy exact selectors retain their prior wire and behavior.
+   Retained references are `settings.leg`, `settings.last_scored_leg`,
+   `settings.start_week` and `settings.playoff_week_start`. Absent, null,
+   invalid, known zero and positive values stay distinct. Known references
+   above 18 produce explicit coverage gaps without out-of-range acquisition,
+   endpoint-availability, competition-phase or historical-settings claims.
+2. **Existing path:** existing public Sleeper identity/list/bootstrap/matchup
+   captures and administration acceptance → existing fenced intake tasks and
+   checkpoints, extended by migration 044 → `public-intake-reader.ts` and
+   `public-refresh-reader.ts`, with bounded metadata composition in
+   `neon/public-period-inventory-reader.ts` through the existing store facade.
+   Contracts/adapters require installed 044 before a new-mode mutation. Refresh
+   configuration, cycle and request
+   identities are checked independently. No provider, normalizer, coordinator,
+   worker, queue or scoring pipeline is added. CP9 phase/settings and CP10
+   exact-score parity remain later work.
+3. **Persisted result:** one immutable plan per retained candidate, at most
+   1,000; the existing owner admits at most 20 in its original selection order,
+   with 18 durable tasks each, at most 360. Other candidates retain explicit
+   capacity accounting. Task identity includes league, 2026 and native week.
+   Immutable source records preserve every raw list occurrence by ordinal,
+   including conflicting duplicates, and each retained bootstrap capture.
+   Readers verify the complete task matrix, exact source manifests, raw field,
+   timestamp and acquisition parity using the maintained typed settings
+   normalizer. Global collection status/counts are separate from current
+   resource acceptance and detailed page coverage (default/max 20). Pagination
+   cannot imply completed collection or invent pending work. Capacity, source
+   gaps, missing scopes and terminal discovery failures remain explicit; phase
+   stays unknown.
+4. **Real evidence and gaps:** the maintained report and artifact validators
+   accepted exact source, module, profile, context and report bindings.
+   Independent review accepted all twelve immutable journal snapshots, final
+   acknowledgment and cleanup. The frozen source on `codex/data-period-inventory`
+   is published in [draft PR #297](https://github.com/clawmachinejed/league-one-audit/pull/297),
+   based on CP7 closeout `864e5a4d8b26a467eb854dc90b5d7610e83974e0`;
+   scope confirmation is `DATA-CP8-2026-10-10-PERIOD-INVENTORY`.
+   Focused intake/refresh/reader tests passed 283/283 across four files,
+   including 360-complete collection versus 20-item pages, 17-of-18 rejection,
+   unsorted admission, omitted duplicate/bootstrap evidence, source states and
+   terminal discovery failure. These unit controls remain separate from the
+   actual SQL cases below. Synthetic HTTP inputs do not qualify live Sleeper,
+   sustained recurrence, fleet/freshness targets, fresh-role provisioning,
+   the full SQL suite, production installation or complete backend readiness.
+   CP9 competition phase/settings is next; CP10 exact-score parity remains later.
+
+   The initial complete source verification recorded 6,667 passes, two failures
+   and one skip across 297 files. The unchanged architecture rule identified
+   SQL outside the Neon package; the helper was relocated and exposed through
+   the existing store facade without changing the rule. The correction passed
+   302/302 architecture and intake/refresh tests, scoped lint and type checking;
+   dependency inspection found no store-to-intake-reader back-edge. The other
+   failure was the unchanged diagnostics test exceeding its original five-second
+   timeout.
+   That complete diagnostics file subsequently passed 220/220 in isolation
+   (12.29 seconds); the timeout's cause is unproved. The one skip was the
+   existing scoped-IPv6 listener case on a host with no scoped IPv6 interface.
+   No timeout or test allowance was changed. The second complete source run
+   after relocation exited 1 with 6,668 passes, one failure and one platform
+   skip across 297 files in 36.80 seconds. Architecture passed; the sole failure
+   was the same unchanged diagnostics case timing out at 5,041 ms against its
+   5,000 ms limit. The isolated 220-case pass does not replace either failed
+   complete run, and the cause remains unproved. Logs are retained at
+   `apps/site/test-results/data-backend/cp8/verify-full-source.log`,
+   `verify-full-source-r2.log` and `diagnostics-isolated.log`. The standalone
+   `pnpm build` then passed (exit 0), recorded in `cp8/build-source.log`; this
+   completes build verification separately and does not make either local full
+   verification run pass. Both local failures and the isolated pass remain
+   historical evidence; the later hosted pass below does not explain their
+   timeout. Earlier CP5–7 source/result bindings below remain unchanged.
+
+[Source CI run 38077097334, attempt 1](https://github.com/clawmachinejed/league-one-audit/actions/runs/38077097334)
+passed the complete verification workflow on Node 24.21.0: all 6,670 unit tests
+across 297 files passed with zero failures or skips, followed by a successful
+build. The public browser lane passed 121 tests with 20 account-fixture cases
+intentionally excluded; the required companion account lane passed all 20 with
+zero skips. Both browser lanes recorded zero failed or flaky tests and zero
+observed retries. Browser retry capacity remained configured at one; no retry
+was observed and this was not a workflow rerun.
+
+CI checked out merge commit `c08dd945aedefd6d1143093c61a828a0cc39e17c`.
+Its tree and source-head `860a6c8c1a1ab541daf2cf0bc8d469d25317597e` share
+exact tree `557b07542a69c0645ca5ea9edd1182e3dcc1b2af`. The source audit,
+checkout/API evidence and job logs are retained under
+`apps/site/test-results/data-backend/cp8/source-ci`; the independently inspected
+`audit.json` records these bindings and the distinction between configured and
+observed retries. This is source/browser verification, not PostgreSQL evidence.
+
+The [Vercel preview](https://leagueonefantasy-duqiq00o1-robert-finchums-projects.vercel.app)
+was Ready at deployment `ERYR5LPKubEwRe6XUUxuUqsFsQXu` for exact source
+`860a6c8c1a1ab541daf2cf0bc8d469d25317597e`. Actual in-app browser inspection
+at `2026-10-10T18:51:11.1081497Z` observed My Fantasy's no-selected-team
+state and 2026 manager lists for League One (12), League Two (12) and Dynasty
+(10); League One's layout was visually inspected and no application-error view
+was observed. `cp8/preview-evidence.json` records the inspected routes and
+source binding. This protects existing website behavior and does not install
+or qualify migration 044 or the new inventory mode. No manual deployment,
+merge or production release is claimed.
+
+The accepted SQL cases exercised the following through the maintained
+restricted-role path; no existing guards or worker/admission limits changed:
+
+| Case | Actual bounded proof |
+| --- | --- |
+| 1 | Current-2026 full-inventory scope, immutable replay identity and unchanged omitted, empty and legacy exact selectors before admission. |
+| 2 | Observed late inventory-write lock and complete checkpoint rollback, followed by 1,000 unsorted candidates: 20 admitted leagues × 18 durable tasks, with 980 capacity exclusions accounted for and bounded page reads. |
+| 3 | Ordinary empty discovery completes with zero inventory and no invented period availability. |
+| 4 | Ordinary week 1/2 acquisition, lost acknowledgment, one failed response and recovery; duplicate source clues including 19, exact capture guards and a changed refresh retain both 18-task inventories. Each has two completed and 16 pending periods. |
+| 5 | Immutable task/capture/cycle history, scope and replay rejection, configuration CAS and current-source mapping fences. |
+| 6 | Actual role denials for direct mutations/private helpers and restricted grants through existing-role reprovisioning with rollback. This does not prove a fresh-role lifecycle. |
+
+The fixture LF SHA256 is
+`87204fdc856c2d1e90a589c342a1335f0fc11f95cc2fc9ea13ca58dfed428e09`;
+profile digest is
+`996ac29d889a75cad605152ba8cd7e86fca2007b10fcd33689197707bd905543`;
+context digest is
+`7302625c54c46c9abc97a66daa7479310fa04a37bf0ebbfe8bb1ceafba5110a7`.
+Case 2 took 145,908.096214 ms; case 4 took 670,903.889328 ms. Those whole-case
+durations include multiple attempts and do not expand the 20-second worker or
+60-second admission limits. Vitest took 1,017.94 seconds; the measured
+supervisor lifecycle was 1,028,054 ms. The workflow job ran 19:00:18–19:17:48 UTC
+(17 minutes 30 seconds), within the authored 27-minute test/hook allowance and
+unchanged 30/40/50-minute work/lifecycle/CI limits.
+
+Supervisor run `7527ce86-84df-41cb-bff4-e304f80f7b4c` ran from
+`2026-10-10T19:00:37.805Z` to `19:17:45.747Z`. The sole terminal
+acknowledgment at `19:17:45.7576415Z` names immutable receipt
+`run-1791658837800-9538684f-956f-4922-a076-8045f4bbdca3-0012.json`.
+All twelve journal sequences are contiguous. Tests and qualification passed;
+POSIX child-tree closure, schema cleanup, generated credential revocation and
+branch deletion were all verified, with empty failures/unresolved resources,
+no cancellation and `productionWrites: false`. The reserved zero-byte
+aggregate file is not the terminal receipt.
+
+Authenticated Neon Console evidence at `19:01:39.3431949Z` bound child
+`br-sparkling-mountain-b7f4qtxh` in project `steep-glitter-44680287`
+to the same run UUID, provider-reported PostgreSQL 18 and 0.25 CU. Fresh Console
+navigation at `19:21:11.7166956Z` showed only `integration-test-base`;
+the exact child was absent before its `20:00:38Z` fallback expiry.
+SQL patch/build and actual provider billing were not measured. The approved
+single paid-run allowance is consumed; it grants no retry, additional SQL run,
+retained migration application, merge or production release authority.
+
+Artifacts remain under `apps/site/test-results/data-backend/cp8/sql-38078013307`;
+`qualification-audit.json` lists the raw input hashes. Final SHA256 values are:
+
+| Evidence | SHA256 |
+| --- | --- |
+| Qualification report | `4055339ca638c75f04b24fc51e57041eaaa7d32da9f6c2e506bb047267c52059` |
+| Global cleanup | `6266c810e2b61f9e88621b5ab3dd99feed61744d2bc1bc3791cdf1fb7c7ff5cb` |
+| Terminal journal 0012 | `6def6f21360ed3a78a69c45ca342cca56d7f80968020029fb8b32107f988e29c` |
+| Maintained-validator audit | `a4136fd8791962e9d13e93886337f2d6e6398ef47a4d5f983c47a96c825bac83` |
+| `cp8/provider-cleanup-38078013307.json` | `0ec28742004e8f7e3cacf3a6735fefd3d70129f87a4412cb585f3942e9a4ae36` |
+
 ## CP7 manager and commissioner facts — accepted nine-case qualification, October 10, 2026
 
 **Checkpoint 7 implementation and resource qualification are complete within the

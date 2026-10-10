@@ -1,9 +1,9 @@
 import type { AdministrationWriteFence } from './store-contracts';
-import { normalizePublicExactPeriods, type PublicExactPeriod, type PublicIntakeOutcome } from './public-intake-contracts';
+import { normalizePublicExactPeriods, normalizePublicPeriodInventory, type PublicPeriodInventory, type PublicExactPeriod, type PublicIntakeOutcome } from './public-intake-contracts';
 
 export type PublicDataRefreshConfiguration = Readonly<{
   id: string; expectedRevision: number; identityRequestId: string; seasons: readonly number[];
-  cadenceSeconds: number; expiresAt: string; paused: boolean; exactPeriods?: readonly PublicExactPeriod[];
+  cadenceSeconds: number; expiresAt: string; paused: boolean; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory;
 }>;
 export type PublicDataRefreshConfigured = Readonly<{
   status: 'configured' | 'replayed'; targetId: string; configurationRevision: number;
@@ -44,8 +44,10 @@ export function validatePublicDataRefresh(input: PublicDataRefreshConfiguration,
     || !Number.isInteger(input.cadenceSeconds) || input.cadenceSeconds < 60 || input.cadenceSeconds > 604_800
     || !Number.isFinite(now.getTime()) || !Number.isFinite(expiry) || expiry <= now.getTime()
     || expiry > now.getTime() + 90 * 86_400_000) throw new Error('Invalid public DATA refresh configuration.');
+  const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
+  if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), expectedRevision: input.expectedRevision, identityRequestId: input.identityRequestId.toLowerCase(),
     seasons: [...input.seasons].sort((left, right) => left - right), cadenceSeconds: input.cadenceSeconds,
-    expiresAt: new Date(expiry).toISOString(), paused: input.paused, ...(exactPeriods.length ? { exactPeriods } : {}) };
+    expiresAt: new Date(expiry).toISOString(), paused: input.paused, ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}) };
 }
