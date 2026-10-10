@@ -784,3 +784,16 @@ synthetic test typing errors, and the first wiring lint run rejected a reserved
 fixture variable name. These were corrected before the passing checks; no checks,
 source-binding guards or timeouts were weakened. Complete root verification,
 publication, a new run approval and actual live measurement remain separate gates.
+A diagnostic-only follow-up supersedes the live fixture in published candidate
+`7022546258c8e1049c90dfb24989922546717b3c`, which was not executed against Sleeper
+or PostgreSQL. The existing Neon HTTP observer now retains only bounded response
+status, request ordinal and stage; it returns the original response without reading
+its body or headers, recording its URL, or changing transport and deadlines.
+Independent review accepted the new live LF pin
+`4db8a8e3be986589d2a8e65c8662b20485347db48be83108b259500f5e574e9c`.
+Every older profile/source pin remains unchanged. The same offline qualification
+checks passed **162/162 tests across three files**, with zero failures or skips;
+`apps/site/test-results/data-backend/cp5-live-http-status-qualification-offline.json`
+has SHA256 `450927dee3d6e9e49251d276b43ef811a99fa7653690dc9aac7cb022e1b7beff`.
+The earlier report is preserved. Full TypeScript and fixture lint passed, and no
+SQL, live GET, provisioning or production action ran for this follow-up.

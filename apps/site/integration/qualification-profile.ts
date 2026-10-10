@@ -29,7 +29,7 @@ export const PLAYER_DIRECTORY_PATTERN = closedPattern(PLAYER_DIRECTORY_FULL_NAME
 export const LIVE_PLAYER_DIRECTORY_PROFILE = 'data-live-player-directory-v1';
 export const LIVE_PLAYER_DIRECTORY_MODULE = 'integration/player-directory.live-integration-case.ts';
 // Independently reviewed one-case live fixture; changed bytes require renewed review and pin.
-export const LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST = 'a3216b2fc16b50e552fd5720d5b59fb21e696eb1f8a43b25d5854834f4e30a44';
+export const LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST = '4db8a8e3be986589d2a8e65c8662b20485347db48be83108b259500f5e574e9c';
 export const LIVE_PLAYER_DIRECTORY_SUITE = 'live Sleeper full player directory within the existing work deadline';
 export const LIVE_PLAYER_DIRECTORY_TEST = 'fetches stores and reads every native row under one real twenty-second owner budget';
 export const LIVE_PLAYER_DIRECTORY_FULL_NAME = LIVE_PLAYER_DIRECTORY_SUITE + ' > ' + LIVE_PLAYER_DIRECTORY_TEST;

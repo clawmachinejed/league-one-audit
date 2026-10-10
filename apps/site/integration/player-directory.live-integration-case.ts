@@ -79,6 +79,7 @@ describe.sequential('live Sleeper full player directory within the existing work
     captureStatus: null as string | null, captureReasons: [] as string[], compactCaptureBytes: null as number | null,
     postgresCaptureJsonbTextBytes: null as number | null, storedRawTextUtf8Bytes: null as number | null,
     neonHttpRequests: 0, neonHttpRequestBytes: [] as number[], observedWrites: 0,
+    neonHttpResponses: [] as { ordinal: number; stage: Stage; status: number }[],
     httpByteMeaning: 'Observed instrumented HTTP request body; measurement SELECT adds SQL text bytes.',
     stages: [] as { stage: Stage; startedMs: number; elapsedMs: number; ok: boolean }[],
     failures: [] as Failure[], pages: 0, rowsRead: 0, terminalCursor: false, fullParity: false,
@@ -179,7 +180,12 @@ describe.sequential('live Sleeper full player directory within the existing work
         && init.signal, 'unexpected_http_request');
       check(evidence.neonHttpRequests < MAX_PAGES + 16, 'database_request_bound');
       evidence.neonHttpRequests++; evidence.neonHttpRequestBytes.push(Buffer.byteLength(init.body, 'utf8'));
-      try { return await originalFetch(input, init); }
+      const ordinal = evidence.neonHttpRequests, stage = currentStage;
+      try {
+        const response = await originalFetch(input, init);
+        evidence.neonHttpResponses.push({ ordinal, stage, status: response.status });
+        return response;
+      }
       catch (error) { fail(currentStage, error); throw new Error('live-player-directory:http_failed'); }
     };
     const observedDatabase: DatabaseClient = {
