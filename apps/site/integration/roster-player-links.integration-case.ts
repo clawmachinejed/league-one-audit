@@ -72,7 +72,7 @@ describe.sequential('immutable roster player links through restricted PostgreSQL
   });
   async function databaseNow() {
     const [row] = await connection.database.query('SELECT clock_timestamp() AS at');
-    return new Date(String(row.at)).toISOString();
+    return (row.at instanceof Date ? row.at : new Date(String(row.at))).toISOString();
   }
   async function claim(options: { publicDirectory?: boolean; deadlineMs?: number; leaseSeconds?: number } = {}) {
     const jobs = createProjectionStore(connection.database), workerId = randomUUID();
@@ -80,7 +80,7 @@ describe.sequential('immutable roster player links through restricted PostgreSQL
     const acquired = await jobs.acquireJob({ jobKey, jobType: options.publicDirectory ? PUBLIC_INTAKE_JOB : 'league-administration',
       workerId, scheduledFor: at, leaseSeconds: options.leaseSeconds ?? 25,
       payload: options.publicDirectory ? { policy: 'public-player-directory-v1', mode: 'player-directory' } : {} });
-    if (acquired.kind !== 'acquired') throw new Error('CP6 fixture could not acquire its existing job owner.');
+    if (acquired.kind !== 'acquired') throw new Error('CP6 fixture could not acquire its existing job owner: ' + acquired.kind + ' at ' + at + '.');
     const fence: AdministrationWriteFence = { jobKey, workerId, generation: acquired.attempt,
       deadlineAt: new Date(Date.parse(at) + (options.deadlineMs ?? 20_000)).toISOString() };
     const finish = async () => {
@@ -255,7 +255,7 @@ describe.sequential('immutable roster player links through restricted PostgreSQL
       const same = await current(f), snapshot = await links(f, same.receipt.id), before = await state(f);
       expect(same.accepted.contentId).toBe(moved.accepted.contentId); expect(same.receipt.id).not.toBe(moved.receipt.id);
       expect(snapshot.rosterSource).toEqual(input.envelope.provenance);
-      expect((await store.recordObservation(input, owner.fence, f.mapping, { attempt, population: f.population })).rosterAcceptance).toEqual(result.rosterAcceptance);
+      expect((await store.recordObservation(input, owner.fence, f.mapping, { attempt, population: f.population })).rosterAcceptance).toEqual({ ...result.rosterAcceptance, reason: 'exact_receipt_replay' });
       expect(await links(f, same.receipt.id)).toEqual(snapshot); expect(await state(f)).toEqual(before);
     } finally { await owner.finish(); }
     const lastGood = await current(f);

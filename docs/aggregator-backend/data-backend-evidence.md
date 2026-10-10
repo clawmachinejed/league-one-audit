@@ -1116,3 +1116,110 @@ Vercel production still agreed on `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`,
 with the same canonical repository, `apps/site` root and production branch `main`.
 Primary main remains clean. Only migration 042 and this evidence ledger changed
 from the failed candidate; the fixture LF hash and every profile pin are preserved.
+
+### CP6 second PostgreSQL attempt — seven passed, two fixture failures
+
+The user separately approved one new attempt at repaired source
+`fd04228756d2ef9c300c4e97e750a923ca908ae6`, under the same closed nine-case
+`data-roster-player-links-v1` profile, 0.25 CU, new $1 allowance and unchanged
+20-second ordinary work / 30-minute supervisor / 40-minute lifecycle / 50-minute
+CI limits, with no automatic retry. [Run 38056628125](https://github.com/clawmachinejed/league-one-audit/actions/runs/38056628125),
+attempt 1, executed once after exact-SHA and protected-environment verification.
+Local/origin/GitHub main and Ready production remained
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; canonical Vercel repository, main
+production branch and apps/site root matched. No competing integration run was
+observed. No production or retained database was targeted.
+
+**Result: nine collected/executed, seven passed, two failed, zero
+skipped/filtered/retried/repeated, zero unhandled errors, one balanced shared
+setup/teardown pair. CP6 remains unqualified.** All prior SQL alias errors were
+absent. Passing cases covered unresolved official membership, canonical reuse,
+explicit conflicts/native edge cases, accepted-head/source remapping, actual
+concurrent identity reuse and post-wait mapping validity, capacity and negative
+permissions, and the ordinary 2026 intake plus one real refresh and stored-only
+readback. The last journey passed in 609,196 ms. These are source-bound executed
+assertions, not an all-nine pass or complete backend/fleet qualification.
+
+The history case stopped at its exact-replay comparison: accepted status,
+receipt and generation matched, but actual reason `exact_receipt_replay` differed
+from the fixture's expected original null reason. Existing migrations 027/029/039
+and the maintained current-roster-acceptance case explicitly define that replay
+marker. The fixture expectation was incorrect. Subsequent snapshot/state,
+partial/category/corrected-identity and empty-history assertions in that case
+were not reached and remain unqualified by this run.
+
+The rollback case stopped before its lock/rollback checks, while its directory
+prerequisite tried to acquire the shared job. Its failure retained neither the
+returned claim kind nor scheduled time. Independent offline reproduction found
+that the installed Neon timestamptz parser returns a Date, while the fixture's
+`new Date(String(row.at))` loses milliseconds. Two database timestamps inside
+one second then become the same scheduler slot; the existing job owner correctly
+requires a strictly newer slot after completion. This reproducible fixture defect
+is consistent with the failed 389-ms transition after the preceding case's
+directory capture. The historical collision is an inference, not a reconstruction
+of unretained run values. The deadline/lease rollback assertions were not reached.
+
+Supervisor run `bd9c7ab8-2fe8-4ac6-9aeb-6f0ccaeb9968` ran from
+`2026-10-10T13:41:22.085Z` to `13:53:57.503Z`; lifecycle was 755,545 ms and
+Vitest duration 743.24 seconds. The terminal acknowledgment at
+`13:53:57.5152961Z` confirms POSIX child-tree closure, schema cleanup, generated
+credential revocation and deletion of owned branch `br-snowy-haze-b72nsdcv`, with
+failures only `tests`, no unresolved resources and no production writes.
+Independent review verified all twelve journal sequences, report/context/source
+bindings, cleanup acknowledgment and the maintained offline validator's correct
+rejection of the failed report. The generic `missing-or-invalid` category again
+means failed qualification, not missing evidence.
+
+During this run, read-only Neon Console inspection identified that exact child,
+its run-UUID branch name, parent and project as **PostgreSQL 18**, default compute
+0.25 CU. The retained witness and subsequent supervisor receipts match. This is
+provider-reported major-version evidence; SQL-reported patch/build was not
+measured, and no prior CP5 patch version is borrowed. After cleanup, a separate
+read-only Console branch listing showed only the integration-test baseline.
+No extra SQL, credential retrieval or provider-data acquisition was performed.
+
+Artifacts are retained under `test-results/cp6-38056628125`; downloaded report and
+cleanup are in `download/integration-fd04228756d2ef9c300c4e97e750a923ca908ae6-1/artifacts/run-oDRZZA`.
+SHA256 values:
+
+- Report: `4927199212ef34a67c57e85870f568e94a41babdf506258468af44e58fd41cdc`.
+- Cleanup acknowledgment: `3ecc5c1ae6b01ec21724f1c14b71e03e5ecb83111ebf3dcd039b57c546a2c5a8`.
+- Terminal journal `run-1791639682079-f42bbf9e-4d34-4860-a3b2-341682f3d13a-0012.json`: `aa14a85c4dd915c0ad65f622c19c1ff41a6336174bdce0d3844229b3f809631b`.
+- Workflow log: `25b39931299d597f50261253cdaec5a3751e1a4a14f01bcce0475f2d2b2932f3`.
+- Provider Console witness: `b16aa140fd3fa93cb289586b59371cd0e47039285abe67562b921d6ec5a3781a`.
+
+The second one-run allowance is consumed as execution authority; actual billing
+was not measured and $1 is not a hard provider cap. No third run follows from the
+failed result or repair. No merge, retained installation, production migration, activation or release
+occurred.
+
+### CP6 fixture correction after the second attempt
+
+Independent Astra Ultra review approved three fixture-only changes: preserve a
+returned Date directly before ISO serialization; include only the bounded claim
+kind and scheduled timestamp in a failed-claim diagnostic; and require the
+existing exact-replay marker while retaining strict status/receipt/generation,
+snapshot and full-state equality. No scheduler, application or migration code,
+SQL calls, waits, leases, timeouts, retry counts, case names or suite hooks change.
+The reviewed module LF SHA256 is
+`652a0be4ac216af1a8fd17b03f19a05e8be09f0529a4afe6b7c37ad153d640d0`;
+only its CP6 qualification pin changes. All older profile pins remain unchanged.
+Migration 042 remains LF SHA256
+`73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c`.
+
+The independent offline reproduction extracts/transpiles the actual old and new
+fixture functions, uses the installed Neon parser, and calls the maintained job
+methods against an explicitly modeled scheduler predicate. The old Date path
+collapses .100/.489 seconds and rejects the second completed-slot claim; the
+repair retains .100/.489 and reacquires. String timestamp fallback remains
+correct, and network attempts are zero. This is source evidence, not PostgreSQL
+execution or proof of the unlogged historical timestamps. Ignored reproduction
+script `apps/site/test-results/data-backend/cp6-job-clock-reproduction.cjs` has
+SHA256 `2bca0b33cc759929b5d7196f4624a65d29ece1e3de82ec4345f8e410e3587504`;
+its log has SHA256 `bbb74219f681539f9389b55003f76cf333988a16c177cfbb9bf10eb8fc618ba2`.
+
+All 177 offline profile/reporter/supervisor cases passed across three files with
+zero skips, and targeted lint and type checking passed. Final candidate SHA,
+source CI and preview evidence belong with PR295. These fixture corrections
+require a new separately approved exact-source SQL attempt before CP6 can be
+qualified; seven passes at the preceding source do not qualify the new fixture.

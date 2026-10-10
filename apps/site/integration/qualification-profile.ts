@@ -14,7 +14,7 @@ export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const ROSTER_PLAYER_LINKS_PROFILE = 'data-roster-player-links-v1';
 export const ROSTER_PLAYER_LINKS_MODULE = 'integration/roster-player-links.integration-case.ts';
 // Independently reviewed nine-case fixture; changed bytes require renewed review and an explicit re-pin.
-export const ROSTER_PLAYER_LINKS_SOURCE_DIGEST = '0d2f9c729b2631a8a975410138e4cd56741a3ca1812205a39bf35daa7648908e';
+export const ROSTER_PLAYER_LINKS_SOURCE_DIGEST = '652a0be4ac216af1a8fd17b03f19a05e8be09f0529a4afe6b7c37ad153d640d0';
 export const ROSTER_PLAYER_LINKS_SUITE = 'immutable roster player links through restricted PostgreSQL';
 export const ROSTER_PLAYER_LINKS_TESTS = [
   'preserves official membership without directory evidence or a qualified identity owner',
