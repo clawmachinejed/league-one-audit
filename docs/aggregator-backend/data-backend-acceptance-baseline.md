@@ -4,6 +4,8 @@ Revision: data-backend-acceptance-v1, October 9, 2026 (America/Indianapolis). Th
 
 Checkpoint 2 is complete only after this baseline/checklist receives independent review and the scope/diff checks pass. That completes planning, not checkpoints 5–30 or backend readiness. Checkpoints 3–4 remain deferred; 31–34 retain separate installation, merge, deployment, activation and production-verification authority.
 
+**Later checkpoint status — October 10, 2026:** CP5 and CP6 implementation and resource qualification are complete within their recorded scopes. CP6 is bound to `93c18e588f7bcead866b6e3e3f087b8a691dcee6` and [run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318), with all nine selected cases passing and independently validated cleanup. The detailed evidence and both preceding failed attempts remain in the [evidence ledger](data-backend-evidence.md). Statements below describing checkpoints as open refer to the original baseline. This later result does not complete backend readiness or authorize installation, merge, deployment or activation. A documentation-only closeout commit preserves the qualification's original source binding.
+
 ## Frozen source and evidence overlay
 
 | Item | Frozen identity and meaning |

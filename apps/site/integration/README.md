@@ -339,7 +339,7 @@ not evidence of live capacity or fit; only a separately authorized exact-source
 run with verified report and cleanup can qualify the observed catalog.
 
 
-## CP6 roster-player link qualification (source candidate)
+## CP6 roster-player link qualification
 
 The closed `data-roster-player-links-v1` profile selects exactly nine ordered
 cases in `integration/roster-player-links.integration-case.ts`, with one shared
@@ -375,11 +375,20 @@ sum to 29 minutes, in addition to setup/teardown; this is not a worst-case fit
 claim. Expected ordinary admission time is roughly ten minutes before other
 checks. The unchanged supervisor still enforces 30 minutes of work, 40 minutes
 of total lifecycle and 50 minutes of CI, including failure cleanup. No retries,
-extra arguments or alternative credential path are introduced. Actual elapsed
-fit, SQL syntax/permissions, contention, rollback, all nine results and acknowledged
-cleanup must be established by a separately approved frozen-source run.
+extra arguments or alternative credential path are introduced.
 
-This is not genuinely fresh-role provisioning, daily recurrence, fleet capacity,
-a few-minute freshness guarantee, the full SQL suite or production rollout.
-The prior CP5 run allowances are consumed. No paid run, provisioning, retained
-migration application, merge or production activation follows from this candidate.
+[Run 38059763318](https://github.com/clawmachinejed/league-one-audit/actions/runs/38059763318)
+passed all nine cases at `93c18e588f7bcead866b6e3e3f087b8a691dcee6`,
+with independently validated source/report bindings and acknowledged cleanup.
+The [evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md)
+records actual timing, versions, artifact hashes and both preceding failures.
+This establishes CP6 implementation and resource qualification within the stated
+scope, including observed execution within the original limits; it is not a
+worst-case duration guarantee. Later documentation-only commits do not change
+the executed source.
+
+This result does not qualify genuinely fresh-role provisioning, daily recurrence,
+fleet capacity, a few-minute freshness guarantee, the full SQL suite or production
+rollout. The approved single-run allowance is consumed; actual billing is
+unmeasured. No further paid run, retained migration application, merge or
+production activation follows from this result.
