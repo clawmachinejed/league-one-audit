@@ -99,6 +99,7 @@ describe('receipt-bound exact-period configuration context', () => {
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain("'version',CASE WHEN activation.generation=");
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain('THEN to_jsonb(version) ELSE NULL END');
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain("latest.season_type='regular'");
+    expect(EXACT_PERIOD_CONTEXT_SQL).toContain('to_jsonb(accepted.*) AS acceptance');
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain('accepted.receipt_id=receipt.id AND accepted.scope_id=scope.id');
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain('connection.current_mapping_revision_id=accepted.source_mapping_revision_id');
     expect(EXACT_PERIOD_CONTEXT_SQL).not.toContain('league_roster_resource_heads');

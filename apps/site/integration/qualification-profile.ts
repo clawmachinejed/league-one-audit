@@ -14,7 +14,7 @@ export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const PERIOD_SETTINGS_CONTEXT_PROFILE = 'data-period-settings-context-v1';
 export const PERIOD_SETTINGS_CONTEXT_MODULE = 'integration/period-settings-context.integration-case.ts';
 // New seven-case CP9 fixture; execution requires independent exact-source review and a separate allowance.
-export const PERIOD_SETTINGS_CONTEXT_SOURCE_DIGEST = '112c827b74b1986a1f7fc22b468cd36b0b22de1bc5bb9cb022dc34265438e7be';
+export const PERIOD_SETTINGS_CONTEXT_SOURCE_DIGEST = 'e12c44f20aa6865c379aea0eeb8eb74dfa7f19fa1ce495f0d6fe1a13760cdecb';
 export const PERIOD_SETTINGS_CONTEXT_SUITE = 'receipt bound period settings context through restricted PostgreSQL';
 export const PERIOD_SETTINGS_CONTEXT_TESTS = [
   'retains captured settings without treating current observations as historical applicability',

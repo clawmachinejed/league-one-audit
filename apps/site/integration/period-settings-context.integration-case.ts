@@ -28,20 +28,40 @@ const matchups = [{ roster_id: 1, matchup_id: 1, points: 10, players: [], starte
   { roster_id: 2, matchup_id: 1, points: 8, players: [], starters: [] }];
 type AvailableContext = Extract<ExactPeriodContextRead, { status: 'available' }>;
 
-/** AUTHORED / UNEXECUTED CP9 qualification. Historical applicability positives are
- * explicit synthetic owner-confirmed decisions, never provider-effective history
- * or decisions known at capture time. Only weeks1/2 are ordinarily acquired in
- * each18-task request. Six60s +840s +two120s hooks =24min authored allowance;
- * actual fit/cost remains unmeasured. Existing20s/60s/30m/40m/50m gates remain. */
+function periodContextDiagnostics(database: DatabaseClient): DatabaseClient {
+  return { ...database,
+    query: async <Row extends DatabaseRow = DatabaseRow>(sql: string, parameters?: readonly unknown[], options?: DatabaseQueryOptions) => {
+      try { return await database.query<Row>(sql, parameters, options); }
+      catch (error) {
+        if (sql.includes('/* league-administration:read-exact-period-context */')) {
+          let sqlState = 'unknown';
+          try {
+            const code = error !== null && (typeof error === 'object' || typeof error === 'function')
+              ? Object.getOwnPropertyDescriptor(error, 'code') : undefined;
+            if (code && Object.hasOwn(code, 'value') && typeof code.value === 'string'
+              && code.value.length === 5 && /^[0-9A-Z]{5}$/u.test(code.value)) sqlState = code.value;
+          } catch { /* Diagnostic inspection must not replace the original query failure. */ }
+          try { console.error('CP9_PERIOD_CONTEXT_QUERY_FAILED', sqlState); }
+          catch { /* Diagnostic output must not replace the original query failure. */ }
+        }
+        throw error;
+      }
+    } };
+}
+
+/** CP9 remains SQL-unqualified after its failed exact-source run; see the DATA evidence ledger.
+ * Historical applicability positives use explicit synthetic owner-confirmed decisions,
+ * never provider-effective history or decisions known at capture time. Only weeks 1/2
+ * are ordinarily acquired in each 18-task request. Six 60s + 840s + two 120s hooks
+ * retain the 24-minute authored allowance; successful fit/cost is unqualified.
+ * Existing 20s/60s/30m/40m/50m gates remain. */
 describe.sequential('receipt bound period settings context through restricted PostgreSQL', () => {
   let connection: IndependentDatabase;
   let administration: ReturnType<typeof createLeagueAdministrationStore>;
   let intake: ReturnType<typeof createPublicIntakeStore>;
   let refresh: ReturnType<typeof createPublicDataRefreshStore>;
-  let roleFixture: Awaited<ReturnType<typeof fixture>>;
-  let roleCapture: Awaited<ReturnType<typeof exact>>;
   beforeAll(async () => {
-    connection = createIndependentDatabase(); administration = createLeagueAdministrationStore(connection.database);
+    connection = createIndependentDatabase(); administration = createLeagueAdministrationStore(periodContextDiagnostics(connection.database));
     intake = createPublicIntakeStore(connection.database); refresh = createPublicDataRefreshStore(connection.database);
     expect((await connection.database.query(`SELECT current_user,session_user,rolsuper,rolcreaterole,rolcreatedb
       FROM pg_roles WHERE rolname=current_user`))[0]).toEqual({ current_user: 'league_one_runtime',
@@ -133,11 +153,11 @@ describe.sequential('receipt bound period settings context through restricted Po
   }
   async function storedOnly<T>(body: (database: DatabaseClient, store: ReturnType<typeof createLeagueAdministrationStore>) => Promise<T>) {
     const statements: string[] = [];
-    const database: DatabaseClient = { enabled: true,
+    const database: DatabaseClient = periodContextDiagnostics({ enabled: true,
       query: async <Row extends DatabaseRow = DatabaseRow>(sql: string, parameters?: readonly unknown[], options?: DatabaseQueryOptions) => {
         statements.push(sql); expect(sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|CALL)\b/iu);
         return connection.database.query<Row>(sql, parameters, options);
-      } };
+      } });
     const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('CP9 stored reader must not fetch source.'));
     try { const result = await body(database, createLeagueAdministrationStore(database));
       expect(fetch).not.toHaveBeenCalled(); expect(statements.length).toBeGreaterThan(0); return result;
@@ -264,7 +284,6 @@ describe.sequential('receipt bound period settings context through restricted Po
     await settings(f, unprovedPayload);
     expect((await read(f.mapping, original.selection)).configuration.competition)
       .toMatchObject({ status: 'known', activationRef: unprovedRef, fields: { competition: { playoffStartPeriod: { value: 12 } } } });
-    roleFixture = f; roleCapture = back;
   }, 60_000);
 
   it('rejects unrelated receipts and mapping revisions while preserving immutable history', async () => {
@@ -415,7 +434,9 @@ describe.sequential('receipt bound period settings context through restricted Po
   }, 840_000);
 
   it('denies applicability activation and immutable history writes through actual restricted roles', async () => {
+    const roleFixture = await fixture(), roleCapture = await exact(roleFixture);
     expect(roleFixture).toBeTruthy(); expect(roleCapture).toBeTruthy();
+    await activate(roleFixture, roleCapture.configuration.result.versionId, 'competition');
     const before = await retained(roleFixture);
     const signature = 'public.activate_league_configuration_component(uuid,text,text,smallint,smallint,text,bigint)';
     await expect(connection.database.query(`SELECT public.activate_league_configuration_component($1::uuid,'competition',

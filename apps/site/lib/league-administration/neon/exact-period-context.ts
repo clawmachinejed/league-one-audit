@@ -29,8 +29,9 @@ const componentColumns = EXACT_LINEUP_APPLICABILITY_COLUMNS
           'content',to_jsonb(configuration_source),'provenance',CASE WHEN source_receipt.content_id=configuration_source.id
             THEN source_receipt.provenance ELSE source_receipt.population_evidence->'provenance' END`);
 
+// Explicit whole-row syntax avoids the joined content.accepted and configuration.accepted columns.
 export const EXACT_PERIOD_CONTEXT_SQL = `/* league-administration:read-exact-period-context */
-  SELECT to_jsonb(scope) AS resource_scope,to_jsonb(accepted) AS acceptance,
+  SELECT to_jsonb(scope) AS resource_scope,to_jsonb(accepted.*) AS acceptance,
     to_jsonb(receipt) AS matchup_receipt,to_jsonb(attempt) AS matchup_attempt,
     to_jsonb(content) AS matchup_content,to_jsonb(configuration) AS configuration_content,
     to_jsonb(configuration_observation) AS configuration_observation,
