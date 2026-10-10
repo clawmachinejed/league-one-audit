@@ -247,3 +247,17 @@ export async function recordCapturedAdministration(
     ...(population ? { population } : {}),
   };
 }
+
+/** Shared directory evidence uses the same administration writer; acquisition must precede this call. */
+export async function recordCapturedPlayerDirectory(
+  attempt: import('./player-directory-contracts').PlayerDirectoryAttempt,
+  capture: import('./player-directory-contracts').PlayerDirectoryCapture,
+  options: Readonly<{ store: LeagueAdministrationStore; fence: AdministrationWriteFence; signal: AbortSignal }>,
+) {
+  const { assertOriginalPlayerDirectoryCapture } = await import('./player-directory');
+  options.signal.throwIfAborted();
+  if (!options.store.enabled) return { status: 'disabled' } as const;
+  if (!options.fence || !options.store.recordPlayerDirectoryCapture) throw new Error('Player directory writer is unavailable.');
+  assertOriginalPlayerDirectoryCapture(capture, attempt);
+  return options.store.recordPlayerDirectoryCapture(attempt, capture, options.fence);
+}

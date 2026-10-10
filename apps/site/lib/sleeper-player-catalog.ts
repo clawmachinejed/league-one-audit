@@ -1,6 +1,9 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import { readBoundedSleeperJson } from './sleeper-public-response';
+import { normalizePlayerDirectoryCapture, playerDirectoryDuplicateMembers, sealPlayerDirectoryCapture, validatePlayerDirectoryAttempt } from './league-administration/player-directory';
+import type { PlayerDirectoryAttempt, PlayerDirectoryCapture } from './league-administration/player-directory-contracts';
 import { startProviderHttp } from './provider-request-telemetry';
 import { stableJson } from './projections/shared/stable-json';
 import { normalizeInjuryStatus } from './injury-status';
@@ -114,70 +117,116 @@ export function projectPlayerCatalog(raw: unknown): PlayerCatalogSlice {
 // These maps provide request deduplication and a short failure backoff in both
 // Next.js runtimes and the server-only operator process.
 type CatalogScope = FantasyPlayerPosition | 'all';
+export const PLAYER_DIRECTORY_RESPONSE_LIMITS = Object.freeze({ maxBytes: 16 * 1024 * 1024, maxValues: 2_000_000, maxDepth: 64 });
+export type PlayerDirectoryLoadOptions = Readonly<{ attempt: PlayerDirectoryAttempt; signal: AbortSignal }>;
 const playerPositionFailures = new Map<CatalogScope, number>();
-const playerPositionRequests = new Map<CatalogScope, Promise<PlayerCatalogSlice>>();
+const playerPositionRequests = new Map<CatalogScope, Readonly<{
+  attempt: PlayerDirectoryAttempt | null; request: Promise<PlayerCatalogSlice | PlayerDirectoryCapture>;
+}>>();
 
 /** Loads and validates one of the six shared position catalogs without using a
  * framework cache. The website wraps this exact function in Next's daily cache. */
-export async function loadFantasyPlayerPositionCatalog(
-  position: FantasyPlayerPosition,
-): Promise<PlayerCatalogSlice> {
-  return loadPlayerCatalogSlice(position);
+export async function loadFantasyPlayerPositionCatalog(position: FantasyPlayerPosition): Promise<PlayerCatalogSlice> {
+  return loadPlayerCatalogSlice(position) as Promise<PlayerCatalogSlice>;
 }
 
-async function loadPlayerCatalogSlice(position: CatalogScope): Promise<PlayerCatalogSlice> {
+function directoryFailure(options: PlayerDirectoryLoadOptions, reason: string): PlayerDirectoryCapture {
+  return sealPlayerDirectoryCapture(normalizePlayerDirectoryCapture({ attempt: options.attempt, rawJson: null,
+    requestStartedAt: null, requestCompletedAt: null, sourceObservedAt: null, providerRequests: 0, failureReason: reason }));
+}
+
+async function loadPlayerCatalogSlice(position: CatalogScope, directory?: PlayerDirectoryLoadOptions): Promise<PlayerCatalogSlice | PlayerDirectoryCapture> {
   const failedUntil = playerPositionFailures.get(position);
   if (failedUntil && failedUntil > Date.now()) {
+    if (directory) return directoryFailure(directory, 'catalog-retry-backoff');
     throw new Error(`Sleeper's ${position} player catalog is in a temporary retry backoff.`);
   }
   if (failedUntil) playerPositionFailures.delete(position);
 
-  const activeRequest = playerPositionRequests.get(position);
-  if (activeRequest) return activeRequest;
+  const active = playerPositionRequests.get(position);
+  if (active) {
+    if (directory) {
+      // A new reservation cannot join an HTTP request that began under an older
+      // owner or the legacy unbounded mode, even if its eventual content is equal.
+      return active.attempt?.id === directory.attempt.id && active.attempt.nonce === directory.attempt.nonce
+        ? active.request : directoryFailure(directory, 'catalog-request-in-flight');
+    }
+    if (!active.attempt) return active.request;
+    const capture = await active.request as PlayerDirectoryCapture;
+    if (capture.sourceObservedAt && capture.rawJson !== null) {
+      // Legacy consumers may use a completed successful source capture, but do not
+      // inherit its caller's cancellation. An aborted owner leaves them a fresh retry.
+      return { ...projectPlayerCatalog(JSON.parse(capture.rawJson)), observedAt: capture.sourceObservedAt };
+    }
+    return loadPlayerCatalogSlice(position);
+  }
 
   const path = position === 'all' ? '/players/nfl'
     : `/players/nfl?position=${encodeURIComponent(position)}`;
-  const request = (async () => {
+  const request = (async (): Promise<PlayerCatalogSlice | PlayerDirectoryCapture> => {
+    const timeout = AbortSignal.timeout(20_000);
+    const signal = directory ? AbortSignal.any([directory.signal, timeout]) : timeout;
+    signal.throwIfAborted();
+    const requestStartedAt = new Date().toISOString();
     const finished = startProviderHttp('sleeper', 'nfl-players', 'bypass');
+    let rawJson: string | null = null;
     let response: Response;
     try {
       response = await fetch(`${API}${path}`, {
-        cache: 'no-store',
-        signal: AbortSignal.timeout(20_000),
-        headers: { Accept: 'application/json' },
+        cache: 'no-store', signal, headers: { Accept: 'application/json' },
+        ...(directory ? { redirect: 'error' as const } : {}),
       });
     } catch (error) {
       finished('unavailable');
-      throw error;
+      if (!directory) throw error;
+      if (!directory.signal.aborted) playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
+      return sealPlayerDirectoryCapture(normalizePlayerDirectoryCapture({ attempt: directory.attempt, rawJson: null,
+        requestStartedAt, requestCompletedAt: new Date().toISOString(), sourceObservedAt: null, providerRequests: 1,
+        failureReason: signal.aborted ? 'catalog-cancelled' : 'catalog-source-unavailable' }));
     }
     if (!response.ok) {
       finished('unavailable');
-      throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
+      if (!directory) throw new Error(`Sleeper could not load ${path} (HTTP ${response.status}).`);
+      void response.body?.cancel().catch(() => undefined);
+      playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
+      return sealPlayerDirectoryCapture(normalizePlayerDirectoryCapture({ attempt: directory.attempt, rawJson: null,
+        requestStartedAt, requestCompletedAt: new Date().toISOString(), sourceObservedAt: null, providerRequests: 1,
+        failureReason: 'catalog-http-error' }));
     }
     let raw: unknown;
     try {
-      raw = await response.json();
+      raw = directory ? (await readBoundedSleeperJson(response, signal, PLAYER_DIRECTORY_RESPONSE_LIMITS,
+        { onRawJson: value => { rawJson = value; }, rejectNonFinite: true })).payload : await response.json();
+      if (directory && rawJson !== null) playerDirectoryDuplicateMembers(rawJson, true);
       finished('available');
     } catch (error) {
       finished('invalid');
-      throw error;
+      if (!directory) throw error;
+      if (!directory.signal.aborted) playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
+      const completedAt = new Date().toISOString();
+      return sealPlayerDirectoryCapture(normalizePlayerDirectoryCapture({ attempt: directory.attempt, rawJson,
+        requestStartedAt, requestCompletedAt: completedAt, sourceObservedAt: error instanceof SyntaxError && rawJson !== null ? completedAt : null,
+        providerRequests: 1, ...(error instanceof SyntaxError && rawJson !== null ? {}
+          : { failureReason: signal.aborted ? 'catalog-cancelled' : 'catalog-response-invalid' }) }));
     }
-    return { ...projectPlayerCatalog(raw), observedAt: new Date().toISOString() };
+    const observedAt = new Date().toISOString();
+    return directory ? sealPlayerDirectoryCapture(normalizePlayerDirectoryCapture({ attempt: directory.attempt,
+      rawJson, requestStartedAt, requestCompletedAt: observedAt, sourceObservedAt: observedAt, providerRequests: 1 }))
+      : { ...projectPlayerCatalog(raw), observedAt };
   })()
     .then((catalog) => {
-      playerPositionFailures.delete(position);
+      if (!('providerRequests' in catalog) || !['unavailable', 'invalid'].includes(catalog.status)) playerPositionFailures.delete(position);
       return catalog;
     })
     .catch((error: unknown) => {
-      playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
+      if (!directory?.signal.aborted) playerPositionFailures.set(position, Date.now() + PLAYER_FAILURE_CACHE_SECONDS * 1_000);
       console.warn(`Sleeper ${position} player catalog could not be loaded.`, error);
       throw error;
     })
     .finally(() => playerPositionRequests.delete(position));
-  playerPositionRequests.set(position, request);
+  playerPositionRequests.set(position, { attempt: directory?.attempt ?? null, request });
   return request;
 }
-
 /** Retrieves, combines, fingerprints, and classifies the shared six-position
  * catalog. Its default path is cache-neutral for command-line/server operators;
  * the website supplies the existing Next.js-cached position loader. */
@@ -239,9 +288,16 @@ export async function loadFantasyPlayerCatalog(
 /** All-player operators replace the six filtered requests with one shared bulk
  * official catalog read. It uses the same loader, validation, telemetry and
  * cooldown; website reads retain their existing filtered daily cache. */
-export async function loadCompletePlayerCatalog(): Promise<FantasyPlayerCatalog> {
+export function loadCompletePlayerCatalog(options: PlayerDirectoryLoadOptions): Promise<PlayerDirectoryCapture>;
+export function loadCompletePlayerCatalog(): Promise<FantasyPlayerCatalog>;
+export async function loadCompletePlayerCatalog(options?: PlayerDirectoryLoadOptions): Promise<FantasyPlayerCatalog | PlayerDirectoryCapture> {
+  if (options) {
+    const attempt = validatePlayerDirectoryAttempt(options.attempt);
+    options.signal.throwIfAborted();
+    return loadPlayerCatalogSlice('all', { attempt, signal: options.signal }) as Promise<PlayerDirectoryCapture>;
+  }
   try {
-    const slice = await loadPlayerCatalogSlice('all');
+    const slice = await loadPlayerCatalogSlice('all') as PlayerCatalogSlice;
     return {
       catalog: slice.catalog,
       sourceRevision: slice.sourceRevision,

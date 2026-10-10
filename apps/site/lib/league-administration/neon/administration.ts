@@ -1,4 +1,5 @@
 import 'server-only';
+import { playerDirectoryMethods } from './player-directory';
 import { teamManagerMethods } from './team-managers';
 import { leagueSettingsMethods } from './league-settings';
 import { exactMatchupMethods } from './exact-matchups';
@@ -118,6 +119,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   return {
     ...transactionMethods(client),
     ...currentRosterMethods(client),
+    ...playerDirectoryMethods(client),
     ...teamManagerMethods(client),
     ...leagueSettingsMethods(client),
     ...exactMatchupMethods(client),

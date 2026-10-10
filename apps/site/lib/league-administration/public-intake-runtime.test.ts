@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ database: vi.fn(), bounded: vi.fn(), administration: vi.fn(), intake: vi.fn(),
-  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), configure: vi.fn() }));
+  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), directory: vi.fn(), configure: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../database', () => ({ getDatabase: mocks.database, withDatabaseAbortSignal: mocks.bounded }));
 vi.mock('../projection-store', () => ({ createProjectionStore: mocks.jobs }));
 vi.mock('./store', () => ({ createLeagueAdministrationStore: mocks.administration, createPublicIntakeStore: mocks.intake,
   createPublicDataRefreshStore: mocks.refresh }));
-vi.mock('./public-intake', () => ({ runPublicDataRefreshStep: mocks.run, runPublicIntakeStep: vi.fn() }));
-import { configurePublicSleeperRefresh, runSelectedPublicDataRefresh, type PublicDataRefreshSelection } from './public-intake-runtime';
+vi.mock('./public-intake', () => ({ runPublicDataRefreshStep: mocks.run, runPublicIntakeStep: vi.fn(), runPublicPlayerDirectoryStep: mocks.directory }));
+import { configurePublicSleeperRefresh, runSelectedPublicDataRefresh, runSelectedPublicPlayerDirectory, type PublicDataRefreshSelection } from './public-intake-runtime';
 const start = Date.parse('2026-10-06T12:00:00Z');
 const enabled = { enabled: true } as const;
 beforeEach(() => {
@@ -116,5 +116,32 @@ describe('actual abort-aware admission database routing', () => {
     mocks.database.mockImplementation(() => { vi.setSystemTime(start + 10_001); return { enabled: true }; });
     expect(await runSelectedPublicDataRefresh(enabled, start)).toEqual({ status: 'deadline', providerRequests: 0 });
     expect(mocks.bounded).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('explicit shared player directory runtime', () => {
+  it.each([null, undefined, {}, { enabled: false }])('remains dormant for selection %o', async selection => {
+    expect(await runSelectedPublicPlayerDirectory(selection as { enabled: true } | null | undefined, start))
+      .toEqual({ status: 'disabled', providerRequests: 0 });
+    expect(mocks.database).not.toHaveBeenCalled(); expect(mocks.directory).not.toHaveBeenCalled();
+  });
+  it('uses the same original 20-second work deadline and bounded 2-second cleanup', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    mocks.database.mockImplementation(() => { vi.setSystemTime(start + 4000); return { enabled: true }; });
+    mocks.directory.mockImplementation(async (dependencies, signal) => {
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(dependencies.deadlineAt).toBe('2026-10-06T12:00:20.000Z');
+      vi.setSystemTime(start + 21_000); dependencies.cleanup();
+      expect(timeout).toHaveBeenLastCalledWith(1000);
+      return { status: 'progress', resource: 'player-directory', providerRequests: 1 };
+    });
+    expect(await runSelectedPublicPlayerDirectory(enabled, start)).toMatchObject({ status: 'progress', providerRequests: 1 });
+    expect(timeout).toHaveBeenCalledWith(16000); expect(mocks.refresh).not.toHaveBeenCalled();
+  });
+  it('does not acquire a job after setup exhausts the original deadline', async () => {
+    mocks.database.mockImplementation(() => { vi.setSystemTime(start + 20_001); return { enabled: true }; });
+    expect(await runSelectedPublicPlayerDirectory(enabled, start)).toEqual({ status: 'deadline', providerRequests: 0 });
+    expect(mocks.directory).not.toHaveBeenCalled(); expect(mocks.bounded).not.toHaveBeenCalled();
   });
 });

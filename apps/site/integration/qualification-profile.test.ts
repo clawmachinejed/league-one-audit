@@ -16,6 +16,8 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
+  PLAYER_DIRECTORY_PROFILE, PLAYER_DIRECTORY_MODULE, PLAYER_DIRECTORY_SOURCE_DIGEST, PLAYER_DIRECTORY_SUITE,
+  PLAYER_DIRECTORY_TESTS, PLAYER_DIRECTORY_FULL_NAMES, PLAYER_DIRECTORY_PATTERN,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
 const directories: string[] = [];
@@ -285,7 +287,7 @@ it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFI
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
-  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(48);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(49);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
@@ -710,4 +712,110 @@ it('independently inventories every compatibility case without loading SQL modul
     expect([...cases].sort()).toEqual([...spec.inventory].sort());
     expect(cases.filter(name => (spec.names as readonly string[]).includes(name))).toEqual(spec.names);
   }
+});
+
+
+async function playerDirectoryFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'player-directory-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), PLAYER_DIRECTORY_PROFILE);
+  const evidence: QualificationReport = {
+    kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0,
+    specifications: [{ path: PLAYER_DIRECTORY_MODULE, pattern: PLAYER_DIRECTORY_PATTERN, otherFilters: false }],
+    collected: [PLAYER_DIRECTORY_MODULE],
+    hooks: ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })),
+    modules: [{ path: PLAYER_DIRECTORY_MODULE, state: 'passed', errors: 0,
+      suites: [{ id: 'suite', name: PLAYER_DIRECTORY_SUITE, mode: 'run', errors: 0 }],
+      cases: PLAYER_DIRECTORY_FULL_NAMES.map((name, index) => ({ id: 'case-' + index, name, state: 'passed', mode: 'run',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }],
+  };
+  return { binding: { context, directory }, evidence };
+}
+it('binds the directory profile to six exact cases and original cleanup gates while full discovery includes its module', async () => {
+  expect(parseQualificationArguments(['--profile=' + PLAYER_DIRECTORY_PROFILE])).toBe(PLAYER_DIRECTORY_PROFILE);
+  expect(qualificationArguments(PLAYER_DIRECTORY_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', PLAYER_DIRECTORY_MODULE, '--testNamePattern', PLAYER_DIRECTORY_PATTERN]);
+  for (const args of [
+    ['--profile=data-player-directory-v2'], ['--profile', PLAYER_DIRECTORY_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + PLAYER_DIRECTORY_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + PLAYER_DIRECTORY_PROFILE, extra]),
+  ]) expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await playerDirectoryFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([PLAYER_DIRECTORY_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules.some(module => module.path === PLAYER_DIRECTORY_MODULE)).toBe(true);
+  const older = await fixture(INGESTION_PROFILE);
+  expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
+  const regex = new RegExp(PLAYER_DIRECTORY_PATTERN);
+  expect(PLAYER_DIRECTORY_FULL_NAMES).toHaveLength(6);
+  for (const name of PLAYER_DIRECTORY_FULL_NAMES) {
+    expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(regex.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(SELECTED_INVENTORY.some(name => regex.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: PLAYER_DIRECTORY_PROFILE,
+    collected: 6, executed: 6, passed: 6, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects incomplete directory inventory, reordered execution, hook drift, retries and substituted profile evidence', async () => {
+  const { binding, evidence } = await playerDirectoryFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].ends = 0; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const older = await fixture(INGESTION_PROFILE), oldReport = report(older);
+  expect(() => validateQualificationReport(older.context, { ...evidence, contextDigest: qualificationDigest(older.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...oldReport, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, PLAYER_DIRECTORY_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), PLAYER_DIRECTORY_PROFILE))
+    .rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories the directory SQL fixture source and hooks without importing its execution', async () => {
+  const path = fileURLToPath(new URL('../' + PLAYER_DIRECTORY_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(PLAYER_DIRECTORY_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+        suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) hooks.push(expression);
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual([PLAYER_DIRECTORY_SUITE]); expect(names).toEqual(PLAYER_DIRECTORY_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
 });
