@@ -585,3 +585,63 @@ acknowledged cleanup are independently verified. Offline selector/report checks,
 TypeScript, source inspection and numeric parser tests do not establish PostgreSQL
 execution. Record the actual database version, duration, cleanup and remaining
 gaps in the [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP11 typed official bracket resource qualification
+
+The authored closed `data-typed-brackets-v1` profile selects seven ordered cases
+in `typed-brackets.integration-case.ts` with one shared hook pair. Only after
+separate exact-source authorization, its fixed command is
+`pnpm test:integration --profile=data-typed-brackets-v1`. The protected manual
+workflow offers that literal choice. Default discovery adds one module (54 to 55);
+older fixture bodies, profile inventories and source pins remain unchanged.
+Authoring grants no paid SQL run, credential access, provisioning, migration
+application, live capture, automatic retry or production authority.
+
+The first two independently enrolled synthetic 2026 resource cases use the existing
+Sleeper administration adapter for six fixture HTTP GETs; the remaining cases use
+direct synthetic normalized captures. All reuse the sole administration writer,
+existing reservations/receipts/acceptances and the actual restricted stored reader.
+The native winners and losers endpoints remain separate sources under the
+provider-neutral playoff-brackets family. Cases compare native, normalized,
+relational and reader rounds, matches, entrants, winner/loser advancement and
+supplied result facts. They retain missing, explicit null, unsupported native
+forms, unpublished null and published empty distinctly. Unknown or absent upstream
+references remain unresolved; native placement fields and supplied outcomes do
+not establish weekly matchup identity, aggregate scoring, seed, rank or finality.
+
+Malformed, partial and definitely contradictory captures retain their raw evidence
+and preserve prior accepted typed data. Independent cases also cover immutable
+corrections, fresh equal-content receipts, exact replay, both out-of-order
+completion orders, unrelated mapping/receipt rejection, forged normalized facts,
+and original-fence rollback after a witnessed lock on the new typed relation.
+The lock witness retains its original 12-second synthetic fence; a separate
+6-second synthetic fence per transaction is live when the writer returns and must
+reject both a new-content transaction and a fresh equal-content acceptance when
+deferred validation runs after expiry at COMMIT.
+Stored reads run with provider access blocked and reject mutating SQL statements.
+Restricted grants, direct history mutation and private helper denial are checked;
+existing-role reprovisioning is confined to a rolled-back transaction and does not
+qualify a fresh-role installation.
+
+These are direct opt-in resource cases with synthetic enrollment prerequisites.
+They do not compose ordinary intake, recurring bracket tasks, refresh checkpoints
+or corrected intake heads (CP12), and do not establish broader result/finality
+semantics (CP13). Seven 60-second cases and two 120-second hooks total an 11-minute
+authored allowance before harness overhead; this is not measured duration or a
+cost guarantee. The 20-second ordinary worker, real 60-second admission, 30-minute
+supervisor work, 40-minute lifecycle, 50-minute CI and one-hour expiry bounds, plus
+all identity/TLS/role/sentinel/denylist/cleanup gates remain unchanged.
+
+The implementation bounds native captures to 1,024 matches and 8 MiB of compact
+source JSON, expanded SQL payloads to 16 MiB, and stored reader operands to 32 MiB.
+These are distinct bounds: expanded numeric forms can exceed the SQL bound even
+when compact source is smaller. Such a write fails without advancing accepted
+data. Maximum-size parity, latency and capacity are unqualified.
+
+CP11 remains **authored and SQL-unqualified** until a separately authorized run of
+the reviewed frozen source passes every selected case, exact hooks, source pin
+and acknowledged cleanup. Offline AST/inventory/report checks, the network-blocked
+installed runner, parser tests and TypeScript do not prove PostgreSQL execution,
+installed constraints, permissions, runtime fit or live provider parity. Record
+the tested database version, duration, exact source and cleanup in the
+[DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).

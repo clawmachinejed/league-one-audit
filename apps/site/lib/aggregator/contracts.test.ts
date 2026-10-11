@@ -57,6 +57,11 @@ function assessment(): FeatureAssessment {
 }
 
 describe('common contract primitives', () => {
+  it('admits a bracket-scoped official resource without assigning a scoring period', () => {
+    expect(() => assertSourceScope({ ...enrolled, family: 'playoff-brackets', entityId: 'winners_bracket',
+      scoringPeriodId: null })).not.toThrow();
+    expect(() => assertSourceScope({ ...enrolled, family: 'winners_bracket' })).toThrow(ContractValidationError);
+  });
   it.each(['0', '-0', '87.2500', '-0.004', '900719925474099312345678901234567890.123456789'])
   ('retains finite base-10 precision without JavaScript numeric coercion: %s', value => {
     expect(() => assertDecimal(value)).not.toThrow();

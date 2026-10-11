@@ -1,3 +1,5 @@
+import { bracketMethods } from './brackets';
+import { projectPlayoffBracket } from '../../aggregator/playoff-brackets';
 import { rosterPlayerLinkMethods } from './roster-player-links';
 import 'server-only';
 import { playerDirectoryMethods } from './player-directory';
@@ -121,6 +123,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
 
   return {
     ...transactionMethods(client),
+    ...bracketMethods(client),
     ...currentRosterMethods(client),
     ...rosterPlayerLinkMethods(client),
     ...playerDirectoryMethods(client),
@@ -162,7 +165,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
@@ -171,7 +174,8 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
         ...(managerEvidenceAcceptance ? { teamManagerEvidenceAcceptance: managerEvidenceAcceptance } : {}),
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
         ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
-        ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}) })]);
+        ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}),
+        ...(bracketAcceptance ? { bracketAcceptance, bracketProjection: projectPlayoffBracket(input) } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {

@@ -1,3 +1,4 @@
+import type { BracketFamily, BracketSelection, AcceptedBracketRead } from '../aggregator/playoff-brackets';
 import type { RosterPlayerLinksSelection, RosterPlayerLinksRead } from '../aggregator/roster-player-links';
 import type { PlayerDirectoryAttempt, PlayerDirectoryCapture, PlayerDirectoryRead, PlayerDirectoryReadSelection,
   PlayerDirectoryReservation, PlayerDirectoryWriteResult } from './player-directory-contracts';
@@ -41,6 +42,7 @@ export type AdministrationWriteResult = Readonly<{
   leagueSettingsAcceptance?: RosterAcceptanceResult;
   matchupAcceptance?: RosterAcceptanceResult;
   transactionAcceptance?: RosterAcceptanceResult;
+  bracketAcceptance?: RosterAcceptanceResult;
   calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
   calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
@@ -71,7 +73,9 @@ export type LeagueAdministrationStore = Readonly<{
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
     calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
-    managerEvidenceAcceptance?: RosterAcceptanceInput) => Promise<AdministrationWriteResult>;
+    managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginBracketAttempt?: (mapping: AdministrationSourceMapping, family: BracketFamily, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedBracket?: (mapping: AdministrationSourceMapping, selection: BracketSelection) => Promise<AcceptedBracketRead>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedTransactionsRead>;
