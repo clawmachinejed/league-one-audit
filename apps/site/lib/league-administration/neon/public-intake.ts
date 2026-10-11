@@ -37,6 +37,17 @@ async function requirePeriodInventoryCapability(client: DatabaseClient): Promise
   if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public native-period inventory requires installed R044.');
 }
 
+async function requireBracketCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:bracket-capability */
+    SELECT to_regclass('public.public_data_bracket_tasks') IS NOT NULL
+      AND to_regclass('public.public_data_bracket_checkpoints') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='playoff_brackets' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='playoff_brackets' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public bracket intake requires installed R047.');
+}
+
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
     await client.query(`/* public-data-intake:checkpoint */
@@ -46,6 +57,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
+      if (validated.playoffBrackets) await requireBracketCapability(client);
       if (validated.periodInventory) await requirePeriodInventoryCapability(client);
       else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
@@ -61,8 +73,12 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
       const work = record(result);
       if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
-        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups'].includes(String(work.kind))) {
+        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets'].includes(String(work.kind))) {
         throw new Error('Invalid public intake work.');
+      }
+      if (work.kind === 'playoff-brackets' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|requestId|revision|season'
+        || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId))) {
+        throw new Error('Invalid public bracket work.');
       }
       if (work.kind === 'exact-matchups' && (typeof work.externalLeagueId !== 'string'
         || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId) || !Number.isInteger(work.season)
@@ -142,6 +158,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     },
     completeCore: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     completeExactPeriod: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
+    completeBrackets: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
   };
 }
@@ -154,6 +171,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
+      if (validated.playoffBrackets) await requireBracketCapability(client);
       if (validated.periodInventory) await requirePeriodInventoryCapability(client);
       else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
       const rows = await client.query('/* public-data-refresh:configure */ SELECT public.configure_public_data_refresh($1::jsonb) AS result',

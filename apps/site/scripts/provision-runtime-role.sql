@@ -658,3 +658,31 @@ DO $$ DECLARE bracket_table text; helper text; denied_privileges text:='INSERT,U
   END IF;
 END; $$;
 -- END OPTIONAL TYPED BRACKET GRANTS
+
+-- BEGIN OPTIONAL PUBLIC BRACKET INTAKE GRANTS
+DO $$ DECLARE bracket_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.public_data_bracket_tasks') IS NOT NULL THEN
+    FOREACH bracket_table IN ARRAY ARRAY['public_data_bracket_tasks','public_data_bracket_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',bracket_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',bracket_table);
+      IF has_table_privilege('league_one_runtime','public.'||bracket_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||bracket_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||bracket_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public bracket privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.validate_public_data_bracket_task_fence()',
+      'public.fail_public_data_bracket_work(jsonb,jsonb)','public.validate_public_data_bracket_task()',
+      'public.validate_public_data_bracket_checkpoint()','public.validate_public_data_bracket_checkpoint_fence()',
+      'public.checkpoint_public_data_intake_v46(jsonb,jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public bracket helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot checkpoint public bracket capture'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC BRACKET INTAKE GRANTS

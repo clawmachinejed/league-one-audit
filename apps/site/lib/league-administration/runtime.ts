@@ -9,6 +9,7 @@ import { createLeagueAdministrationStore } from './store';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
 import type { AdministrationWriteResult, AdministrationWriteFence, LeagueAdministrationStore } from './store-contracts';
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from './source-mapping';
+import type { BracketFamily } from '../aggregator/playoff-brackets';
 import type { RosterAttempt, RosterPopulationEvidence } from '../aggregator/current-roster';
 import { isCalculationSourceCapture, type CalculationSourceCapture, type CalculationSourceAssociation } from './calculation-capture';
 import { assertOriginalPublicCapture, type PublicCaptureWitness } from './public-capture-witness';
@@ -53,6 +54,8 @@ export async function recordCapturedAdministration(
     leagueSettingsAttempt?: RosterAttempt;
     matchupAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
+    /** Both reservations precede the original witnessed bracket requests. */
+    bracketAttempts?: Readonly<Record<BracketFamily, RosterAttempt>>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
@@ -105,7 +108,9 @@ export async function recordCapturedAdministration(
       completeness: document.completeness ?? 'complete', payload: document.payload as JsonValue,
     }, { ...(expectedRosterCount === undefined ? {} : { expectedRosterCount }),
       ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
-    let mapping = ['rosters', 'league'].includes(document.family)
+    const bracketAttempt = origin === 'network' && (document.family === 'winners_bracket' || document.family === 'losers_bracket')
+      ? options.bracketAttempts?.[document.family] : undefined;
+    let mapping = Boolean(bracketAttempt) || ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
         || options.calculationCapture?.week === document.week))
@@ -133,7 +138,10 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => managerEvidenceAttempt
+    const write = () => bracketAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, { attempt: bracketAttempt })
+      : managerEvidenceAttempt
       ? store.recordObservation(normalized, options.fence, mapping,
         attempt ? { attempt, ...(population ? { population } : {}) } : undefined,
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,

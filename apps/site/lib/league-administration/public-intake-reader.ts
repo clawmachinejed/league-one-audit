@@ -2,7 +2,8 @@ import 'server-only';
 import type { DatabaseClient, DatabaseRow } from '../database';
 import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from '../aggregator/exact-period-context';
 import { EXACT_MATCHUP_VALUES_VERSION, type ExactMatchupValuesRead } from '../aggregator/exact-matchup-values';
-import { normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
+import { normalizePublicPlayoffBrackets, type PublicPlayoffBrackets, normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
+import { readPublicBrackets } from './public-bracket-reader';
 import { readPublicPeriodTaskRows, readPublicPeriodInventory } from './store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { isAdministrationSourceMapping } from './source-mapping';
@@ -117,6 +118,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     SELECT request.id,request.username AS requested_username,request.seasons,request.revision,request.terminal,
       to_jsonb(request)->'exact_periods' AS selected_exact_periods,
       to_jsonb(request)->'period_inventory' AS selected_period_inventory,
+      to_jsonb(request)->'playoff_brackets' AS selected_playoff_brackets,
       request.failure_count,request.next_attempt_at,identity.source_manager_account_id,account.external_manager_id,
       identity.username,identity.display_name,identity.avatar_url,identity.request_started_at,identity.request_completed_at
     FROM public.public_data_intakes request
@@ -124,10 +126,11 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     LEFT JOIN public.league_source_manager_accounts account ON account.id=identity.source_manager_account_id AND account.provider='sleeper'
     WHERE request.id=$1::uuid`, [requestId]);
   if (requests.length !== 1) return { status: 'missing' } as const;
-  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, ...storedHeader } = requests[0];
+  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, ...storedHeader } = requests[0];
   const { exactPeriods: selection, periodInventory: mode } = normalizeStoredPublicPeriods(selectedPeriods,
     Array.isArray(storedHeader.seasons) ? storedHeader.seasons : [], selectedInventory);
-  const header: DatabaseRow & { exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
+  const playoffBrackets = normalizePublicPlayoffBrackets(selectedBrackets ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
+  const header: DatabaseRow & { playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
@@ -212,23 +215,27 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     && (!exactPeriods || exactPeriods.every(period => period.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity' && selection.some(period => period.season === candidate.season))
       .every(candidate => exactPeriods.some(period => period.season === candidate.season && period.externalLeagueId === candidate.external_league_id)));
+  const brackets = playoffBrackets ? await readPublicBrackets(client, administration, requestId, candidates) : undefined;
+  const completeBrackets = !brackets || brackets.every(task => task.resource.status === 'available')
+    && candidates.filter(candidate => candidate.stage !== 'capacity')
+      .every(candidate => brackets.some(task => task.season === candidate.season && task.externalLeagueId === candidate.external_league_id));
   const completeResources = leagues.every(league => league.collection === 'complete' && league.resources
     && league.resources.settings.status === 'available' && league.resources.teamManagers.status === 'available'
     && league.resources.heldRoster.status === 'available' && league.resources.directory.status === 'available');
   const allSeasons = Array.isArray(header.seasons) && lists.length === header.seasons.length;
   const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
-    : completeResources && completePeriods ? 'available'
+    : completeResources && completePeriods && completeBrackets ? 'available'
       : header.terminal || completeResources && inventoryRead?.inventory.collection === 'complete' ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
-    ...(exactPeriods ? { exactPeriods } : {}),
+    ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}),
     ...(inventoryRead ? { periodInventory: inventoryRead.inventory,
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
       ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []),
       ...(selection.length && options.periodContextVersion ? ['exact-period-context'] : []),
-      ...(selection.length && options.exactMatchupValuesVersion ? ['exact-matchup-values'] : [])],
-      notRequested: [...(selection.length ? [] : ['exact-matchups']), 'official-results', 'transactions', 'drafts', 'playoff-brackets', 'annual-history'],
+      ...(selection.length && options.exactMatchupValuesVersion ? ['exact-matchup-values'] : []), ...(playoffBrackets ? ['playoff-brackets'] : [])],
+      notRequested: [...(selection.length ? [] : ['exact-matchups']), 'official-results', 'transactions', 'drafts', ...(playoffBrackets ? [] : ['playoff-brackets']), 'annual-history'],
       note: options.periodContextVersion && selection.length
         ? 'Provider standings fields are retained with the roster; optional period context derives only evidenced competition boundaries, not results or ranks.'
         : 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;

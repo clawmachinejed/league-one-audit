@@ -7,6 +7,8 @@ export const PUBLIC_INTAKE_JOB = 'league-administration-public-intake';
 export const PUBLIC_INTAKE_VERSION = 'sleeper-public-intake-v1';
 export const PUBLIC_PERIOD_INVENTORY = 'sleeper-2026-native-period-inventory-v1' as const;
 export type PublicPeriodInventory = typeof PUBLIC_PERIOD_INVENTORY;
+export const PUBLIC_PLAYOFF_BRACKETS = 'sleeper-2026-playoff-brackets-v1' as const;
+export type PublicPlayoffBrackets = typeof PUBLIC_PLAYOFF_BRACKETS;
 export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
 export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage;
   /** Optional evidence context for only the selected detailed period page. */
@@ -15,7 +17,7 @@ export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; 
   exactMatchupValuesVersion?: 'v1' }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
-  exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory }>;
+  exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -33,6 +35,10 @@ export type PublicExactPeriodCheckpoint = Readonly<{
   observations: Readonly<{ league: string; matchups: string }>;
   receipts: Readonly<{ settings: string; matchups: string }>;
 }>;
+export type PublicBracketCheckpoint = Readonly<{
+  observations: Readonly<{ winners_bracket: string; losers_bracket: string }>;
+  receipts: Readonly<{ winners_bracket: string; losers_bracket: string }>;
+}>;
 export type PublicIntakeStore = Readonly<{
   submit: (input: PublicIntakeInput) => Promise<void>;
   recover: (requestId: string, fence: AdministrationWriteFence) => Promise<void>;
@@ -49,6 +55,9 @@ export type PublicIntakeStore = Readonly<{
     checkpoint: PublicCoreCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
   completeExactPeriod: (work: Extract<PublicIntakeWork, { kind: 'exact-matchups' }>, mapping: AdministrationSourceMapping,
     checkpoint: PublicExactPeriodCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
+  /** R047 capability; selected bracket tasks require witnessed paired completion. */
+  completeBrackets?: (work: Extract<PublicIntakeWork, { kind: 'playoff-brackets' }>, mapping: AdministrationSourceMapping,
+    checkpoint: PublicBracketCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
   fail: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<void>;
 }>;
 
@@ -78,6 +87,13 @@ export function normalizePublicPeriodInventory(value: unknown, seasons: readonly
   }
   return PUBLIC_PERIOD_INVENTORY;
 }
+export function normalizePublicPlayoffBrackets(value: unknown, seasons: readonly number[]): PublicPlayoffBrackets | undefined {
+  if (value === undefined) return undefined;
+  if (value !== PUBLIC_PLAYOFF_BRACKETS || seasons.length !== 1 || seasons[0] !== 2026) {
+    throw new Error('Invalid public playoff bracket scope.');
+  }
+  return PUBLIC_PLAYOFF_BRACKETS;
+}
 export function publicInventoryPeriods(): readonly PublicExactPeriod[] {
   return Array.from({ length: 18 }, (_, index) => ({ season: 2026, nativeWeek: index + 1 }));
 }
@@ -100,9 +116,10 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
     || !Array.isArray(input.seasons) || input.seasons.length < 1 || input.seasons.length > 3
     || input.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
+  const playoffBrackets = normalizePublicPlayoffBrackets(input.playoffBrackets, input.seasons);
   const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
   if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), username: input.username, seasons: [...input.seasons].sort((a, b) => a - b),
-    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}) };
+    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}) };
 }

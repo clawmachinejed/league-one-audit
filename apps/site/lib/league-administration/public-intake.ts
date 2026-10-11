@@ -6,6 +6,7 @@ import type { LeagueAdministrationStore } from './store-contracts';
 import type { CapturedAdministrationDocument } from './contracts';
 import { recordCapturedAdministration, recordCapturedPlayerDirectory } from './runtime';
 import { loadCompletePlayerCatalog } from '../sleeper-player-catalog';
+import type { BracketFamily } from '../aggregator/playoff-brackets';
 import type { PlayerDirectoryOutcome } from './player-directory-contracts';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore } from './public-intake-contracts';
@@ -20,6 +21,7 @@ export type PublicIntakeDependencies = Readonly<{
   jobs: Pick<ProjectionStore, 'acquireJob' | 'completeJob' | 'failJob'>;
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
+    bracket?: (leagueId: string, family: BracketFamily, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument> }>;
   now?: () => Date;
   /** Requires installed R035; adds evidence without replacing either v1 reservation. */
@@ -60,9 +62,11 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const phaseSignal = phase?.signal ?? signal;
   const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
-  const source = dependencies.source ?? { identity: capturePublicSleeperIdentity,
+  const source: NonNullable<PublicIntakeDependencies['source']> = dependencies.source ?? { identity: capturePublicSleeperIdentity,
     leagues: capturePublicSleeperLeagueList,
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
+      capturePublicSleeperCore(leagueId, family, captureSignal, undefined, witness),
+    bracket: (leagueId: string, family: BracketFamily, captureSignal: AbortSignal, witness: PublicCaptureWitness) =>
       capturePublicSleeperCore(leagueId, family, captureSignal, undefined, witness),
     exactPeriod: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
       capturePublicSleeperCore(leagueId, 'matchups', captureSignal, nativeWeek, witness) };
@@ -172,7 +176,44 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         throw new Error('Intake mapping unavailable.');
       }
       const observations: { league?: string; rosters?: string; users?: string } = {};
-      if (work.kind === 'exact-matchups') {
+      if (work.kind === 'playoff-brackets') {
+        if (work.season !== 2026 || !source.bracket || !administration.beginBracketAttempt
+          || !intake.completeBrackets || !intake.captureWitness) throw new Error('Witnessed bracket intake is unsupported.');
+        const winners = await administration.beginBracketAttempt(mapping, 'winners_bracket', randomUUID(), fence);
+        signal.throwIfAborted();
+        const losers = await administration.beginBracketAttempt(mapping, 'losers_bracket', randomUUID(), fence);
+        const witness = await captureWitness(mapping, { winners_bracket: winners.id, losers_bracket: losers.id });
+        if (!witness) throw new Error('Bracket intake requires its database acquisition witness.');
+        signal.throwIfAborted();
+        requests += 2;
+        const families = ['winners_bracket', 'losers_bracket'] as const;
+        const externalLeagueId = work.externalLeagueId;
+        const results = await Promise.allSettled(families.map(family =>
+          Promise.resolve().then(() => source.bracket!(externalLeagueId, family, signal, witness))));
+        const captures: Awaited<ReturnType<typeof recordCapturedAdministration>>['results'][number][] = [];
+        // Retain each valid family even if its sibling transport, scope or write fails.
+        // There is no second GET, changed deadline, or replacement acquisition witness.
+        for (const [index, result] of results.entries()) {
+          signal.throwIfAborted();
+          if (result.status !== 'fulfilled') continue;
+          try {
+            const document = result.value;
+            if (document.family !== families[index] || document.week !== null || document.origin !== 'network'
+              || document.sourceObservedAt !== document.requestCompletedAt) continue;
+            const captured = await recordCapturedAdministration(mapping.scope, [document], { store: administration, signal, fence, mapping, now,
+              bracketAttempts: { winners_bracket: winners, losers_bracket: losers }, expectedAcquisition: witness });
+            captures.push(...captured.results);
+          } catch { /* The paired checkpoint remains incomplete; retain any valid sibling. */ }
+        }
+        const winner = captures.find(entry => entry.family === 'winners_bracket')?.result;
+        const loser = captures.find(entry => entry.family === 'losers_bracket')?.result;
+        if (!winner?.observationId || !loser?.observationId || winner.bracketAcceptance?.status !== 'accepted'
+          || loser.bracketAcceptance?.status !== 'accepted') throw new Error('Paired bracket capture remains incomplete.');
+        await intake.completeBrackets(work, mapping, {
+          observations: { winners_bracket: winner.observationId, losers_bracket: loser.observationId },
+          receipts: { winners_bracket: winner.bracketAcceptance.receiptId, losers_bracket: loser.bracketAcceptance.receiptId },
+        }, fence);
+      } else if (work.kind === 'exact-matchups') {
         const nativeWeek = work.nativeWeek;
         if (!source.exactPeriod) throw new Error('Exact-period capture is unsupported by this source.');
         const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);

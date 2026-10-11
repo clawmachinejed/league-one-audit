@@ -645,3 +645,66 @@ installed runner, parser tests and TypeScript do not prove PostgreSQL execution,
 installed constraints, permissions, runtime fit or live provider parity. Record
 the tested database version, duration, exact source and cleanup in the
 [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP12 ordinary paired bracket intake qualification
+
+The authored closed `data-bracket-intake-v1` profile selects five ordered cases
+in `bracket-intake.integration-case.ts` with one shared hook pair. Only after
+separate exact-source authorization, its fixed command is
+`pnpm test:integration --profile=data-bracket-intake-v1`. The protected manual
+workflow offers that literal choice. Default discovery adds one module (55 to 56);
+all older fixture bodies, inventories and source pins remain unchanged. Authoring
+grants no paid SQL run, credentials, provisioning, migration application, live
+capture, automatic retry or production authority.
+
+Requests explicitly select `sleeper-2026-playoff-brackets-v1` for season 2026.
+The fixture checks SQL selector validation, replay identity, omitted-selector
+compatibility, and coexistence with either existing period selector at metadata
+level. An ordinary empty discovery spends two real admissions and two synthetic
+GETs, retains zero bracket tasks, and invents no individual bracket availability.
+The main ordinary case completes identity, discovery, bootstrap, paired brackets,
+core and users for an initial intake and a changed recurring refresh. It adds an
+deliberately late failed-task COMMIT and a failed losers-family response before paired recovery,
+then loses the successful checkpoint acknowledgment. Fourteen real admissions and
+20 synthetic GET attempts cover these two cycles. Acquired zero-GET owner claims
+are observed separately: the unchanged 120-second retry backoff can consume an
+intervening 60-second owner claim, and a final claim records terminal refresh
+settlement without another GET or admission. The abandoned first dispatch is
+recovered under a fresh owner fence without another source admission. Total claims must equal admissions
+plus those explicitly observed zero-GET claims.
+
+Both family attempts are reserved before the paired source requests and carry the
+same database dispatch witness. Fresh valid family evidence survives its sibling's
+failure, while the request remains incomplete. An older-dispatch family receipt,
+wrong mapping or swapped family receipts cannot complete the pair. The first
+failed-task mutation uses an actual pinned runtime transaction: failure returns
+while its original 20-second fence is live, then deferred COMMIT rejects with the
+server fence exception after expiry. Task, request and dispatch-outcome state must
+roll back; the callback is drained before the next ordinary recovery begins. Changed
+refresh reads use both immutable checkpoint receipts, preserving an older
+request's exact values after newer accepted heads exist. Complete null, empty
+and supplied result facts retain CP11 semantics. This adds ordinary acquisition
+and history, not new competition phase, scoring aggregation or finality rules.
+
+The remaining cases check immutable checkpoint/task history, selector CAS and
+cycle history, current-source remapping, restricted grants, direct mutation and
+private-helper denial. Stored readers have source calls blocked and reject
+mutating SQL. Existing-role reprovisioning occurs only inside a rolled-back
+transaction and does not qualify a fresh-role installation.
+
+Three 60-second cases, one 180-second case, one 1,080-second case and two
+120-second hooks total a 28-minute authored allowance before harness overhead.
+This leaves only two minutes inside the existing supervisor work bound and is
+not measured fit or a cost guarantee. The original 20-second worker, real
+60-second admission, 30-minute work, 40-minute lifecycle, 50-minute CI and
+one-hour expiry limits and all identity/TLS/role/sentinel/denylist/cleanup guards
+remain unchanged. Five-failure exhaustion, maximum candidate capacity, combined
+period-and-bracket acquisition, full-fleet latency, live provider parity and the
+complete SQL suite are outside this selected profile's evidence.
+
+CP12 remains **authored and SQL-unqualified** until a separately authorized run of
+the reviewed frozen source passes all five cases, exact hooks, source pin and
+acknowledged cleanup. Offline selector/report/AST checks, network-blocked runner
+tests, TypeScript and source inspection do not establish PostgreSQL execution,
+installed permissions or elapsed runtime fit. Record actual results and gaps in
+the [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
