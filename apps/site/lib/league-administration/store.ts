@@ -35,6 +35,7 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     beginExactMatchupAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedExactMatchups: async () => ({ status: 'disabled' }),
     readExactPeriodContext: async () => ({ status: 'disabled' }),
+    readExactMatchupValues: async () => ({ status: 'disabled' }),
     beginRosterAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     beginRosterCapture: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedTeamManagers: async () => ({ status: 'disabled' }),

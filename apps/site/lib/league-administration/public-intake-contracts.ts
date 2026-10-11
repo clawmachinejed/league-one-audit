@@ -10,7 +10,9 @@ export type PublicPeriodInventory = typeof PUBLIC_PERIOD_INVENTORY;
 export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
 export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage;
   /** Optional evidence context for only the selected detailed period page. */
-  periodContextVersion?: 'v1' }>;
+  periodContextVersion?: 'v1';
+  /** Optional typed native lineup and point evidence for the same detailed period page. */
+  exactMatchupValuesVersion?: 'v1' }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
   exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory }>;

@@ -12,6 +12,7 @@ import type { AcceptedTeamManagersRead, AcceptedTeamManagerEvidenceRead, RosterC
 import type { AcceptedLeagueSettingsRead } from '../aggregator/league-settings';
 import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { ExactPeriodContextRead, ExactPeriodContextSelection } from '../aggregator/exact-period-context';
+import type { ExactMatchupValuesRead, ExactMatchupValuesSelection } from '../aggregator/exact-matchup-values';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
@@ -85,6 +86,8 @@ export type LeagueAdministrationStore = Readonly<{
   readAcceptedExactMatchups: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedExactMatchupsRead>;
   /** Optional stored receipt context; never grants historical source effectivity. */
   readExactPeriodContext?: (mapping: AdministrationSourceMapping, selection: ExactPeriodContextSelection) => Promise<ExactPeriodContextRead>;
+  /** Optional typed native values; an explicit receipt reads immutable accepted history. */
+  readExactMatchupValues?: (mapping: AdministrationSourceMapping, selection: ExactMatchupValuesSelection) => Promise<ExactMatchupValuesRead>;
   beginRosterCapture: (mapping: AdministrationSourceMapping, playersId: string, managersId: string,
     fence?: AdministrationWriteFence) => Promise<RosterCaptureAttempts>;
   readAcceptedTeamManagers: (mapping: AdministrationSourceMapping) => Promise<AcceptedTeamManagersRead>;

@@ -604,3 +604,30 @@ DO $$ DECLARE inventory_table text; helper text; denied_privileges text:='INSERT
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC PERIOD INVENTORY GRANTS
+
+-- BEGIN OPTIONAL EXACT MATCHUP VALUES GRANTS
+-- CP10 reads immutable native values accepted by the existing matchup writer.
+-- There is no independent runtime mutation or activation entry point.
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_exact_matchup_value_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_exact_matchup_value_contents','league_exact_matchup_team_values',
+      'league_exact_matchup_starter_points','league_exact_matchup_player_points'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect exact matchup value privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.exact_matchup_native_state(jsonb,text,text)',
+      'public.validate_exact_matchup_value_lineage()','public.validate_exact_matchup_value_cardinality()',
+      'public.capture_exact_matchup_values()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'league_one_runtime can execute private exact matchup value helper'; END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL EXACT MATCHUP VALUES GRANTS

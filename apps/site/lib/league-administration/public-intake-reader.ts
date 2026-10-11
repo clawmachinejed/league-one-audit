@@ -1,6 +1,7 @@
 import 'server-only';
 import type { DatabaseClient, DatabaseRow } from '../database';
 import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from '../aggregator/exact-period-context';
+import { EXACT_MATCHUP_VALUES_VERSION, type ExactMatchupValuesRead } from '../aggregator/exact-matchup-values';
 import { normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
 import { readPublicPeriodTaskRows, readPublicPeriodInventory } from './store';
 import type { LeagueAdministrationStore } from './store-contracts';
@@ -15,7 +16,8 @@ function receiptBound<T extends { status: string }>(resource: T, expected: unkno
 
 async function readExactPeriods(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
   selection: readonly PublicExactPeriod[], candidates: readonly DatabaseRow[], inventoryRows?: readonly DatabaseRow[],
-  periodContextVersion?: PublicIntakeReadOptions['periodContextVersion']) {
+  periodContextVersion?: PublicIntakeReadOptions['periodContextVersion'],
+  exactMatchupValuesVersion?: PublicIntakeReadOptions['exactMatchupValuesVersion']) {
   const rows = inventoryRows ?? await readPublicPeriodTaskRows(client, requestId);
   const maxOrdinal = inventoryRows ? 360 : 20;
   const identities = new Set<string>(); const ordinals = new Set<number>();
@@ -36,7 +38,8 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
       phase: { status: 'unknown' as const, reason: 'native-period-phase-not-evidenced' as const } };
     if (row.status !== 'complete') {
       periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'period-capture-not-complete' }, acquisition: null,
-        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'period-capture-not-complete' } } : {}) });
+        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'period-capture-not-complete' } } : {}),
+        ...(exactMatchupValuesVersion ? { exactMatchupValues: { status: 'unavailable' as const, reason: 'period-capture-not-complete' } } : {}) });
       continue;
     }
     try {
@@ -47,7 +50,7 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
         || typeof row.settings_receipt_id !== 'string' || typeof row.matchups_receipt_id !== 'string'
         || typeof row.configuration_content_id !== 'string') throw new Error('Stored period mapping or checkpoint changed.');
       const exact = await administration.readAcceptedExactMatchups(mapping, nativeWeek).catch(error => {
-        if (!periodContextVersion) throw error;
+        if (!periodContextVersion && !exactMatchupValuesVersion) throw error;
         return { status: 'unavailable' as const, reason: 'exact-matchups-read-failed' };
       });
       const resource = exact.status !== 'available' ? exact
@@ -72,14 +75,31 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
           }
         } catch { periodContext = { status: 'unavailable', reason: 'period-context-read-failed' }; }
       }
+      let exactMatchupValues: ExactMatchupValuesRead | undefined;
+      if (exactMatchupValuesVersion) {
+        try {
+          exactMatchupValues = administration.readExactMatchupValues
+            ? await administration.readExactMatchupValues(mapping, { nativeWeek, matchupsReceiptId: row.matchups_receipt_id })
+              .catch(() => ({ status: 'unavailable' as const, reason: 'exact-matchup-values-read-failed' }))
+            : { status: 'unavailable', reason: 'exact-matchup-values-unsupported' };
+          if (exactMatchupValues.status === 'available' && (exactMatchupValues.version !== EXACT_MATCHUP_VALUES_VERSION
+            || exactMatchupValues.selection !== 'receipt' || exactMatchupValues.matchupsReceiptId !== row.matchups_receipt_id
+            || exactMatchupValues.sourceMappingRevisionId !== mapping.revisionId
+            || exactMatchupValues.value.season !== season || exactMatchupValues.value.nativeWeek !== nativeWeek)) {
+            exactMatchupValues = { status: 'unavailable', reason: 'intake-exact-matchup-values-mismatch' };
+          }
+        } catch { exactMatchupValues = { status: 'unavailable', reason: 'exact-matchup-values-read-failed' }; }
+      }
       // The settings receipt is historical capture evidence. A later core refresh
       // need not leave that settings head current for this exact matchup to remain current.
-      periods.push({ ...task, resource, ...(periodContext ? { periodContext } : {}), acquisition: { sourceMapping: row.source_mapping, workerId: row.worker_id,
+      periods.push({ ...task, resource, ...(periodContext ? { periodContext } : {}),
+        ...(exactMatchupValues ? { exactMatchupValues } : {}), acquisition: { sourceMapping: row.source_mapping, workerId: row.worker_id,
         generation: row.generation, settingsReceiptId: row.settings_receipt_id, matchupsReceiptId: row.matchups_receipt_id,
         configurationContentId: row.configuration_content_id, settingsProvenance: row.settings_provenance, recordedAt: row.recorded_at } });
     } catch {
       periods.push({ ...task, resource: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' }, acquisition: null,
-        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' } } : {}) });
+        ...(periodContextVersion ? { periodContext: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' } } : {}),
+        ...(exactMatchupValuesVersion ? { exactMatchupValues: { status: 'unavailable' as const, reason: 'stored-period-source-unavailable' } } : {}) });
     }
   }
   return periods;
@@ -91,6 +111,7 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
 export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
   options: PublicIntakeReadOptions = {}) {
   if (options.periodContextVersion !== undefined && options.periodContextVersion !== 'v1') throw new Error('Unsupported public period context version.');
+  if (options.exactMatchupValuesVersion !== undefined && options.exactMatchupValuesVersion !== 'v1') throw new Error('Unsupported public exact matchup values version.');
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(requestId)) throw new Error('Invalid public intake identity.');
   const requests = await client.query(`/* public-data-intake:read-request */
     SELECT request.id,request.username AS requested_username,request.seasons,request.revision,request.terminal,
@@ -186,7 +207,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     }
   }
   const inventoryRead = mode ? await readPublicPeriodInventory(client, requestId, candidates, lists, options.periodInventoryPage, storedHeader.terminal === true) : undefined;
-  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows, options.periodContextVersion) : undefined;
+  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows, options.periodContextVersion, options.exactMatchupValuesVersion) : undefined;
   const completePeriods = (!inventoryRead || inventoryRead.inventory.collection === 'complete' && inventoryRead.inventory.readCoverage === 'complete')
     && (!exactPeriods || exactPeriods.every(period => period.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity' && selection.some(period => period.season === candidate.season))
@@ -205,7 +226,8 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
       ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []),
-      ...(selection.length && options.periodContextVersion ? ['exact-period-context'] : [])],
+      ...(selection.length && options.periodContextVersion ? ['exact-period-context'] : []),
+      ...(selection.length && options.exactMatchupValuesVersion ? ['exact-matchup-values'] : [])],
       notRequested: [...(selection.length ? [] : ['exact-matchups']), 'official-results', 'transactions', 'drafts', 'playoff-brackets', 'annual-history'],
       note: options.periodContextVersion && selection.length
         ? 'Provider standings fields are retained with the roster; optional period context derives only evidenced competition boundaries, not results or ranks.'
