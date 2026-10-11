@@ -3,7 +3,7 @@ import type { Database } from '../database';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { refreshOrdinal, refreshUuid } from './public-refresh-contracts';
 import { readPublicSleeperIntake } from './public-intake-reader';
-import { normalizeStoredPublicPeriods, type PublicIntakeReadOptions } from './public-intake-contracts';
+import { normalizePublicPlayoffBrackets, normalizeStoredPublicPeriods, type PublicIntakeReadOptions } from './public-intake-contracts';
 
 function timestamp(value: unknown): string {
   const time = value instanceof Date ? value.getTime() : typeof value === 'string' ? Date.parse(value) : NaN;
@@ -29,6 +29,8 @@ export async function readPublicDataRefresh(client: Database, administration: Le
       configuration.expires_at,configuration.paused,configuration.configured_at,
       to_jsonb(configuration)->'exact_periods' AS selected_exact_periods,
       to_jsonb(configuration)->'period_inventory' AS selected_period_inventory,
+      to_jsonb(configuration)->'playoff_brackets' AS selected_playoff_brackets,
+      to_jsonb(cycle_configuration)->'playoff_brackets' AS cycle_playoff_brackets,
       to_jsonb(cycle_configuration)->'period_inventory' AS cycle_period_inventory,
       to_jsonb(cycle_configuration)->'exact_periods' AS cycle_exact_periods,cycle_configuration.seasons AS cycle_seasons,
       cycle.configuration_revision AS cycle_configuration_revision,cycle.intake_id,cycle.created_at AS cycle_created_at,cycle.due_at,
@@ -51,6 +53,7 @@ export async function readPublicDataRefresh(client: Database, administration: Le
     || row.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(row.seasons).size !== row.seasons.length) throw new Error('Invalid stored refresh configuration.');
   const { exactPeriods, periodInventory } = normalizeStoredPublicPeriods(row.selected_exact_periods, row.seasons as number[], row.selected_period_inventory);
+  const playoffBrackets = normalizePublicPlayoffBrackets(row.selected_playoff_brackets ?? undefined, row.seasons as number[]);
   const revision = ordinal(row.configuration_revision);
   const cadence = ordinal(row.cadence_seconds);
   const failureCount = ordinal(row.selection_failure_count, 0);
@@ -67,12 +70,13 @@ export async function readPublicDataRefresh(client: Database, administration: Le
     }
     const { exactPeriods: cyclePeriods, periodInventory: cycleInventory } = normalizeStoredPublicPeriods(row.cycle_exact_periods,
       Array.isArray(row.cycle_seasons) ? row.cycle_seasons : [], row.cycle_period_inventory);
-    cycle = { ...(cycleInventory ? { periodInventory: cycleInventory } : {}), ...(cyclePeriods.length ? { exactPeriods: cyclePeriods } : {}), number: ordinal(row.current_cycle), configurationRevision: cycleRevision, requestId: row.intake_id,
+    const cycleBrackets = normalizePublicPlayoffBrackets(row.cycle_playoff_brackets ?? undefined, Array.isArray(row.cycle_seasons) ? row.cycle_seasons : []);
+    cycle = { ...(cycleBrackets ? { playoffBrackets: cycleBrackets } : {}), ...(cycleInventory ? { periodInventory: cycleInventory } : {}), ...(cyclePeriods.length ? { exactPeriods: cyclePeriods } : {}), number: ordinal(row.current_cycle), configurationRevision: cycleRevision, requestId: row.intake_id,
       createdAt: timestamp(row.cycle_created_at), dueAt: timestamp(row.due_at), outcome };
   }
   const target = { id: row.id, provider: 'sleeper' as const, sourceManagerAccountId: row.source_manager_account_id,
     externalManagerId: row.external_manager_id, identityRequestId: row.identity_request_id, configurationRevision: revision,
-    seasons: row.seasons as number[], ...(periodInventory ? { periodInventory } : {}), ...(exactPeriods.length ? { exactPeriods } : {}), cadenceSeconds: cadence, expiresAt: timestamp(row.expires_at),
+    seasons: row.seasons as number[], ...(playoffBrackets ? { playoffBrackets } : {}), ...(periodInventory ? { periodInventory } : {}), ...(exactPeriods.length ? { exactPeriods } : {}), cadenceSeconds: cadence, expiresAt: timestamp(row.expires_at),
     paused: row.paused, configuredAt: timestamp(row.configured_at) };
   const schedule = { nextDueAt: timestamp(row.next_due_at), lastServedAt: row.last_served_at === null ? null : timestamp(row.last_served_at),
     selectionFailureCount: failureCount, selectionFailedAt: row.selection_failed_at === null ? null : timestamp(row.selection_failed_at),
@@ -82,7 +86,7 @@ export async function readPublicDataRefresh(client: Database, administration: Le
   const intake = cycle ? await readPublicSleeperIntake(client, administration, cycle.requestId, options) : null;
   if (cycle && intake && intake.status !== 'missing'
     && (JSON.stringify(cycle.exactPeriods ?? []) !== JSON.stringify(intake.request.exactPeriods ?? [])
-      || cycle.periodInventory !== intake.request.periodInventory)) {
+      || cycle.periodInventory !== intake.request.periodInventory || cycle.playoffBrackets !== intake.request.playoffBrackets)) {
     throw new Error('Stored refresh cycle period scope differs from its request.');
   }
   return { status: 'available', target, schedule, cycle, intake,

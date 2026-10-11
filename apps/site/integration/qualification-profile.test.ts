@@ -16,6 +16,8 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
+  BRACKET_INTAKE_PROFILE, BRACKET_INTAKE_MODULE, BRACKET_INTAKE_SOURCE_DIGEST, BRACKET_INTAKE_SUITE,
+  BRACKET_INTAKE_TESTS, BRACKET_INTAKE_FULL_NAMES, BRACKET_INTAKE_PATTERN,
   TYPED_BRACKETS_PROFILE, TYPED_BRACKETS_MODULE, TYPED_BRACKETS_SOURCE_DIGEST, TYPED_BRACKETS_SUITE,
   TYPED_BRACKETS_TESTS, TYPED_BRACKETS_FULL_NAMES, TYPED_BRACKETS_PATTERN,
   EXACT_MATCHUP_VALUES_PROFILE, EXACT_MATCHUP_VALUES_MODULE, EXACT_MATCHUP_VALUES_SOURCE_DIGEST, EXACT_MATCHUP_VALUES_SUITE,
@@ -301,7 +303,7 @@ it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFI
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
-  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(55);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(56);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
@@ -867,7 +869,7 @@ it('requires a closed bound live directory profile while preserving default55 di
   expect(() => requireLivePlayerDirectoryQualification({})).toThrow('Explicit bound');
   expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
-  expect(full.modules).toHaveLength(55);
+  expect(full.modules).toHaveLength(56);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   for (const profile of [PLAYER_DIRECTORY_PROFILE, SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE] as const) {
     const older = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), profile);
@@ -1563,4 +1565,114 @@ it('independently inventories the typed brackets SQL fixture source and hooks wi
   visit(tree);
   expect(suites).toEqual([TYPED_BRACKETS_SUITE]); expect(names).toEqual(TYPED_BRACKETS_TESTS);
   expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+});
+
+async function bracketIntakeFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'bracket-intake-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), BRACKET_INTAKE_PROFILE);
+  const evidence: QualificationReport = {
+    kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0,
+    specifications: [{ path: BRACKET_INTAKE_MODULE, pattern: BRACKET_INTAKE_PATTERN, otherFilters: false }],
+    collected: [BRACKET_INTAKE_MODULE],
+    hooks: ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })),
+    modules: [{ path: BRACKET_INTAKE_MODULE, state: 'passed', errors: 0,
+      suites: [{ id: 'suite', name: BRACKET_INTAKE_SUITE, mode: 'run', errors: 0 }],
+      cases: BRACKET_INTAKE_FULL_NAMES.map((name, index) => ({ id: 'case-' + index, name, state: 'passed', mode: 'run',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }],
+  };
+  return { binding: { context, directory }, evidence };
+}
+it('binds the bracket intake profile to five exact cases and original cleanup gates while full discovery includes its module', async () => {
+  expect(parseQualificationArguments(['--profile=' + BRACKET_INTAKE_PROFILE])).toBe(BRACKET_INTAKE_PROFILE);
+  expect(qualificationArguments(BRACKET_INTAKE_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', BRACKET_INTAKE_MODULE, '--testNamePattern', BRACKET_INTAKE_PATTERN]);
+  for (const args of [
+    ['--profile=data-bracket-intake-v2'], ['--profile', BRACKET_INTAKE_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + BRACKET_INTAKE_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + BRACKET_INTAKE_PROFILE, extra]),
+  ]) expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await bracketIntakeFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([BRACKET_INTAKE_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules.some(module => module.path === BRACKET_INTAKE_MODULE)).toBe(true);
+  const older = await fixture(INGESTION_PROFILE);
+  expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
+  const regex = new RegExp(BRACKET_INTAKE_PATTERN);
+  expect(BRACKET_INTAKE_FULL_NAMES).toHaveLength(5);
+  for (const name of BRACKET_INTAKE_FULL_NAMES) {
+    expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(regex.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(SELECTED_INVENTORY.some(name => regex.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: BRACKET_INTAKE_PROFILE,
+    collected: 5, executed: 5, passed: 5, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects incomplete bracket intake inventory, reordered execution, hook drift, retries and substituted profile evidence', async () => {
+  const { binding, evidence } = await bracketIntakeFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].ends = 0; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const older = await fixture(INGESTION_PROFILE), oldReport = report(older);
+  expect(() => validateQualificationReport(older.context, { ...evidence, contextDigest: qualificationDigest(older.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...oldReport, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, BRACKET_INTAKE_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), BRACKET_INTAKE_PROFILE))
+    .rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories the bracket intake SQL fixture source and hooks without importing its execution', async () => {
+  const path = fileURLToPath(new URL('../' + BRACKET_INTAKE_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(BRACKET_INTAKE_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+        suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) hooks.push(expression);
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual([BRACKET_INTAKE_SUITE]); expect(names).toEqual(BRACKET_INTAKE_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+  expect(budgets).toEqual(['60_000', '180_000', '18 * 60_000', '60_000', '60_000']);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-bracket-intake-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-bracket-intake-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-bracket-intake-v1$/gmu)).toHaveLength(1);
 });

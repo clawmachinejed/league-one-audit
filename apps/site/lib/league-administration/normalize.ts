@@ -186,9 +186,9 @@ function validateEnvelope(envelope: AdministrationEnvelope): void {
   if (provenance.acquisition !== undefined) {
     try {
       if (provenance.origin !== 'network'
-        || !['league', 'rosters', 'users', 'matchups'].includes(envelope.family)) throw new Error('scope');
+        || !['league', 'rosters', 'users', 'matchups', 'winners_bracket', 'losers_bracket'].includes(envelope.family)) throw new Error('scope');
       publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
-        envelope.family as 'league' | 'rosters' | 'users' | 'matchups', String(scope.externalLeagueId), envelope.week);
+        envelope.family as 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket', String(scope.externalLeagueId), envelope.week);
       const witness = provenance.acquisition as PublicCaptureWitness;
       if (witness.mapping && compatibleRevision(witness.mapping.scope) !== compatibleRevision(scope)) throw new Error('mapping');
       if ('season' in witness.work && witness.work.season !== scope.season) throw new Error('season');
