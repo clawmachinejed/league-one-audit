@@ -631,3 +631,30 @@ DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPD
   END IF;
 END; $$;
 -- END OPTIONAL EXACT MATCHUP VALUES GRANTS
+
+-- BEGIN OPTIONAL TYPED BRACKET GRANTS
+DO $$ DECLARE bracket_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_bracket_contents') IS NOT NULL THEN
+    FOREACH bracket_table IN ARRAY ARRAY['league_bracket_contents','league_bracket_rounds','league_bracket_matches',
+      'league_bracket_entrants','league_bracket_results','league_bracket_edges'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',bracket_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',bracket_table);
+      IF has_table_privilege('league_one_runtime','public.'||bracket_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||bracket_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||bracket_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect bracket privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.bracket_native_field(jsonb,text,text)','public.project_bracket_native(jsonb,text,jsonb)',
+      'public.bracket_typed_value(uuid)','public.validate_bracket_typed_lineage()','public.validate_bracket_acceptance_fence()','public.guard_bracket_child_insert()',
+      'public.capture_bracket_typed(uuid,uuid,jsonb)','public.record_league_administration_observation_v45(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private bracket helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_bracket_attempt(jsonb,text,uuid,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_bracket_attempt(jsonb,text,uuid,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot reserve bracket attempt'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL TYPED BRACKET GRANTS
