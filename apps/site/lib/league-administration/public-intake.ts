@@ -263,6 +263,7 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
           signal, fence, mapping, rosterAttempt: attempts.players, managerAttempt: attempts.managers,
           leagueSettingsAttempt: settings, now, expectedAcquisition: witness,
+          ...(witness && work.season === 2026 ? { retainIndependentCoreCaptures: true } : {}),
           ...(managerEvidenceAttempt ? { managerEvidenceVersion: 'v2', managerEvidenceAttempt } : {}) });
         const league = captured.results.find(entry => entry.family === 'league')?.result;
         const roster = captured.results.find(entry => entry.family === 'rosters')?.result;

@@ -61,6 +61,8 @@ export async function recordCapturedAdministration(
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
     /** Expected pre-HTTP context; never attached to an older document by this writer. */
     expectedAcquisition?: PublicCaptureWitness;
+    /** Public core only: retain the independently captured roster after a sibling league write failure. */
+    retainIndependentCoreCaptures?: boolean;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -71,6 +73,14 @@ export async function recordCapturedAdministration(
     throw new Error('Administration capture mapping does not match the requested scope.');
   }
   const now = options.now ?? (() => new Date());
+  if (options.retainIndependentCoreCaptures && (!options.mapping || !options.fence
+    || options.expectedAcquisition?.work.kind !== 'core' || options.expectedAcquisition.work.season !== 2026
+    || options.mapping.scope.season !== 2026 || options.populationEvidence !== undefined
+    || options.expectedRosterCount !== undefined || options.calculationCapture !== undefined
+    || documents.some(document => !['league', 'rosters'].includes(document.family)
+      || document.week !== null || document.origin !== 'network'))) {
+    throw new Error('Independent core capture requires its original public core witness and source documents.');
+  }
   if (options.calculationCapture && (!options.mapping
     || !isCalculationSourceCapture(options.calculationCapture.reservation)
     || !Number.isInteger(options.calculationCapture.week) || options.calculationCapture.week < 1 || options.calculationCapture.week > 18
@@ -169,7 +179,17 @@ export async function recordCapturedAdministration(
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
         leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined)
         : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
-    let result = await write();
+    let result: AdministrationWriteResult;
+    try { result = await write(); }
+    catch (error) {
+      // Each document owns a separate atomic write. Keep only the already captured
+      // sibling; never retry, replace its witness, borrow prior population or extend work.
+      if (!options.retainIndependentCoreCaptures || document.family !== 'league') throw error;
+      signal.throwIfAborted();
+      if (!options.fence || Date.parse(options.fence.deadlineAt) <= now().getTime()) throw error;
+      results.push({ family: document.family, result: { status: 'rejected', reason: 'public_core_document_write_failed' } });
+      continue;
+    }
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
       // newer network observation using an unknown cache age, or refetch a whole league.

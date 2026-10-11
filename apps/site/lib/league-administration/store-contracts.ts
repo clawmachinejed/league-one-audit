@@ -1,3 +1,4 @@
+import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { BracketFamily, BracketSelection, AcceptedBracketRead } from '../aggregator/playoff-brackets';
 import type { RosterPlayerLinksSelection, RosterPlayerLinksRead } from '../aggregator/roster-player-links';
 import type { PlayerDirectoryAttempt, PlayerDirectoryCapture, PlayerDirectoryRead, PlayerDirectoryReadSelection,
@@ -75,6 +76,8 @@ export type LeagueAdministrationStore = Readonly<{
     calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
   beginBracketAttempt?: (mapping: AdministrationSourceMapping, family: BracketFamily, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  /** Independent typed facts on the existing roster capture; never widens players acceptance. */
+  readOfficialStandings?: (mapping: AdministrationSourceMapping, selection?: OfficialStandingsSelection) => Promise<OfficialStandingsRead>;
   readAcceptedBracket?: (mapping: AdministrationSourceMapping, selection: BracketSelection) => Promise<AcceptedBracketRead>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;

@@ -4,6 +4,9 @@ import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from '../ag
 import { EXACT_MATCHUP_VALUES_VERSION, type ExactMatchupValuesRead } from '../aggregator/exact-matchup-values';
 import { normalizePublicPlayoffBrackets, type PublicPlayoffBrackets, normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
 import { readPublicBrackets } from './public-bracket-reader';
+import { readPublicOfficialStandings } from './public-official-results-reader';
+import { composeOfficialResults, type OfficialResultsRead } from '../aggregator/official-results';
+import type { AcceptedBracketRead } from '../aggregator/playoff-brackets';
 import { readPublicPeriodTaskRows, readPublicPeriodInventory } from './store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import { isAdministrationSourceMapping } from './source-mapping';
@@ -111,6 +114,7 @@ async function readExactPeriods(client: DatabaseClient, administration: LeagueAd
  * Discovery membership is public source evidence, never an ownership entitlement. */
 export async function readPublicSleeperIntake(client: DatabaseClient, administration: LeagueAdministrationStore, requestId: string,
   options: PublicIntakeReadOptions = {}) {
+  if (options.officialResultsVersion !== undefined && options.officialResultsVersion !== 'v1') throw new Error('Unsupported public official results version.');
   if (options.periodContextVersion !== undefined && options.periodContextVersion !== 'v1') throw new Error('Unsupported public period context version.');
   if (options.exactMatchupValuesVersion !== undefined && options.exactMatchupValuesVersion !== 'v1') throw new Error('Unsupported public exact matchup values version.');
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(requestId)) throw new Error('Invalid public intake identity.');
@@ -210,7 +214,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     }
   }
   const inventoryRead = mode ? await readPublicPeriodInventory(client, requestId, candidates, lists, options.periodInventoryPage, storedHeader.terminal === true) : undefined;
-  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows, options.periodContextVersion, options.exactMatchupValuesVersion) : undefined;
+  const exactPeriods = selection.length ? await readExactPeriods(client, administration, requestId, selection, candidates, inventoryRead?.selectedRows, options.periodContextVersion ?? (options.officialResultsVersion ? 'v1' : undefined), options.exactMatchupValuesVersion ?? (options.officialResultsVersion ? 'v1' : undefined)) : undefined;
   const completePeriods = (!inventoryRead || inventoryRead.inventory.collection === 'complete' && inventoryRead.inventory.readCoverage === 'complete')
     && (!exactPeriods || exactPeriods.every(period => period.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity' && selection.some(period => period.season === candidate.season))
@@ -219,6 +223,38 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const completeBrackets = !brackets || brackets.every(task => task.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity')
       .every(candidate => brackets.some(task => task.season === candidate.season && task.externalLeagueId === candidate.external_league_id));
+  const officialResults = options.officialResultsVersion ? [] as {
+    provider: 'sleeper'; externalLeagueId: string; season: number; captureBinding: 'intake-dispatch';
+    acquisition: Awaited<ReturnType<typeof readPublicOfficialStandings>>['acquisition']; resource: OfficialResultsRead;
+  }[] : undefined;
+  if (officialResults) {
+    for (const candidate of candidates) {
+      const identity = { provider: 'sleeper' as const, externalLeagueId: String(candidate.external_league_id), season: Number(candidate.season) };
+      try {
+        const mapping = await administration.readSourceMapping(identity.externalLeagueId);
+        if (!isAdministrationSourceMapping(mapping) || mapping.leagueSeasonId !== candidate.league_season_id
+          || mapping.scope.season !== identity.season || mapping.scope.provider !== identity.provider
+          || mapping.scope.externalLeagueId !== identity.externalLeagueId) {
+          throw new Error('Official results mapping unavailable.');
+        }
+        const standings = await readPublicOfficialStandings(client, administration, requestId, mapping);
+        const periods = (exactPeriods ?? []).filter(period => period.externalLeagueId === identity.externalLeagueId && period.season === identity.season)
+          .map(period => ({ nativeWeek: period.nativeWeek, values: period.exactMatchupValues
+            ?? { status: 'unavailable' as const, reason: 'exact-matchup-values-not-recorded' }, context: period.periodContext }));
+        const bracket = brackets?.find(task => task.externalLeagueId === identity.externalLeagueId && task.season === identity.season);
+        const resultBrackets = bracket ? (['winners_bracket', 'losers_bracket'] as const).map(family => ({ family,
+          resource: (family in bracket.resource ? (bracket.resource as unknown as Record<string, AcceptedBracketRead>)[family]
+            : { status: 'unavailable' as const, reason: 'bracket-capture-not-complete' }) })) : [];
+        const resource = composeOfficialResults({ mapping, standings: standings.resource, periods, brackets: resultBrackets });
+        const finalMapping = await administration.readSourceMapping(identity.externalLeagueId);
+        if (compatibleRevision(finalMapping) !== compatibleRevision(mapping)) throw new Error('Official results mapping changed.');
+        officialResults.push({ ...identity, captureBinding: standings.captureBinding, acquisition: standings.acquisition, resource });
+      } catch {
+        officialResults.push({ ...identity, captureBinding: 'intake-dispatch', acquisition: null,
+          resource: { status: 'unavailable', reason: 'intake-official-results-source-unavailable' } });
+      }
+    }
+  }
   const completeResources = leagues.every(league => league.collection === 'complete' && league.resources
     && league.resources.settings.status === 'available' && league.resources.teamManagers.status === 'available'
     && league.resources.heldRoster.status === 'available' && league.resources.directory.status === 'available');
@@ -227,15 +263,15 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     : completeResources && completePeriods && completeBrackets ? 'available'
       : header.terminal || completeResources && inventoryRead?.inventory.collection === 'complete' ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
-    ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}),
+    ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}), ...(officialResults ? { officialResults } : {}),
     ...(inventoryRead ? { periodInventory: inventoryRead.inventory,
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
       ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []),
-      ...(selection.length && options.periodContextVersion ? ['exact-period-context'] : []),
-      ...(selection.length && options.exactMatchupValuesVersion ? ['exact-matchup-values'] : []), ...(playoffBrackets ? ['playoff-brackets'] : [])],
-      notRequested: [...(selection.length ? [] : ['exact-matchups']), 'official-results', 'transactions', 'drafts', ...(playoffBrackets ? [] : ['playoff-brackets']), 'annual-history'],
+      ...(selection.length && (options.periodContextVersion || options.officialResultsVersion) ? ['exact-period-context'] : []),
+      ...(selection.length && (options.exactMatchupValuesVersion || options.officialResultsVersion) ? ['exact-matchup-values'] : []), ...(playoffBrackets ? ['playoff-brackets'] : []), ...(officialResults ? ['official-results'] : [])],
+      notRequested: [...(selection.length ? [] : ['exact-matchups']), ...(officialResults ? [] : ['official-results']), 'transactions', 'drafts', ...(playoffBrackets ? [] : ['playoff-brackets']), 'annual-history'],
       note: options.periodContextVersion && selection.length
         ? 'Provider standings fields are retained with the roster; optional period context derives only evidenced competition boundaries, not results or ranks.'
         : 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;

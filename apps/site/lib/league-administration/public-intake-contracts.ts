@@ -14,7 +14,9 @@ export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; 
   /** Optional evidence context for only the selected detailed period page. */
   periodContextVersion?: 'v1';
   /** Optional typed native lineup and point evidence for the same detailed period page. */
-  exactMatchupValuesVersion?: 'v1' }>;
+  exactMatchupValuesVersion?: 'v1';
+  /** Independent receipt-bound standings and existing selected result evidence. */
+  officialResultsVersion?: 'v1' }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
   exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets }>;

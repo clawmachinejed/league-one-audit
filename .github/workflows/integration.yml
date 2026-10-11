@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-official-results-v1
           - data-bracket-intake-v1
           - data-typed-brackets-v1
           - data-exact-matchup-values-v1
@@ -76,6 +77,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-official-results-v1)
+              pnpm test:integration --profile=data-official-results-v1
               ;;
             workflow_dispatch:data-bracket-intake-v1)
               pnpm test:integration --profile=data-bracket-intake-v1

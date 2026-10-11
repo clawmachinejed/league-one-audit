@@ -708,3 +708,65 @@ acknowledged cleanup. Offline selector/report/AST checks, network-blocked runner
 tests, TypeScript and source inspection do not establish PostgreSQL execution,
 installed permissions or elapsed runtime fit. Record actual results and gaps in
 the [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP13 independent official standings and result composition qualification
+
+The authored closed `data-official-results-v1` profile selects eight ordered cases
+in `official-results.integration-case.ts` under the single suite `official standings
+and results through restricted PostgreSQL`, with one shared beforeAll/afterAll
+pair. After separate authorization for its reviewed exact source, its fixed command
+is `pnpm test:integration --profile=data-official-results-v1`. The protected manual
+workflow offers only that literal choice. Default discovery adds one module (56
+to 57); all older fixture bodies, selectors and source pins remain unchanged.
+The new profile source digest must match the frozen fixture before execution.
+Authored selection is not authorization for SQL, credentials, provisioning,
+migration application, a live provider capture or production work.
+
+The first seven cases exercise independent typed record/points/placement fields,
+presence and population/capacity states, correction/replay/unchanged captures,
+latest-attempt ordering, forged projection/foreign identity rejection, actual
+lock and deferred-COMMIT rollback under the original fence, restricted privileges,
+and composition of exact scores with reported bracket outcomes. The final case
+uses ordinary failed-core recovery and changed recurring refresh with immutable
+selected receipts, two resolved held-player identities and available manager
+resources before and after refresh. It must retain usable standings while unrelated players or
+managers fail without marking the request complete. Stored reads must preserve
+request/dispatch scope and original observation times, expose a newer failure
+instead of silently returning last-good facts, and run with source access disabled.
+
+The new supplement does not weaken players acceptance or add an acquisition
+pipeline. Native weekly and bracket identifiers remain separate. Equal scores,
+null opponents, source array order, current standings, league status and local
+game completion never manufacture official winners, ties, byes, ranks, series
+aggregates or finality. Positive synthetic result cases establish code behavior,
+not real provider availability. Retained evidence and unresolved interpretation
+obligations are listed in the [CP13 design inventory](../../../docs/aggregator-backend/data-backend-cp13-design.md).
+
+The final case first records a synthetic two-player catalog through the existing
+complete-catalog loader, restricted directory reservation/write and shared job
+owner. It changes only the fixture's mutable directory cadence prerequisite;
+immutable source clocks and acceptance evidence still come from the maintained
+path. That setup asserts one intercepted directory GET. The ordinary intake and
+refresh separately assert 15 admissions, 22 intercepted GETs and 16 acquired
+claims including zero-GET settlement. Directory owner claims and any reservation
+wait are additional to those ordinary counts; no exact total claim count is
+asserted. All payloads remain synthetic.
+
+Seven 60-second cases, one 1,080-second case and two 120-second hooks total a
+29-minute authored allowance before harness overhead. The remaining one minute
+inside the 30-minute supervisor work bound is not measured fit or a cost guarantee.
+Directory setup, its bounded reservation wait and the shared-owner cooldown are
+inside the final case's 1,080-second allowance; they do not receive an extra budget.
+The original 20-second worker, 60-second admission, 30-minute work, 40-minute
+lifecycle, 50-minute CI and one-hour expiry limits remain unchanged, as do all
+identity, TLS, role, sentinel, denylist, source, cleanup and no-retry controls.
+
+This profile remains **authored and SQL-unqualified** until a separately authorized
+run passes all eight cases, exact inventory/order/hooks, reviewed source pin and
+acknowledged cleanup. Offline selector/report/source tests do not establish SQL
+constraints, restricted LOGIN behavior, concurrency, elapsed fit or live provider
+parity. The profile does not qualify all 2026 periods, every competition format,
+positive provider finality, fleet freshness, the complete SQL suite or CP13's
+unresolved source-evidence obligations. Record tested database version, source,
+duration, actual results and remaining gaps in the
+[DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).

@@ -232,3 +232,68 @@ describe('public capture witnesses through the maintained transport and writer',
   });
 });
 
+
+describe('independent public core capture failure isolation', () => {
+  it('retains a valid roster capture after the sibling league write fails without inventing population', async () => {
+    const witness = coreWitness(), { store, recordObservation } = recorder();
+    const rosters = [{ roster_id: 1, owner_id: null, players: null, settings: { wins: 4, losses: 1, ties: 0, fpts: 512, fpts_decimal: 34 } }];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(String(url).endsWith('/rosters') ? rosters : league))));
+    const [leagueCapture, rosterCapture] = await Promise.all([
+      capturePublicSleeperCore(native, 'league', signal(), undefined, witness),
+      capturePublicSleeperCore(native, 'rosters', signal(), undefined, witness),
+    ]);
+    recordObservation.mockImplementation(async input => {
+      if (input.envelope.family === 'league') throw new Error('Fixture league write failure.');
+      return { status: 'changed', observationId: uuid(41) };
+    });
+    const attempt = (id: string) => ({ id, scopeId: uuid(30), ordinal: 1, expectedGeneration: 0 });
+    const result = await recordCapturedAdministration(witness.mapping.scope, [rosterCapture, leagueCapture], {
+      store, mapping: witness.mapping, fence: witness.fence, expectedAcquisition: witness,
+      rosterAttempt: attempt(witness.attempts.players.id), managerAttempt: attempt(witness.attempts.managers.id),
+      leagueSettingsAttempt: attempt(witness.attempts.settings.id), retainIndependentCoreCaptures: true,
+    });
+    expect(result.status).toBe('unavailable');
+    expect(recordObservation).toHaveBeenCalledTimes(2);
+    expect(result.results).toEqual([
+      { family: 'league', result: { status: 'rejected', reason: 'public_core_document_write_failed' } },
+      { family: 'rosters', result: { status: 'changed', observationId: uuid(41) } },
+    ]);
+    expect(recordObservation.mock.calls[1][0].envelope.payload).toEqual(rosters);
+    expect(recordObservation.mock.calls[1][0].envelope.provenance.acquisition).toEqual(witness);
+    expect(recordObservation.mock.calls[1][3]).toEqual({ attempt: attempt(witness.attempts.players.id) });
+    expect(result.population).toBeUndefined();
+  });
+
+  it.each(['legacy', 'roster', 'deadline', 'abort'] as const)('does not hide %s failures or extend the original work', async mode => {
+    const witness = coreWitness(), { store, recordObservation } = recorder(), controller = new AbortController();
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(String(url).endsWith('/rosters')
+      ? [{ roster_id: 1, owner_id: null, co_owners: [], players: [], starters: [] }] : league))));
+    const documents = await Promise.all([capturePublicSleeperCore(native, 'league', signal(), undefined, witness),
+      capturePublicSleeperCore(native, 'rosters', signal(), undefined, witness)]);
+    recordObservation.mockImplementation(async input => {
+      if (mode === 'roster' && input.envelope.family === 'league') return { status: 'changed', observationId: uuid(40) };
+      if (mode === 'deadline') vi.setSystemTime(serverTime + 20_001);
+      if (mode === 'abort') controller.abort(new Error('Original work aborted.'));
+      throw new Error('Original write failed.');
+    });
+    await expect(recordCapturedAdministration(witness.mapping.scope, documents, {
+      store, mapping: witness.mapping, fence: witness.fence, expectedAcquisition: witness, signal: controller.signal,
+      ...(mode !== 'legacy' ? { retainIndependentCoreCaptures: true } : {}),
+    })).rejects.toThrow(/Original/);
+    expect(recordObservation).toHaveBeenCalledTimes(mode === 'roster' ? 2 : 1);
+  });
+
+  it('rejects independent handling without the original core context or with borrowed population', async () => {
+    const witness = coreWitness(), { store, recordObservation } = recorder(); fixtureFetch();
+    const capture = await captureLeague(witness);
+    const base = { store, mapping: witness.mapping, fence: witness.fence, expectedAcquisition: witness,
+      retainIndependentCoreCaptures: true };
+    for (const options of [{ ...base, mapping: undefined }, { ...base, fence: undefined },
+      { ...base, expectedAcquisition: undefined }, { ...base, expectedRosterCount: 1 },
+      { ...base, expectedAcquisition: dispatchWitness('bootstrap') },
+      { ...base, expectedAcquisition: { ...witness, work: { ...witness.work, season: 2025 } } }]) {
+      await expect(recordCapturedAdministration(witness.mapping.scope, [capture], options)).rejects.toThrow(/original public core/);
+    }
+    expect(recordObservation).not.toHaveBeenCalled();
+  });
+});

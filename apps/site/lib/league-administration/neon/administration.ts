@@ -1,4 +1,6 @@
 import { bracketMethods } from './brackets';
+import { officialStandingsMethods } from './official-standings';
+import { projectOfficialStandings } from '../../aggregator/official-standings';
 import { projectPlayoffBracket } from '../../aggregator/playoff-brackets';
 import { rosterPlayerLinkMethods } from './roster-player-links';
 import 'server-only';
@@ -132,6 +134,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
     ...exactMatchupMethods(client),
     ...exactPeriodContextMethods(client),
     ...exactMatchupValuesMethods(client),
+    ...officialStandingsMethods(client),
     ...retainedMatchupMethods(client),
     async beginCalculationSourceCapture(mapping, week, id) {
       if (!isAdministrationSourceMapping(mapping) || !Number.isInteger(week) || week < 1 || week > 18
@@ -175,7 +178,10 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
         ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
         ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}),
-        ...(bracketAcceptance ? { bracketAcceptance, bracketProjection: projectPlayoffBracket(input) } : {}) })]);
+        ...(bracketAcceptance ? { bracketAcceptance, bracketProjection: projectPlayoffBracket(input) } : {}),
+        ...(acceptance && input.envelope.family === 'rosters' && input.envelope.scope.season === 2026
+          && input.envelope.provenance.acquisition?.work.kind === 'core'
+          ? { officialStandings: projectOfficialStandings(input) } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {
