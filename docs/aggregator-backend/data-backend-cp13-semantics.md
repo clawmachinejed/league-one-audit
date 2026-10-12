@@ -286,3 +286,109 @@ stored-intake/standings reader regressions), with zero skips. Changed-file ESLin
 generated route types, TypeScript and the scope/diff checks passed. These checks
 supply local source evidence; two independent final reviews accepted the implementation and qualification/documentation
 diff with no material findings. Normal CI/preview are reported separately. No hosted SQL run has tested the new interpretation.
+
+## Anonymous weekly-report source evidence — October 12, 2026
+
+**New evidence, unchanged acceptance.** The documented client query was resolved
+through its shared web transport to an anonymous read-only GraphQL POST at
+https://sleeper.com/graphql. Two bounded probes at source
+`700d7fa730eba3060471ac619854edba87a6acda` each refreshed the keeper sample's
+2026 NFL identity through the existing `capturePublicSleeperCore` adapter,
+then requested one report key: `1395875117568913408_1` and
+`1395875117568913408_4`. All four HTTP attempts returned 200. The second key
+was a deliberate semantic follow-up, not a retry. No cookies, authorization,
+device identity, prior-season traversal, database access or paid run was used.
+A local path typo stopped preparation of the second script before any request;
+correcting that path did not repeat either probe.
+
+Each probe declared a 20-second total work limit, a 12-second per-request timeout,
+no redirects or retries, and a report-body limit of 1 MiB, 25,000 parsed values
+and depth 32. The probes completed in 713.365 ms and 560.348 ms. These are measured
+diagnostic acquisitions, not ordinary worker, maximum-capacity or SQL deadline
+qualification. Anonymous success for two keys does not establish universal
+report availability or a supported public API contract.
+
+The [minimized retained fixture](../../apps/site/test-support/fixtures/cp13-live-source-2026/weekly-reports.json)
+and its [slice policy](../../apps/site/test-support/fixtures/cp13-live-source-2026/README.md#separate-anonymous-weekly-report-capture)
+preserve both identity observations, all 24 native standings rows, the report
+keys/weeks, native timestamps, field inventories, request clocks and source hashes.
+
+| Native report fact | Week 1 | Week 4 | Supported meaning |
+| --- | --- | --- | --- |
+| Supplied ranks | 1–12 | 1–12 | Rank within each retained report; not current rank or playoff seed. |
+| Record strings for rosters 10 and 12 | `T` | `TWLW` | Explicit provider report record evidence; no score comparison required. |
+| W/L/T counts for those rosters | 0/0/1 | 2/1/1 | Supplied report counts. Week-four rows carry cumulative records, not one weekly outcome. |
+| Native `round` / report `week` | 1 / 1 | 4 / 4 | Observed report fields; no universal record-character-to-week mapping is claimed. |
+| `created` and `last_updated` | 2026-09-15T15:20:13.995Z | 2026-10-06T15:21:09.369Z | Provider metadata, distinct from the October 12 acquisition clocks. |
+
+The week-one report supplies five `W`, five `L` and two `T` records.
+This is positive provider-supplied report evidence for the previously observed
+equal-score candidate, not merely equality plus a later season tie count.
+In week four, all record strings have four characters and all supplied W/L/T
+counts total four. Their first characters match the earlier report, but this
+sample consistency does not establish general sequence ordering, a contest
+identity join or treatment of median games, byes and multiweek rounds. Preserve
+record and streak strings without introducing a result parser.
+
+Reports expose information absent from the retained roster source: actual
+`rank` fields are now observed. This does not change the absence of
+`settings.rank`/`settings.seed` in the earlier roster captures. Optional
+rank absence still does not invalidate otherwise useful standings.
+
+**Precision and time.** The report supplies `110.19999694824219` where the
+separately observed matchup supplies `110.2`. Preserve each native value and
+source; do not round report points into roster whole-plus-hundredths components
+or overwrite matchup scores. A fresh report retrieval does not make its
+September/October metadata time current. Equal created/updated timestamps do
+not prove immutable content, correction synchronization or a final contest.
+Sleeper also explicitly warns that posting a weekly report does not finalize a
+matchup ([NFL stat-correction policy](https://support.sleeper.com/en/articles/2441282-stat-corrections)).
+
+**Next implementation boundary.** This is an obtainable native source within
+CP13, not an unavailable-provider exception. It is not yet integrated:
+
+1. Add an explicit optional exact-week report selection through the existing
+   intake/refresh job and witnessed dispatch owners. Omitted selection must keep
+   its current request count. Extend the existing Sleeper adapter with bounded
+   GraphQL response/error/null handling; do not add another feed or worker.
+2. Give reports their own family, key/week, receipt and typed rows through the
+   existing administration normalization, fenced acceptance and storage owners.
+   Current TypeScript families and SQL family/week constraints exclude reports.
+   R048 standings require a roster receipt and native `settings.*` parity;
+   report rows must not be reshaped into fake rosters or attached to old receipts.
+3. Expose stored report-scoped facts through the existing stored composition
+   owners, with native report timestamps separate from capture clocks. Leave
+   generic weekly outcome, finality and series interpretation unknown until the
+   necessary source meaning is established. Report rank is not current rank.
+4. Prove native-to-typed-to-reader parity, identity/family/week rejection, partial
+   GraphQL errors, null/removal, corrections, equal-time changed content,
+   replay/out-of-order observations, failed-refresh preservation and the original
+   fence before qualifying the new path. Reuse the current exact-value policy
+   without manufacturing roster decimal components. A reviewed additive migration
+   and new source-bound SQL qualification are required; neither is done here.
+
+The exact existing owners include `lib/sleeper.ts`,
+`lib/league-administration/{contracts,normalize,runtime,public-capture-witness}.ts`,
+`lib/league-administration/public-{intake,refresh}*`,
+`lib/league-administration/neon/administration.ts` and the stored
+`lib/aggregator/official-results.ts` composer. This is an architectural next
+subincrement, not a new approval requirement or a change to the frozen plan.
+
+**Proof boundary.** Original-to-slice verification checked both manifest hashes,
+all four original artifact hashes/byte counts, all 24 rows and all four saved
+slice hashes. Two independent source/architecture reviewers confirmed the
+report/roster separation. No application code, schema, test profile or test
+assertion changes occur in this evidence increment. No new unit tests merely
+mirror the static fixture. The 700d7fa normal CI and preview remain evidence for
+that executable source, not report integration. Prior eight-case and two-case
+hosted runs retain their original bindings; even the later played-bracket
+interpretation still needs changed-source qualification. Positive 2026 played
+bracket and representative multiweek completion/correction evidence remain open.
+
+Final independent fixture/provenance and architecture reviews accepted this
+evidence-only diff after correcting a one-millisecond documentation typo and
+one integration-owner path. All 36 checked local document links, the required
+scope guard and diff checks passed. Runtime, migrations, qualification profiles,
+frozen CP1/2/13 requirements and earlier source fixtures are unchanged from
+700d7fa. No application test suite or paid verification was rerun for this
+static evidence increment; publication and automatic checks are reported separately.

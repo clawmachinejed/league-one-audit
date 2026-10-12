@@ -48,3 +48,50 @@ Before saving, all 25 original byte counts and SHA-256 digests were verified aga
 The 20 prior-period responses contain 232 team rows: 48 each for League One, League Two, keeper and redraft, and 40 for Dynasty. Every row supplies a pairing ID and points; all `custom_points` fields are explicitly null. All observed groups contain two entrants. Keeper week one contains roster IDs 10 and 12 in matchup 1 with equal `110.2` scores. This is an observed equality, not proof of an official weekly tie, record synchronization or contest finality. All five current metadata captures report `in_season`, `settings.leg: 5`, and `settings.last_scored_leg: 4`; these observations justify inspection of prior native periods without declaring their results final or their current settings historically applicable.
 
 The additional tests pass all 232 rows through the existing pure exact-value projector and compose all 20 period resources through `composeOfficialResults`, preserving scores, pairing IDs, row order, null custom overrides and independent source clocks. Current metadata remains observation-only, with unknown period mapping/applicability, outcome, finality and series. Canonical team/mapping IDs and receipt/content/acceptance wrappers in these unit tests are explicitly synthetic. This is offline source-to-projector and composed-reader regression evidence; it does not qualify SQL identities, persisted historical scores, fresh live ordinary ingestion, a positive official tie/bye, completed multiweek results, corrections, or operating deadlines. Earlier hosted runs retain their original fixture and source bindings.
+
+## Separate anonymous weekly-report capture
+
+[weekly-reports.json](weekly-reports.json) retains two successful anonymous
+GraphQL observations for keeper league `1395875117568913408`, weeks 1 and 4,
+at source `700d7fa730eba3060471ac619854edba87a6acda`. Each report followed a
+fresh metadata GET proving NFL/2026 identity: four successful HTTP attempts total,
+no retry, credentials, redirects, other-season request or database access.
+The provider-client transport was inspected as static text; downloaded code was
+never executed. This source discovery is not an ordinary supported adapter path.
+
+Each observation records its original manifest and hash. Original report bodies
+are 19,580 bytes (SHA256
+`cd0e696c412a512a7e5e2144839ca651c52814343e4e253664065c24f633ba0b`)
+and 19,917 bytes (SHA256
+`ad979237b14e32ceca65ebe9147faf0e6c6f6975ffc7ddf0fb2bee29bfed5ef5`).
+The reports completed at `2026-10-12T19:34:18.941Z` and
+`2026-10-12T19:36:50.113Z`; these retrieval clocks do not replace native
+`created` or `last_updated`. The four original source files total 47,815 bytes.
+
+The identity documents use the earlier league-payload selection policy.
+Report slices retain the original GraphQL `data.metadata` envelope, its native
+member order and every metadata field; only the nested report `data` is reduced
+to `standings` and `week`, in original order. All standings rows, native keys,
+values, null/absence and ordering remain unchanged. `originalDataKeys` and
+`originalStandingsRowKeys` record the pre-minimization inventories. Omitted
+personal display mappings, player/stat/projection and award payloads are not
+provider-unavailable claims. No defaults, inferred result fields, rounded scores,
+canonical IDs or synthetic receipts are introduced.
+
+`sliceSha256` hashes UTF-8 `JSON.stringify(document)` without a newline.
+Raw report digests describe complete decoded response text, whereas league
+artifact digests describe the existing adapter's serialized capture document.
+All original byte counts/hashes, exact retained values/order and saved slice
+hashes were checked before publication. The fixture file SHA256 is
+`f9117c9d4ca16cd26bf2055e13978a7a7f58fdb87fe29ac401a4e3a9b4f852ff`;
+its parsed JSON SHA256 is
+`878c67d15d23836fe44f5464311b50d561d9e7acd61a45336dab937e644d76ad`.
+Earlier fixtures remain unchanged.
+
+The two reports supply positive report-rank and record evidence, including
+`T` in week one and `TWLW` in week four for rosters 10/12. The later report
+has cumulative counts, not a single weekly result. Native point representations
+and report metadata times differ from matchup values and retrieval clocks.
+These source facts do not establish generic record indexing, matchup identity,
+correction propagation, finality, SQL persistence or existing reader support.
+See the [semantics and integration boundary](../../../../../docs/aggregator-backend/data-backend-cp13-semantics.md#anonymous-weekly-report-source-evidence--october-12-2026).
