@@ -36,6 +36,7 @@ function fixture(payload: JsonValue = [{ roster_id: 1, players: null, owner_id: 
     ...(completeness === 'partial' ? ['standings_capture_partial'] : []), ...(record !== 'complete' ? ['standings_record_fields_incomplete'] : [])];
   const row = { identity: { scope: currentRosterScope(mapping), policy: CURRENT_ROSTER_POLICY }, league_season_id: id(2),
     attempt_id: id(6), ordinal: '3', source_mapping: mapping, capture_nonce: id(16), write_fence: witness.fence, reserved_at: at,
+    population_after_reservation: false,
     receipt_id: id(5), content_id: id(8), legacy_observation_id: id(7), provenance, configuration_content_id: expected === null ? null : id(9),
     population_evidence: configuration === null ? null : { provenance, contentHash: configuration.contentHash, observationId: id(21) }, expected_team_count: expected,
     configuration_content: configuration === null ? null : { id: id(9), league_season_id: mapping.leagueSeasonId, provider: 'sleeper',
@@ -55,6 +56,15 @@ function fixture(payload: JsonValue = [{ roster_id: 1, players: null, owner_id: 
       identityExternalRosterId: team.externalRosterId })) };
   return { row, normalized, projection };
 }
+function unwitnessedFixture() {
+  const { row } = fixture(undefined, 1);
+  const provenance = { origin: row.provenance.origin, requestStartedAt: at, requestCompletedAt: at, sourceObservedAt: at, checkedAt: at };
+  return { ...row, provenance, population_after_reservation: true,
+    population_evidence: { ...row.population_evidence, provenance },
+    qualification: { ...row.qualification, intake_id: null, worker_id: null, generation: null } };
+}
+const unprovedQualification = (row: { qualification: Record<string, unknown> }) => ({ ...row.qualification,
+  expected_team_count: null, population_state: 'unproved', entity_set: 'unknown', reasons: ['standings_population_unproved'] });
 const read = (row: DatabaseRow) => readOfficialStandingsRows([row], mapping, {});
 function database(query: (sql: string, values: readonly unknown[]) => readonly DatabaseRow[]): DatabaseClient {
   return { enabled: true, async query<Row extends DatabaseRow>(sql: string, values: readonly unknown[] = []) { return query(sql, values) as readonly Row[]; } };
@@ -95,30 +105,78 @@ describe('independent stored official standings', () => {
     ]) expect(read({ ...row, ...patch }).status).toBe('unavailable');
   });
   it('qualifies an unwitnessed count only when its original population request followed reservation', () => {
-    const { row } = fixture(undefined, 1);
-    const provenance = { origin: row.provenance.origin, requestStartedAt: at, requestCompletedAt: at, sourceObservedAt: at, checkedAt: at };
-    const unwitnessed = { ...row, provenance, population_evidence: { ...row.population_evidence, provenance },
-      qualification: { ...row.qualification, intake_id: null, worker_id: null, generation: null } };
+    const unwitnessed = unwitnessedFixture();
     expect(read(unwitnessed)).toMatchObject({ status: 'available', coverage: { population: 'proven' } });
-    expect(read({ ...unwitnessed, population_evidence: { ...unwitnessed.population_evidence,
-      provenance: { ...provenance, requestStartedAt: '2026-10-10T12:00:00.000Z' } },
-      qualification: { ...unwitnessed.qualification, expected_team_count: null, population_state: 'unproved', entity_set: 'unknown', reasons: ['standings_population_unproved'] } }))
+    expect(read({ ...unwitnessed, population_after_reservation: false, population_evidence: { ...unwitnessed.population_evidence,
+      provenance: { ...unwitnessed.provenance, requestStartedAt: '2026-10-10T12:00:00.000Z' } },
+      qualification: unprovedQualification(unwitnessed) }))
       .toMatchObject({ status: 'available', capture: { expectedTeamCount: null }, coverage: { entitySet: 'unknown', population: 'unproved' } });
+  });
+  it.each(['Date', 'string'] as const)('consumes database population ordering with a %s reservation', representation => {
+    const row = unwitnessedFixture();
+    const reservation = '2026-10-11T12:00:00.123456Z';
+    for (const [requestStartedAt, fresh] of [
+      ['2026-10-11T12:00:00.100000Z', false],
+      ['2026-10-11T12:00:00.123455Z', false],
+      [reservation, true],
+      ['2026-10-11T12:00:00.123457Z', true],
+    ] as const) {
+      const result = read({ ...row, reserved_at: representation === 'Date' ? new Date(reservation) : reservation,
+        population_after_reservation: fresh,
+        population_evidence: { ...row.population_evidence, provenance: { ...row.provenance, requestStartedAt } },
+        qualification: fresh ? row.qualification : unprovedQualification(row) });
+      expect(result).toMatchObject({ status: 'available', capture: { expectedTeamCount: fresh ? 1 : null },
+        coverage: { population: fresh ? 'proven' : 'unproved', entitySet: fresh ? 'full' : 'unknown' } });
+    }
+  });
+  it.each([undefined, null])('retains unproved coverage for a database-false missing population timestamp: %s', requestStartedAt => {
+    const row = unwitnessedFixture();
+    expect(read({ ...row, population_after_reservation: false,
+      population_evidence: { ...row.population_evidence, provenance: { ...row.provenance, requestStartedAt } },
+      qualification: unprovedQualification(row) })).toMatchObject({ status: 'available',
+      capture: { expectedTeamCount: null }, coverage: { population: 'unproved', entitySet: 'unknown' } });
+  });
+  it.each([undefined, null, 'true', 'false', 0, 1, {}, []])('fails closed for a nonboolean population time result: %j', populationAfterReservation => {
+    for (const row of [fixture(undefined, 1).row, unwitnessedFixture()]) {
+      expect(read({ ...row, population_after_reservation: populationAfterReservation }))
+        .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+    }
+  });
+  it('fails closed when the population time result column is absent', () => {
+    const row: Record<string, unknown> = { ...fixture(undefined, 1).row };
+    delete row.population_after_reservation;
+    expect(read(row)).toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+  });
+  it.each([false, true])('keeps matching witnesses independent of the temporal result: %s', populationAfterReservation => {
+    const { row } = fixture(undefined, 1);
+    expect(read({ ...row, population_after_reservation: populationAfterReservation,
+      population_evidence: { ...row.population_evidence,
+        provenance: { ...row.provenance, requestStartedAt: '2026-10-10T12:00:00.000Z' } } }))
+      .toMatchObject({ status: 'available', capture: { expectedTeamCount: 1 }, coverage: { population: 'proven' } });
+  });
+  it.each([false, true])('still rejects a matching malformed witness with temporal result %s', populationAfterReservation => {
+    const { row } = fixture(undefined, 1);
+    const provenance = { ...row.provenance, acquisition: { ...witness, dispatchNonce: 'invalid' } };
+    expect(read({ ...row, population_after_reservation: populationAfterReservation, provenance,
+      population_evidence: { ...row.population_evidence, provenance } }))
+      .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
   });
   it('retains partial native facts with an explicitly unknown source observation time', () => {
     const { row } = fixture(undefined, null, 'partial');
     expect(read({ ...row, provenance: { ...row.provenance, sourceObservedAt: null } })).toMatchObject({ status: 'available',
       capture: { provenance: { sourceObservedAt: null } }, freshness: 'unknown', coverage: { entitySet: 'partial', population: 'unproved' } });
   });
-  it('does not upgrade retained population from another acquisition', () => {
-    const { row } = fixture();
-    const olderPopulation = { ...row, expected_team_count: 1, configuration_content_id: id(9),
-      population_evidence: { provenance: { ...row.provenance, acquisition: { ...witness, dispatchNonce: id(99) } } } };
+  it.each([false, true])('does not upgrade another acquisition with temporal result %s', populationAfterReservation => {
+    const { row } = fixture(undefined, 1);
+    const olderPopulation = { ...row, population_after_reservation: populationAfterReservation,
+      qualification: unprovedQualification(row), population_evidence: { ...row.population_evidence,
+        provenance: { ...row.provenance, acquisition: { ...witness, dispatchNonce: id(99) } } } };
     expect(read(olderPopulation)).toMatchObject({ status: 'available', capture: { expectedTeamCount: null }, coverage: { entitySet: 'unknown', population: 'unproved' } });
+    expect(read({ ...olderPopulation, qualification: row.qualification })).toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
   });
   it('selects a latest attempt with no capture as unavailable and legacy unqualified capture as missing', () => {
-    expect(read({ ...fixture().row, receipt_id: null })).toEqual({ status: 'unavailable', reason: 'latest_roster_attempt_has_no_capture' });
-    expect(read({ ...fixture().row, qualification: null })).toEqual({ status: 'missing', reason: 'typed_standings_not_recorded' });
+    expect(read({ ...fixture().row, receipt_id: null, population_after_reservation: undefined })).toEqual({ status: 'unavailable', reason: 'latest_roster_attempt_has_no_capture' });
+    expect(read({ ...fixture().row, qualification: null, population_after_reservation: undefined })).toEqual({ status: 'missing', reason: 'typed_standings_not_recorded' });
     expect(readOfficialStandingsRows([], mapping, {})).toEqual({ status: 'missing', reason: 'roster_capture_missing' });
   });
   it.each([null, [{ roster_id: 1 }, { roster_id: 1 }], Array.from({ length: 21 }, (_, i) => ({ roster_id: i + 1 }))])(
@@ -160,6 +218,12 @@ describe('independent stored official standings', () => {
     expect(OFFICIAL_STANDINGS_SQL).not.toMatch(/league_roster_resource_acceptances|content.accepted|\b(?:UPDATE|INSERT|DELETE|fetch)\b/u);
     await methods.readOfficialStandings({ ...mapping, scope: { ...mapping.scope, season: 2025 } }); expect(query).toHaveBeenCalledOnce();
     expect(await officialStandingsMethods(database(() => { throw Error('offline'); })).readOfficialStandings(mapping)).toMatchObject({ status: 'unavailable' });
+  });
+  it('fails closed through the query error path for an evaluated malformed population timestamp', async () => {
+    const query = vi.fn(() => { throw Error('invalid input syntax for type timestamp with time zone'); });
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping))
+      .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
   });
   it('keeps disabled facade inert', async () => {
     const hostile = Object.defineProperty({}, 'scope', { get: () => { throw Error('must not inspect'); } });

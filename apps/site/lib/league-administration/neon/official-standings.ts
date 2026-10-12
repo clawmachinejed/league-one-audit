@@ -18,6 +18,13 @@ const typedTeam = `jsonb_build_object('externalRosterId',team.external_roster_id
   'pointsFor',${points('fpts', 'fpts_decimal', 'points_for')},'pointsAgainst',${points('fpts_against', 'fpts_against_decimal', 'points_against')},
   'providerRank',${fact('rank')},'providerSeed',${fact('seed')})`;
 
+/** Keep the unwitnessed boundary at PostgreSQL precision; witnesses qualify independently. */
+export const OFFICIAL_STANDINGS_POPULATION_TIME_SQL = `CASE
+    WHEN selected.provenance->'acquisition' IS NULL
+      AND selected.population_evidence->'provenance'->'acquisition' IS NULL
+    THEN COALESCE((selected.population_evidence->'provenance'->>'requestStartedAt')::timestamptz >= selected.reserved_at,false)
+    ELSE false END`;
+
 /** Select the latest reservation before joining qualification. A failed newer attempt never borrows an older fact. */
 export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-standings */
   WITH selected AS (
@@ -36,7 +43,8 @@ export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-st
       AND (($4::uuid IS NULL AND attempt.ordinal=head.latest_ordinal) OR ($4::uuid IS NOT NULL AND receipt.id=$4::uuid))
     LIMIT 2
   )
-  SELECT selected.*,content.provider,content.external_league_id,content.family,content.week,
+  SELECT selected.*,${OFFICIAL_STANDINGS_POPULATION_TIME_SQL} AS population_after_reservation,
+    content.provider,content.external_league_id,content.family,content.week,
     content.content_hash,content.semantic_hash,content.payload,content.normalizer_version,content.completeness,
     observation.content_id AS observation_content_id,observation.league_season_id AS observation_league_season_id,
     to_jsonb(qualification.*) AS qualification,to_jsonb(header.*) AS value_header,
@@ -96,6 +104,7 @@ export function readOfficialStandingsRows(rows: readonly DatabaseRow[], mapping:
     const receiptId = uuid(row.receipt_id), contentId = uuid(row.content_id), observationId = uuid(row.legacy_observation_id);
     if (selection.rosterReceiptId !== undefined && selection.rosterReceiptId !== receiptId) throw new Error('Wrong standings receipt.');
     if (row.qualification === null) return { status: 'missing', reason: 'typed_standings_not_recorded' };
+    if (typeof row.population_after_reservation !== 'boolean') throw new Error('Invalid standings population time evidence.');
     const marker = object(row.qualification), header = object(row.value_header);
     const provenance = object(row.provenance) as AdministrationEnvelope['provenance'];
     const population = row.population_evidence === null ? null : object(row.population_evidence);
@@ -103,7 +112,7 @@ export function readOfficialStandingsRows(rows: readonly DatabaseRow[], mapping:
     const sameAcquisition = provenance.acquisition !== undefined
       ? same(populationProvenance?.acquisition, provenance.acquisition)
       : populationProvenance !== null && populationProvenance.acquisition === undefined
-        && Date.parse(String(populationProvenance.requestStartedAt)) >= new Date(String(row.reserved_at)).getTime();
+        && row.population_after_reservation;
     const configurationContentId = row.configuration_content_id === null ? null : uuid(row.configuration_content_id);
     // The legacy count also requires projection/scoring compatibility. Qualify
     // native population directly from this receipt's independently linked league document.

@@ -11,6 +11,7 @@ import { projectOfficialStandings, type OfficialStandingsRead } from '../lib/agg
 import { composeOfficialResults } from '../lib/aggregator/official-results';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
 import { createLeagueAdministrationStore, createPublicIntakeStore, createPublicDataRefreshStore } from '../lib/league-administration/store';
+import { OFFICIAL_STANDINGS_POPULATION_TIME_SQL } from '../lib/league-administration/neon/official-standings';
 import { runPublicIntakeStep, runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
 import { readPublicSleeperIntake } from '../lib/league-administration/public-intake-reader';
 import { readPublicDataRefresh } from '../lib/league-administration/public-refresh-reader';
@@ -238,6 +239,31 @@ describe.sequential('official standings and results through restricted PostgreSQ
   }, 60_000);
 
   it('retains corrections replay equal captures and current attempt ordering without silent backfill', async () => {
+    // Read-only operands exercise the production predicate at PostgreSQL precision.
+    // They never rewrite a persisted reservation, source clock or worker fence.
+    await storedOnly(async database => {
+      const boundary = '2026-01-01T00:00:00.123500Z';
+      const operands = [
+        { name: 'before', provenance: {}, population: { provenance: { requestStartedAt: '2026-01-01T00:00:00.123499Z' } }, expected: false },
+        { name: 'equal', provenance: {}, population: { provenance: { requestStartedAt: boundary } }, expected: true },
+        { name: 'after', provenance: {}, population: { provenance: { requestStartedAt: '2026-01-01T00:00:00.123501Z' } }, expected: true },
+        { name: 'null-time', provenance: {}, population: { provenance: { requestStartedAt: null } }, expected: false },
+        { name: 'missing-time', provenance: {}, population: { provenance: {} }, expected: false },
+        { name: 'missing-population', provenance: {}, population: null, expected: false },
+        // Witness branches must not evaluate a timestamp they do not use, even
+        // when the witness itself will subsequently fail reader validation.
+        { name: 'receipt-witness', provenance: { acquisition: {} }, population: { provenance: { requestStartedAt: 'unused-invalid' } }, expected: false },
+        { name: 'population-witness', provenance: {}, population: { provenance: { acquisition: {}, requestStartedAt: 'unused-invalid' } }, expected: false },
+        { name: 'null-witness', provenance: { acquisition: null }, population: { provenance: { acquisition: null, requestStartedAt: 'unused-invalid' } }, expected: false },
+      ];
+      const rows = await database.query(`WITH selected AS (
+        SELECT input.ordinality,input.value->>'name' AS name,input.value->'provenance' AS provenance,
+          input.value->'population' AS population_evidence,$2::timestamptz AS reserved_at
+        FROM jsonb_array_elements($1::jsonb) WITH ORDINALITY input(value,ordinality)
+      ) SELECT name,${OFFICIAL_STANDINGS_POPULATION_TIME_SQL} AS population_after_reservation
+        FROM selected ORDER BY ordinality`, [JSON.stringify(operands), boundary]);
+      expect(rows).toEqual(operands.map(({ name, expected }) => ({ name, population_after_reservation: expected })));
+    });
     const f = await fixture(), first = await capture(f), original = await read(f.mapping, first.receipt);
     const beforeReplay = await history(f);
     expect((await write(first.submitted)).officialStandings?.status).toBe('replayed'); expect(await history(f)).toEqual(beforeReplay);
@@ -253,7 +279,9 @@ describe.sequential('official standings and results through restricted PostgreSQ
       const input = await observation(f, sourceRows()), inputs = [writeInput(f, input, a, workFence), writeInput(f, input, b, workFence)];
       const order = reverse ? [1, 0] : [0, 1]; let newest = '';
       for (const index of order) { const result = await write(inputs[index]); if (index === 1) newest = result.officialStandings!.receiptId; }
-      expect((await read(f.mapping)).capture.rosterReceiptId).toBe(newest);
+      const current = await read(f.mapping);
+      expect(current.capture.rosterReceiptId).toBe(newest);
+      expect(current.coverage.population).toBe('unproved');
     }
     const workFence = await fence(), attempt = await administration.beginRosterAttempt(f.mapping, randomUUID(), undefined, workFence),
       input = await observation(f, sourceRows()), legacy = writeInput(f, input, attempt, workFence, undefined, false);
@@ -529,7 +557,10 @@ describe.sequential('official standings and results through restricted PostgreSQ
       await storedOnly(async (database, store) => {
         const current = await readPublicDataRefresh(database, store, target!.targetId, { officialResultsVersion: 'v1' });
         expect(current).toMatchObject({ status: 'available', cycle: { outcome: { disposition: 'complete' } },
-          intake: { officialResults: [{ resource: { standings: { teams: [{ record: { wins: { value: 5 } }, pointsFor: { value: '512.35' } }] } } }] } });
+          intake: { officialResults: [{ resource: { standings: { teams: [
+            { externalRosterId: '1', record: { wins: { value: 5 } }, pointsFor: { value: '512.35' } },
+            { externalRosterId: '2', record: { wins: { value: 0 } }, pointsFor: { value: '512.35' } },
+          ] } } }] } });
         if (current.status !== 'available' || !current.cycle) throw new Error('CP13 current refresh unavailable.');
         currentId = current.cycle.requestId;
         expect(current.intake).toMatchObject({ leagues: [{ resources: { teamManagers: { status: 'available' },

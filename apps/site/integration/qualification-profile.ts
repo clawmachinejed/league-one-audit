@@ -14,7 +14,7 @@ export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const OFFICIAL_RESULTS_PROFILE = 'data-official-results-v1';
 export const OFFICIAL_RESULTS_MODULE = 'integration/official-results.integration-case.ts';
 // CP13 authored fixture, pinned after independent source review; hosted SQL qualification remains separate.
-export const OFFICIAL_RESULTS_SOURCE_DIGEST = '3ecc95577b62235daa785998b9659a897fd65e6111bed6e5bd2a3fe98a80904d';
+export const OFFICIAL_RESULTS_SOURCE_DIGEST = '773d4eb1ebc30e90d55af2609da7d64b775903ea83476e805f7d542dcab3ed6b';
 export const OFFICIAL_RESULTS_SUITE = 'official standings and results through restricted PostgreSQL';
 export const OFFICIAL_RESULTS_TESTS = [
   'stores provider record points and supplied placement through independent typed receipts',

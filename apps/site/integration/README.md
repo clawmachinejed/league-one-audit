@@ -734,6 +734,14 @@ managers fail without marking the request complete. Stored reads must preserve
 request/dispatch scope and original observation times, expose a newer failure
 instead of silently returning last-good facts, and run with source access disabled.
 
+The existing ordering case also evaluates the reader's exact SQL population-time
+predicate with read-only before/equal/after microsecond operands within one
+millisecond, missing timestamps and guarded witness branches. These operands do
+not rewrite stored clocks. Both overlapping completion orders must return the
+newest receipt with unproved population while retaining the original replay,
+historical-read and legacy-upgrade assertions. The case inventory and deadlines
+remain unchanged.
+
 The new supplement does not weaken players acceptance or add an acquisition
 pipeline. Native weekly and bracket identifiers remain separate. Equal scores,
 null opponents, source array order, current standings, league status and local
@@ -764,10 +772,18 @@ lifecycle, 50-minute CI and one-hour expiry limits remain unchanged, as do all
 identity, TLS, role, sentinel, denylist, source, cleanup and no-retry controls.
 
 The first authorized run at `67b43a6` failed with seven cases passed and one
-fixture assertion failed; cleanup was verified. The corrected fixture remains
-**SQL-unqualified** until a separately authorized
-run passes all eight cases, exact inventory/order/hooks, reviewed source pin and
-acknowledged cleanup. Offline selector/report/source tests do not establish SQL
+fixture assertion failed; cleanup was verified. The second run,
+[`38236085130`](https://github.com/clawmachinejed/league-one-audit/actions/runs/38236085130)
+at `f28f673`, failed with six cases passed and two failed. Its automatic cleanup
+acknowledgments were recorded; fresh provider-side absence and credential
+revocation checks remain unverified. The current local source includes the
+two-team assertion correction and population-time precision repair. A separate
+offline PostgreSQL proof exercises the precision repair using PGlite and
+`SET ROLE`; it does not prove a hosted restricted LOGIN. These local results do
+not qualify the corrected fixture. It remains **hosted SQL-unqualified**
+until a separately authorized run passes all eight cases, exact
+inventory/order/hooks, reviewed source pin and acknowledged cleanup.
+Offline selector/report/source tests do not establish SQL
 constraints, restricted LOGIN behavior, concurrency, elapsed fit or live provider
 parity. The profile does not qualify all 2026 periods, every competition format,
 positive provider finality, fleet freshness, the complete SQL suite or CP13's
