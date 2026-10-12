@@ -598,3 +598,106 @@ typecheck launcher selected the host's old Node 20 through a nested Corepack cal
 the same typecheck passed using the existing Node 24/pnpm 11 wrappers on PATH.
 No project configuration or check was relaxed. Independent final review found no
 blocking safety, privacy or scope findings.
+
+### Weekly report hosted qualification — October 12, 2026
+
+The user separately authorized one `data-weekly-reports-v1` run at
+`373b7fbc05cd11ba60b20d65d13b194ca8fc74fe`, using fixed 0.25 CU, a $1
+authorization limit, existing deadlines, automatic cleanup and no automatic retry.
+[Run 38319296004](https://github.com/clawmachinejed/league-one-audit/actions/runs/38319296004)
+attempt 1 passed all eight cases. Independent offline audit accepted all 16
+integrity, qualification and cleanup checks with zero network attempts.
+The previous attempt at `7da4e48` remains failed; this is a separately authorized
+new-source result, not a retry or retroactive acceptance of that attempt.
+
+- **Resource and path:** optional weekly-report facts use the existing Sleeper
+  adapter, ordinary dispatch, fenced observation writer, receipt/acceptance,
+  checkpoint and stored/composed reader owners. The fixture digest remains
+  `298dfeec2fa275eea7993c19822541360b5041356c4fc406a924251a9b8d09a2`.
+- **Persisted result:** all 24 retained native rows from two reports, synthetic
+  corrections, distinct field/capacity states and immutable selected receipts
+  passed typed PostgreSQL persistence and restricted stored reads in the disposable
+  child. The evidence archive survives; the database and its credentials were
+  automatically removed. No retained installation or production data was changed.
+- **Actual proof:** eight collected, executed and passed; zero failed, skipped,
+  filtered, retried, repeated or flaky cases and zero unhandled errors. One ordered
+  suite and exactly one completed beforeAll/afterAll pair matched the closed
+  profile. Actual restricted LOGIN, permissions, forged/scope rejection, relation-lock
+  and deferred-commit rollback, original fences, failed-current/history behavior,
+  ordinary witnessed intake and corrected refresh passed.
+- **Remaining gap:** this is native-payload replay and synthetic HTTP, not fresh
+  live Sleeper acquisition. Report ranks and explicit W/L/T values are positively
+  qualified as report facts; they do not establish current roster rank, playoff
+  seed, generic weekly contest outcome/finality, bye meaning or multiweek joins.
+  Positive current-2026 played-bracket and representative multiweek completion/
+  correction evidence remain open. Changed played-bracket qualification modules,
+  earlier combined player/manager/period/bracket profiles, maximum capacity, fleet
+  freshness and production behavior were not rerun or qualified here. CP13 remains open.
+
+| Selected case | Passed duration (seconds) |
+| --- | ---: |
+| 24 retained native report rows and independent clocks | 1.597 |
+| Optional fields, decimals, round identity and capacity rejection | 6.070 |
+| Corrections, equal times, replay, ordering and failed latest attempts | 2.937 |
+| Forged facts, scope/team identity and source substitutions | 4.532 |
+| Relation locks and deferred changed/equal receipt fences | 26.902 |
+| Restricted permissions, immutable history and source-free reads | 5.011 |
+| Optional selectors, request scope and task permissions | 2.830 |
+| Ordinary report intake and failed-refresh recovery | 803.665 |
+
+The ordinary case asserted 13 admissions (six initial, seven refresh) and 15
+intercepted HTTP attempts (12 GETs and three report POSTs, including one failed
+POST). Case 1 separately replayed two native report POSTs. Adjacent ordinary
+admissions were asserted at least 60 seconds apart. Both completed report
+checkpoints retained matching work, nonce, fence and reservation evidence; exact
+old selections survived correction. The source permits at most one recovery
+zero-request claim and requires one terminal settlement claim. No individual
+admission timestamps or latency distributions were retained, so the run supplies
+no p95/p99 claim or fleet freshness guarantee.
+
+Vitest reported 942.64 seconds; the supervisor lifecycle took 956.321 seconds
+(15 minutes 56 seconds), and the GitHub job took 16 minutes 19 seconds. The
+ordinary case took 803.664792 seconds within its 1,080-second limit. This measures
+one selected run inside the unchanged 20-second worker, 60-second admission,
+30-minute work, 40-minute lifecycle and 50-minute CI boundaries. It does not
+establish worst-case, maximum-size, cold-start, concurrent or full-suite fit.
+
+The baseline was independently observed archived before dispatch. The ordinary
+single child-creation path succeeded without manual activation or a parent SQL
+query. Authenticated Neon inspection bound child `br-dark-hall-b77yqnwy`
+(`l1-integration-51fc734e-dd7a-41a5-be00-aef5ca3b04e7`) to the exact permanent
+test parent, PostgreSQL major 18, minimum/maximum 0.25 CU, 300-second idle
+suspension and one-hour expiry. No configuration was saved. Actual billed cost
+and the PostgreSQL minor version were not verified; $1 was an authorization
+limit, not a provider-enforced billing cap.
+
+All four terminal cleanup flags passed: process-group closure, schema cleanup,
+generated credential revocation and owned-child deletion. There were no failures
+or unresolved resources. Terminal acknowledgment at `2026-10-12T23:11:26.4163170Z`
+matched the retained receipt. Fresh post-acknowledgment Neon inventory showed one
+branch, only `integration-test-base` (`br-plain-bread-b7sgfdl8`). No manual deletion
+was needed. This one-run authorization is consumed; no retry occurred.
+
+Source, archive and release bindings:
+
+- Tested root tree: `d2360ba67de2b6c41e2bcbd8e9ea95b1e522e319`; `apps/site` tree:
+  `54186212e61fb4988d9fb0cccf36101a29cd0bcf`.
+- Artifact `11778491820`, 15 verified original ZIP members; SHA256:
+  `82d09b79687fda4ca22221410e8a4e049d0a61883a9aea70e0fdb0ef9c47538e`.
+- Twelve immutable receipts; terminal `run-1791845730250-5557487b-f8be-4f87-a2d2-8a0b9d9e0e6c-0012.json`
+  SHA256 `23aa5dca2ca57960fd088611cdd5a98473006f85c56e0a136d2c2024c90fa49b`.
+- Qualification report SHA256:
+  `4f44c279e654ce9f1438020f67a4c79606bf1a55402fd12a194177a27a68480e`.
+- [Source CI 38317927621](https://github.com/clawmachinejed/league-one-audit/actions/runs/38317927621)
+  passed 7,343 unit tests with zero skips, lint, types, dependencies and build;
+  121 public browser tests and 20 separate account tests passed. The public
+  suite's 20 account exclusions were covered by that separate run.
+- Ready Vercel preview `9NygM8fMReKxwaZZoDwyWWzpuRze` at the exact tested source
+  was inspected for both leagues. This is existing-screen compatibility evidence.
+  Draft PR #303 remains unmerged; main and production remain
+  `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. No production release or DATA activation.
+
+Ignored raw evidence and independent audit remain in
+`apps/site/test-results/data-backend/cp13/sql-38319296004` and its `-metadata`
+sibling, with the original ZIP alongside them. Earlier qualifications retain
+their original source and scope.
