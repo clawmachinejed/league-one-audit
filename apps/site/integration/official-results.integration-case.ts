@@ -422,11 +422,32 @@ describe.sequential('official standings and results through restricted PostgreSQ
     } }, jobs: { ...jobs, acquireJob: async (...args) => {
       const claim = await jobs.acquireJob(...args); if (claim.kind === 'acquired') claims++; return claim;
     } } };
+    const zeroRequestClaims = { recovery: 0, settlement: 0 };
+    async function step(recurring: boolean, zeroRequestPhase?: keyof typeof zeroRequestClaims) {
+      const before = { claims, admissions, requests: urls.length };
+      const outcome = recurring ? await runPublicDataRefreshStep({ ...dependencies, refresh }, AbortSignal.timeout(20_000))
+        : await runPublicIntakeStep(id, dependencies, AbortSignal.timeout(20_000));
+      const acquired = claims - before.claims, admitted = admissions - before.admissions;
+      expect([0, 1]).toContain(acquired); expect([0, 1]).toContain(admitted);
+      expect(urls.length - before.requests).toBe(outcome.providerRequests);
+      if (acquired === 0) {
+        expect(admitted).toBe(0); expect(outcome).toEqual({ status: 'busy', providerRequests: 0 });
+      } else if (admitted === 0) {
+        // A failed owner may be reclaimed before its intake retry is due.
+        // Settlement also owns a job without admitting a provider request.
+        expect(outcome).toEqual({ status: 'backoff', providerRequests: 0 });
+        if (!zeroRequestPhase) throw new Error('Unexpected CP13 zero-request owner claim.');
+        zeroRequestClaims[zeroRequestPhase]++;
+        expect(zeroRequestClaims[zeroRequestPhase]).toBeLessThanOrEqual(1);
+      } else {
+        expect(acquired).toBe(1); expect(outcome.providerRequests).toBeGreaterThan(0);
+      }
+      return outcome;
+    }
     async function progress(recurring: boolean, resource: string, status = 'progress') {
       const until = Date.now() + 150_000;
       do {
-        const outcome = recurring ? await runPublicDataRefreshStep({ ...dependencies, refresh }, AbortSignal.timeout(20_000))
-          : await runPublicIntakeStep(id, dependencies, AbortSignal.timeout(20_000));
+        const outcome = await step(recurring, !recurring && resource === 'core' && status === 'progress' ? 'recovery' : undefined);
         if (['busy', 'backoff', 'idle'].includes(outcome.status)) { await delay(1_000); continue; }
         expect(outcome).toMatchObject({ status, resource, providerRequests: ['core', 'exact-matchups', 'playoff-brackets'].includes(resource) ? 2 : 1 }); return;
       } while (Date.now() < until);
@@ -445,7 +466,14 @@ describe.sequential('official standings and results through restricted PostgreSQ
       const partial = await readPublicSleeperIntake(connection.database, administration, id, { officialResultsVersion: 'v1' });
       expect(partial).toMatchObject({ officialResults: [{ captureBinding: 'intake-dispatch', resource: {
         status: 'available', standings: { status: 'available', coverage: { population: 'unproved', entitySet: 'unknown' } } } }] });
-      expect(await intake.next(id)).toMatchObject({ kind: 'core' });
+      // This checkpoint failed; unlike a committed checkpoint with a lost
+      // acknowledgment, its next attempt must respect the stored retry due time.
+      expect(await intake.next(id)).toBe('backoff');
+      expect(await connection.database.query(`SELECT candidate.stage, request.failure_count,
+        request.next_attempt_at>clock_timestamp() AS retry_pending
+        FROM public_data_intakes request JOIN public_data_league_candidates candidate ON candidate.intake_id=request.id
+        WHERE request.id=$1 AND candidate.external_league_id=$2`, [id, external]))
+        .toEqual([{ stage: 'core', failure_count: 1, retry_pending: true }]);
       const failedCapture = await read(mapping);
       expect(failedCapture.coverage.population).toBe('unproved');
       expect((await administration.readAcceptedCurrentRoster(mapping)).status).not.toBe('available');
@@ -480,7 +508,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       target = await refresh.configure(configuration); correction = true;
       const stages = ['identity', 'leagues', 'bootstrap', 'playoff-brackets', 'exact-matchups', 'core', 'users'];
       for (const resource of stages) await progress(true, resource);
-      expect(admissions).toBe(15); expect(claims).toBe(15);
+      expect(admissions).toBe(15); expect(claims).toBe(15 + zeroRequestClaims.recovery);
       const base = 'https://api.sleeper.app/v1/league/' + external;
       const expectedCycle = (identity: string) => ['https://api.sleeper.app/v1/user/' + identity,
         'https://api.sleeper.app/v1/user/' + manager + '/leagues/nfl/2026', base,
@@ -490,11 +518,13 @@ describe.sequential('official standings and results through restricted PostgreSQ
       expect(urls).toEqual([...originalUrls, ...expectedCycle(manager)]); expect(urls).toHaveLength(22); // Plus one separately asserted directory prerequisite GET above.
       const until = Date.now() + 150_000;
       while (true) {
-        const outcome = await runPublicDataRefreshStep({ ...dependencies, refresh }, AbortSignal.timeout(20_000));
+        const outcome = await step(true, 'settlement');
         if (outcome.status === 'busy') { if (Date.now() >= until) throw new Error('CP13 settlement exceeded admission allowance.'); await delay(1_000); continue; }
         expect(outcome.providerRequests).toBe(0); break;
       }
-      expect(admissions).toBe(15); expect(claims).toBe(16); expect(urls).toHaveLength(22); fetch.mockRestore();
+      expect(zeroRequestClaims.settlement).toBe(1);
+      expect(admissions).toBe(15); expect(claims).toBe(16 + zeroRequestClaims.recovery);
+      expect(urls).toHaveLength(22); fetch.mockRestore();
       let currentId = '';
       await storedOnly(async (database, store) => {
         const current = await readPublicDataRefresh(database, store, target!.targetId, { officialResultsVersion: 'v1' });

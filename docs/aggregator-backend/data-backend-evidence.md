@@ -4,7 +4,7 @@
 
 As of **October 11, 2026**, this is the authoritative status overlay for the DATA backend. Read it with the frozen [CP1 completion contract](data-backend-readiness-contract.md), [CP2 source baseline and checklist](data-backend-acceptance-baseline.md), and the [CP13 scope and acceptance plan](data-backend-cp13-plan.md). The dated records below retain their original source, meaning and failures; their historical words such as “current,” “complete,” “missing” or “not started” do not override this summary.
 
-The latest hosted-qualified application source remains `de3f0225de7c088bb82282333488e33e6742e8f8`. CP13 now has an implemented source candidate on `codex/data-official-results`, described in the new record below; it has not received hosted SQL qualification. The `de3f022` documentation-closeout source has exactly the CP12-qualified `apps/site` `be012efb6582c26daab5162f4841c5c7a9ba31bb` tree, `6defe7987a675be26728726e9a5206aa75d9392b`; the closeout changed documentation only. This preserves that executed application source, not a claim that SQL ran at the later documentation SHA. Earlier checkpoint results remain bound to their own sources. **CP1–12 are not a jointly qualified complete backend, and DATA is not production-verified.** CP3–4 remain deferred. No retained installation, production merge or DATA activation follows from these results; the last checked main/production source remains `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
+The latest hosted-qualified application source remains `de3f0225de7c088bb82282333488e33e6742e8f8`. CP13 has an implemented source candidate on `codex/data-official-results`; its first hosted attempt at `67b43a6` failed with seven cases passed and one fixture assertion failed. Cleanup is verified. The fixture correction below is not a successful qualification. The `de3f022` documentation-closeout source has exactly the CP12-qualified `apps/site` `be012efb6582c26daab5162f4841c5c7a9ba31bb` tree, `6defe7987a675be26728726e9a5206aa75d9392b`; the closeout changed documentation only. This preserves that executed application source, not a claim that SQL ran at the later documentation SHA. Earlier checkpoint results remain bound to their own sources. **CP1–12 are not a jointly qualified complete backend, and DATA is not production-verified.** CP3–4 remain deferred. No retained installation, production merge or DATA activation follows from these results; the last checked main/production source remains `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
 
 ### Evidence maturity
 
@@ -33,7 +33,7 @@ These labels describe evidence scope, not interchangeable completion badges. Imp
 | 10 | **Implemented and individually qualified; limited joint intake/refresh proof:** exact native-period lineup/order, player/starter scores and raw/custom/effective team values, including custom zero and corrections. | Seven cases at `3408998` ([38102677986](https://github.com/clawmachinejed/league-one-audit/actions/runs/38102677986)); ordinary changed refresh covered one selected period. Separate week-15/week-16 values do not establish an aggregate playoff series, official tie, winner or finality. |
 | 11 | **Implemented and individually qualified:** typed bracket rounds, entrants, advancement references and supplied winner/loser facts; null/empty/unsupported states and receipt-bound history. | Seven cases at `d14ced25` ([38143139162](https://github.com/clawmachinejed/league-one-audit/actions/runs/38143139162)). Bracket IDs/rounds are not weekly matchup IDs/periods; native `p` remains opaque. This synthetic resource profile was not rerun after CP12 changed shared composition. |
 | 12 | **Implemented and jointly qualified for the selected ordinary bracket path:** paired acquisition, sibling-failure preservation, original-fence rollback/recovery and one corrected refresh with immutable old pairs. | Five cases at `be012ef` ([38148712253](https://github.com/clawmachinejed/league-one-audit/actions/runs/38148712253)), using one two-roster synthetic league plus empty discovery. The main case used 14 admissions/20 GET attempts. Bracket-plus-period selectors were checked as metadata, not jointly acquired; player lists were empty and manager evidence used the default path. Live brackets and operating workload remain unqualified. |
-| 13 | **Implemented source candidate; qualification pending:** independent typed standings and opt-in selected stored results. | [Resolved design and inventory](data-backend-cp13-design.md); 11 local SQL diagnostics are distinct from the unexecuted eight-case hosted profile. Official result/finality/multiweek evidence gaps remain open; CP13 is not complete. |
+| 13 | **Implemented; first hosted profile failed (7/8 passed):** independent typed standings and opt-in selected stored results. | [Run 38197871804](https://github.com/clawmachinejed/league-one-audit/actions/runs/38197871804) at `67b43a6`; cleanup verified. Recovery/refresh tail was not reached; fixture correction needs new qualification. Official result/finality/multiweek gaps remain open; CP13 is not complete. |
 
 ### Composition and remaining acceptance owners
 
@@ -63,6 +63,138 @@ The frozen workload/targets remain unchanged. CP13 may proceed as the next resou
 2. **Existing path:** this ledger's current overlay and preserved source/run history → [public intake notes](data-backend-ingestion.md) and the [CP13 plan](data-backend-cp13-plan.md). No adapter, writer, reader, migration or worker changes.
 3. **Persisted result:** corrected documentation that separates planning, implemented capabilities, bounded individual/joint qualification and production verification. Frozen CP1/2 contracts, original checkpoint numbering, historical failures and exact run bindings remain intact.
 4. **Real evidence and gaps:** read-only source/tree and retained-artifact review at `de3f022`, independent document review, scope and actual-diff checks. This reconciliation executes no new SQL/provider qualification and adds no production or operating proof.
+
+## CP13 first hosted attempt — failed qualification, October 11, 2026
+
+**The eight-case profile did not qualify: seven passed and one failed.**
+The separately authorized [run 38197871804](https://github.com/clawmachinejed/league-one-audit/actions/runs/38197871804),
+attempt 1, executed `data-official-results-v1` once at
+`67b43a6e35f980c81ff39c442ed443b243beac5a`. The user authorized one
+disposable child, fixed 0.25 CU, a $1 authorization allowance, unchanged deadlines,
+automatic cleanup and no automatic retry. The allowance is consumed; no second
+SQL run follows from the diagnosis or fixture correction.
+
+The seven passing cases exercised native standings/value/presence parity and
+population/capacity states; corrections, replay and ordering; forged projection
+and receipt/mapping rejection; observed cross-connection lock and late-COMMIT
+rollback; actual restricted LOGIN privileges and stored-only readers; and
+selected score/bracket composition without inferred outcomes or finality.
+The final ordinary journey failed at the immediate readiness assertion after its
+injected league-write failure: it expected core work while the maintained
+coordinator returned `backoff`. Its earlier partial-standings assertion passed.
+The hosted recovery, populated identity/manager readback, corrected refresh and
+immutable original-result assertions after that point were **not reached**.
+The seven passes do not make the complete profile accepted.
+
+All eight cases were collected and executed, with zero skipped, filtered,
+retried, repeated, flaky, expected-failure or unhandled-error cases. Both shared
+hooks started and finished once. Vitest took 513.88 seconds; the failed final
+case took 367,780.245 ms of its unchanged 1,080,000-ms limit. Supervisor lifecycle
+was 527,572 ms and the job took 559 seconds. This was an assertion failure, not
+a worker or supervisor deadline failure; an early stop does not measure the full
+journey's elapsed fit.
+
+Source, report, ordered inventory, hooks, twelve immutable journal sequences,
+archive members and terminal cleanup acknowledgment were independently audited.
+The maintained validator correctly rejected the failed report. Its generic
+`missing-or-invalid` classification means failed qualification here, not absent
+evidence. The original fixture LF digest was
+`7aca79bf16186d23ee9e94873189d0e021bea4689c8783be51a213d5b24ac31a`,
+profile digest `c60474f8dc3c212dd6c6c56fbbf8da203f63a2e234dade8c3656e70629f2fc2a`,
+and context digest `32f7252483929c958be46af59c6c6cf43ebcdb8ce4b38d0c323b07474a7293c2`.
+
+Supervisor run `bb3b725c-4d41-46a7-8690-43b021944234` finished at
+`2026-10-12T03:07:59.104Z`; its terminal acknowledgment at
+`03:07:59.1164143Z` confirms child-process closure, schema cleanup, generated
+credential revocation and deletion of owned branch `br-bold-mouse-b7b12rvv`.
+Failures contain only `tests`; unresolved resources are empty and production
+writes are false. Read-only authenticated Neon inspection during execution
+verified the exact run-named child under integration project
+`steep-glitter-44680287`, parent `br-plain-bread-b7sgfdl8`, provider-reported
+PostgreSQL **18**, and both compute minimum and maximum **0.25 CU**. The child
+had one-hour fallback expiry. A fresh Console inventory after acknowledgment
+showed only the baseline branch; cleanup did not depend on expiry. SQL-reported
+patch/build and actual billing were not measured. The $1 allowance is execution
+authority, not a provider-enforced billing cap.
+
+Original evidence is retained under ignored
+`apps/site/test-results/data-backend/cp13/sql-38197871804` with archive and
+metadata siblings. SHA256 values:
+
+- Original ZIP: `3f13589c2c78afde0d86fc21c7d57159de8bce75d742d27541f6901ee427c221`.
+- Report: `81b27ee50fa25462384a696f4d3fc64f9a93ed2fb939029876eb824acb12fa13`.
+- Cleanup acknowledgment: `c06dc63a25d07908e83e79a345f0a0a1f34c64847dd904033a32f6467ec3f294`.
+- Terminal journal `run-1791773951639-82fc2ca5-b0bd-4dcb-ba9e-703c0ec60d2d-0012.json`:
+  `548e9a6edfa7bd34d066793fdae6244369247b06962e1f7a0c87e6f662f17eee`.
+
+Local/GitHub main and Ready Vercel production agreed at
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`, with canonical repository and
+main production binding. No competing integration owner was observed before
+dispatch; the integration project contained only its baseline. No secrets were
+retrieved locally. No retained migration installation, merge, production
+deployment or DATA activation occurred.
+
+The executed source separately passed [source CI 38158745312](https://github.com/clawmachinejed/league-one-audit/actions/runs/38158745312):
+7,080 source tests across 314 files with zero failures/skips, scope/dependency,
+lint/type and build checks; 121 public-browser passes with 20 intentional
+account-fixture skips and all 20 separate account cases passed. The CI merge
+tree equals the candidate tree. Ready preview `GMqqedWrLtEZDA5CPm8SNe9jXqUp`
+was inspected at the exact source for both League One and League Two. These
+source/preview results do not override the failed SQL profile.
+
+### CP13 fixture correction after the first attempt
+
+The effective R047 failure function increments the request's failure counter and
+sets its next attempt from the **old** counter: the first failure schedules
+60 seconds, the second 120 seconds. The pending candidate remains at core.
+The failed fixture copied an immediate-readiness assumption appropriate to an
+already committed checkpoint with a lost acknowledgment into an actual failed
+checkpoint. Local in-memory PostgreSQL reproduction using the actual coordinator
+and migration functions observed the retained standings marker, pending core and
+first 60-second backoff, then successful recovery after the original database
+due time without clock rewrites. This is diagnostic evidence, not hosted
+qualification.
+
+A second source audit found a related claim-count assumption in the unreached
+tail: a failed job may be reacquired before the intake retry is due. That owner
+returns backoff and completes without an admission or GET. The correction
+records per-call acquired claims, admissions and actual intercepted requests,
+allows at most one such zero-request claim during core recovery, and requires
+exactly one zero-request settlement claim. The public request totals remain
+15 admissions, 22 GETs and three standings markers; the separate directory
+prerequisite still asserts one GET. Recovery may have zero extra backoff claims
+if reads finish after its retry is already due. A rigid total claim count would
+incorrectly depend on that timing.
+
+The fixture now asserts `backoff`, durable core stage, failure count one and
+a pending retry, then uses the existing bounded natural-wait helper. Eight case
+names/order, hooks, timeouts, original 20-second work fences, 60-second admission,
+30/40/50-minute guards and cleanup/no-retry controls remain unchanged. Runtime,
+all migration bytes, public API, membership completion gates and CP1/CP2 contract
+are unchanged by this correction. Only the CP13 fixture and its source pin change
+in executable source; all older profile pins remain unchanged. The corrected
+fixture LF SHA256 is
+`3ecc95577b62235daa785998b9659a897fd65e6111bed6e5bd2a3fe98a80904d`.
+
+Independent review of the remainder found no additional deterministic reader
+or request-count defect: the corrected refresh preserves mapping identity,
+and historical standings, player links, period context/values and bracket facts
+remain selected by their own request/receipt identities. That source conclusion
+does not qualify the unreached hosted assertions. A separately authorized run
+at a new exact source is required before this profile can be accepted.
+
+The original backoff diagnostic passed four checks; a separate five-check
+extension reproduced the extra owner claim through actual coordinator/job
+methods, a second busy poll without a new claim, and recovery after the unchanged
+real database due time. Both used synthetic in-memory PostgreSQL with zero
+external connections or network attempts. Evidence is retained at
+`test-results/cp13/local-sql/backoff-attempt-1.json` and
+`backoff-claims-attempt-1.json`; the latter script SHA256 is
+`0b50b87d20f8838bcfba35da2dd48d14be3f3228e2d484a7547fad7ccedd1ce1`.
+Independent source review approved the bounded claim accounting. All 75 offline
+profile controls passed, as did targeted lint, Next route generation/TypeScript,
+DATA scope validation and diff checks. These are correction-source checks, not a
+second hosted execution or a change to the first run's failure.
 
 ## CP13 official standings and selected results — implementation candidate, October 11, 2026
 

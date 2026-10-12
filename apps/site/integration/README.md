@@ -747,10 +747,12 @@ complete-catalog loader, restricted directory reservation/write and shared job
 owner. It changes only the fixture's mutable directory cadence prerequisite;
 immutable source clocks and acceptance evidence still come from the maintained
 path. That setup asserts one intercepted directory GET. The ordinary intake and
-refresh separately assert 15 admissions, 22 intercepted GETs and 16 acquired
-claims including zero-GET settlement. Directory owner claims and any reservation
-wait are additional to those ordinary counts; no exact total claim count is
-asserted. All payloads remain synthetic.
+refresh separately assert 15 admissions and 22 intercepted GETs. Per-call owner
+claims are reconciled against admissions and observed zero-GET backoffs: at most
+one during failed-core recovery and exactly one for terminal settlement. No
+rigid total claim count depends on whether recovery polls before its retry is
+due. Directory owner claims and any reservation wait are separate from this
+ordinary accounting. All payloads remain synthetic.
 
 Seven 60-second cases, one 1,080-second case and two 120-second hooks total a
 29-minute authored allowance before harness overhead. The remaining one minute
@@ -761,7 +763,9 @@ The original 20-second worker, 60-second admission, 30-minute work, 40-minute
 lifecycle, 50-minute CI and one-hour expiry limits remain unchanged, as do all
 identity, TLS, role, sentinel, denylist, source, cleanup and no-retry controls.
 
-This profile remains **authored and SQL-unqualified** until a separately authorized
+The first authorized run at `67b43a6` failed with seven cases passed and one
+fixture assertion failed; cleanup was verified. The corrected fixture remains
+**SQL-unqualified** until a separately authorized
 run passes all eight cases, exact inventory/order/hooks, reviewed source pin and
 acknowledged cleanup. Offline selector/report/source tests do not establish SQL
 constraints, restricted LOGIN behavior, concurrency, elapsed fit or live provider
