@@ -8,6 +8,29 @@ The authoritative source-bound results, failed-attempt history, cleanup evidence
 
 The production/retained project `solitary-base-99261075`, its production branch `br-rapid-boat-avgeevye`, its retained branch `br-still-breeze-avaibago`, and the retained `projection_refactor_test` and `account_reset_integration_test` database names are explicitly denied. The shared SQL harness independently denies both branch IDs and both retained database names for every caller, including legacy migration and capacity commands, regardless of the supplied denylist or an old valid safety comment. Do not reset either retained database or rotate roles on that branch.
 
+## Parent availability and safe target diagnostics
+
+A configured baseline may be `ready` or `archived`, provided its exact project,
+branch identity and permanent expiration checks pass. Neon documents automatic
+unarchiving when the existing child-creation request accesses an archived parent.
+The runner adds no parent SQL query, activation request, protection change or
+retry. All other parent states are rejected before creation. The disposable child
+must still become `ready`, return the exact bounded endpoint and pass the existing
+empty-database, TLS, ownership, sentinel and restricted-login checks.
+
+Target-validation failures use fixed diagnostic codes for configuration, project
+identity, parent identity, parent expiration and parent state. The existing
+supervisor journals only those codes; provider response bodies, field values,
+messages, credentials and connection strings are not attached to these errors.
+Initial environment validation remains separate and can fail before a receipt is
+created. A failure before child creation remains a failed run with tests not run;
+it does not acquire successful cleanup or qualification flags.
+
+This source repair does not rerun the failed weekly-report attempt or qualify its
+eight cases. A new hosted run requires its own exact-source authorization. See
+[the failed attempt and repair record](../../../docs/aggregator-backend/data-backend-cp13-semantics.md#weekly-report-hosted-attempt--october-12-2026)
+and [Neon's archive behavior](https://neon.com/docs/guides/branch-archiving).
+
 ## One-time test infrastructure setup
 
 The test project, empty baseline, verified database and owner identities, and scoped API credential must be configured before the first run. A project name alone does not establish readiness. Use an API key scoped only to this dedicated test project; do not use a production connection string or an organization-wide key as ordinary test configuration. Keep the baseline empty, without an application, auth, worker, or development client attached.

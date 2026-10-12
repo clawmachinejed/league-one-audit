@@ -151,8 +151,71 @@ describe('disposable Neon API identities and owned lifecycle', () => {
     { parentBranchName: 'retained-users' }, { databaseName: 'production' }, { ownerRoleName: 'owner?leak' },
   ])('refuses protected or unprovable configuration before contacting Neon: %j', async change => {
     const state = fixture();
-    await expect(state.api.createBranch({ ...config, ...change }, runId)).rejects.toThrow();
+    await expect(state.api.createBranch({ ...config, ...change }, runId)).rejects.toMatchObject({ code: 'NEON_TEST_CONFIG_INVALID' });
     expect(state.mock).not.toHaveBeenCalled();
+  });
+
+  it.each(['ready', 'archived'])('creates one bounded child from an exact permanent %s parent without a warm-up request', async currentState => {
+    const state = fixture((method, path) => method === 'GET' && path.endsWith(config.parentBranchId)
+      ? reply({ branch: { id: config.parentBranchId, project_id: config.projectId, name: config.parentBranchName,
+        current_state: currentState, expires_at: null } }) : undefined);
+    // The supervisor validates once before createBranch repeats its own validation.
+    await state.api.validateTarget(config);
+    const receipt = await state.api.createBranch(config, runId);
+    expect(state.calls.map(({ method, path }) => ({ method, path }))).toEqual([
+      { method: 'GET', path: projectPath }, { method: 'GET', path: `${projectPath}/branches/${config.parentBranchId}` },
+      { method: 'GET', path: projectPath }, { method: 'GET', path: `${projectPath}/branches/${config.parentBranchId}` },
+      { method: 'GET', path: `${projectPath}/branches?limit=100` }, { method: 'POST', path: `${projectPath}/branches` },
+      { method: 'GET', path: branchPath }, { method: 'GET', path: `${projectPath}/endpoints` },
+    ]);
+    expect(state.calls.filter(call => call.method === 'POST').map(call => call.body)).toEqual([{
+      branch: { name: `l1-integration-${runId}`, parent_id: config.parentBranchId, init_source: 'parent-data', expires_at: receipt.expiresAt },
+      endpoints: [{ type: 'read_write', autoscaling_limit_min_cu: 0.25, autoscaling_limit_max_cu: 0.25, suspend_timeout_seconds: 300 }],
+    }]);
+    expect(Date.parse(receipt.expiresAt) - Date.now()).toBeGreaterThan(3_590_000);
+    expect(Date.parse(receipt.expiresAt) - Date.now()).toBeLessThanOrEqual(3_600_000);
+    expect(state.api.ownedReceipts()).toEqual([receipt]);
+    await state.api.deleteBranch(config, receipt);
+    expect(state.calls.filter(call => call.method === 'DELETE').map(call => call.path)).toEqual([branchPath]);
+    expect(state.calls.at(-1)).toMatchObject({ method: 'GET', path: branchPath });
+    expect(state.api.ownedReceipts()).toEqual([]);
+  });
+
+  it.each(['init', 'unknown', '', null, undefined, 0, false, {}, []])('rejects an unready or malformed parent state %j before creation', async currentState => {
+    const state = fixture((method, path) => method === 'GET' && path.endsWith(config.parentBranchId)
+      ? reply({ branch: { id: config.parentBranchId, project_id: config.projectId, name: config.parentBranchName,
+        current_state: currentState } }) : undefined);
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PARENT_STATE_MISMATCH' });
+    expect(state.calls.some(call => call.method !== 'GET')).toBe(false);
+    expect(state.api.ownedReceipts()).toEqual([]);
+  });
+
+  it.each([
+    { id: 'br-wrong-parent' }, { project_id: 'wrong-test-project' }, { name: 'wrong-test-parent' },
+  ])('still rejects an archived parent with mismatched identity %j', async change => {
+    const state = fixture((method, path) => method === 'GET' && path.endsWith(config.parentBranchId)
+      ? reply({ branch: { id: config.parentBranchId, project_id: config.projectId, name: config.parentBranchName,
+        current_state: 'archived', ...change } }) : undefined);
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PARENT_IDENTITY_MISMATCH' });
+    expect(state.calls.some(call => call.method !== 'GET')).toBe(false);
+  });
+
+  it.each(['2020-01-01T00:00:00Z', '2099-01-01T00:00:00Z'])('still rejects an archived parent with expiration %s', async expiresAt => {
+    const state = fixture((method, path) => method === 'GET' && path.endsWith(config.parentBranchId)
+      ? reply({ branch: { id: config.parentBranchId, project_id: config.projectId, name: config.parentBranchName,
+        current_state: 'archived', expires_at: expiresAt } }) : undefined);
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PARENT_EXPIRATION_MISMATCH' });
+    expect(state.calls.some(call => call.method !== 'GET')).toBe(false);
+  });
+
+  it.each(['archived', 'init', null, undefined])('never accepts a created child in state %j as ready', async currentState => {
+    const state: ReturnType<typeof fixture> = fixture((method, path) => method === 'GET' && path === branchPath && state.branch
+      ? reply({ branch: { ...state.branch, current_state: currentState } }) : undefined, { operationTimeoutMs: 5 });
+    await expect(state.api.createBranch(config, runId)).rejects.toThrow('readiness deadline');
+    expect(state.calls.filter(call => call.method === 'POST')).toHaveLength(1);
+    expect(state.api.ownedReceipts()).toHaveLength(1);
+    await state.api.deleteBranch(config, state.api.ownedReceipts()[0]);
+    expect(state.api.ownedReceipts()).toEqual([]);
   });
 
   it('rejects a preexisting same-name branch without adopting or deleting it', async () => {
@@ -175,11 +238,23 @@ describe('disposable Neon API identities and owned lifecycle', () => {
     { project: { id: 'wrong-test-123', name: config.projectName } },
   ])('requires server-reported project identity', async body => {
     const state = fixture((method, path) => method === 'GET' && path === projectPath ? reply(body) : undefined);
-    await expect(state.api.createBranch(config, runId)).rejects.toThrow('project identity');
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PROJECT_IDENTITY_MISMATCH' });
     expect(state.calls.some(call => call.method === 'POST')).toBe(false);
   });
 
-  it('requires a permanent ready parent and full paginated inventory', async () => {
+  it.each([null, [], false, 'malformed', {}, { project: null }, { project: [] }])('codes malformed successful project response %j', async body => {
+    const state = fixture((method, path) => method === 'GET' && path === projectPath ? reply(body) : undefined);
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PROJECT_IDENTITY_MISMATCH' });
+    expect(state.calls).toHaveLength(1);
+  });
+
+  it.each([null, [], false, 'malformed', {}, { branch: null }, { branch: [] }])('codes malformed successful parent response %j', async body => {
+    const state = fixture((method, path) => method === 'GET' && path.endsWith(config.parentBranchId) ? reply(body) : undefined);
+    await expect(state.api.createBranch(config, runId)).rejects.toMatchObject({ code: 'NEON_TEST_PARENT_IDENTITY_MISMATCH' });
+    expect(state.calls).toHaveLength(2);
+  });
+
+  it('requires a permanent parent and full paginated inventory', async () => {
     const state = fixture((method, path) => method === 'GET' && path.includes('branches?')
       ? path.includes('cursor=next') ? reply({ branches: [{ name: `l1-integration-${runId}` }] })
         : reply({ branches: [], pagination: { cursor: 'next' } }) : undefined);
@@ -407,6 +482,31 @@ describe('Neon asynchronous operations, ambiguous responses and redaction', () =
     expect(networkFailure.code).toBe('REQUEST_FAILED');
     expect(networkFailure.cause).toBeUndefined();
     expect(String(networkFailure)).not.toContain(databasePassword);
+  });
+
+  it.each([
+    ['config', 'NEON_TEST_CONFIG_INVALID'], ['project', 'NEON_TEST_PROJECT_IDENTITY_MISMATCH'],
+    ['parent', 'NEON_TEST_PARENT_IDENTITY_MISMATCH'], ['expiration', 'NEON_TEST_PARENT_EXPIRATION_MISMATCH'],
+    ['state', 'NEON_TEST_PARENT_STATE_MISMATCH'],
+  ] as const)('retains only the closed %s diagnostic code without rejected response values', async (kind, code) => {
+    const hostile = `${token} postgresql://owner:${databasePassword}@host/db`;
+    const state = fixture((method, path) => {
+      if (method === 'GET' && path === projectPath && kind === 'project') {
+        return reply({ project: { id: config.projectId, name: hostile }, message: hostile });
+      }
+      if (method === 'GET' && path.endsWith(config.parentBranchId)) {
+        return reply({ branch: { id: config.parentBranchId, project_id: config.projectId,
+          name: kind === 'parent' ? hostile : config.parentBranchName,
+          current_state: kind === 'state' ? hostile : 'archived',
+          expires_at: kind === 'expiration' ? hostile : null }, message: hostile });
+      }
+    });
+    const failure = await state.api.validateTarget(kind === 'config' ? { ...config, ownerRoleName: hostile } : config).catch(error => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({ code }); expect(failure.cause).toBeUndefined();
+    expect(JSON.stringify(failure)).toBe(JSON.stringify({ code }));
+    expect(String(failure)).not.toContain(token); expect(String(failure)).not.toContain(databasePassword);
+    expect(state.calls.some(call => call.method !== 'GET')).toBe(false);
   });
 
   it('bounds requests even when a fetch implementation ignores abort', async () => {

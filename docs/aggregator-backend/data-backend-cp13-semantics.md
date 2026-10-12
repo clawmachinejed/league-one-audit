@@ -560,3 +560,41 @@ sibling. The immutable artifact ZIP SHA256 is
 `4502739c26de82c22725ad340588d5cb7ad9117a54ed2eab8c132d0faf423b30`;
 acknowledged terminal receipt `run-1791839077292-22c5bc5f-be6e-4e5e-b3cd-a6fabd8c4dda-0007.json`
 SHA256 is `696310b5d222fdce58dce5c3d7950c233a2c242064ce1cc14925a7b986750b17`.
+
+### Archived-parent harness repair — October 12, 2026
+
+The following user-approved repair changes only the existing disposable test API
+client and local regressions. Exact permanent test parents may be `ready` or
+`archived`; the existing single child-creation POST handles normal unarchiving.
+The child must still reach `ready`. Compute limits, creation expiry, identity,
+TLS, empty-database, restricted-role, ownership, cancellation, cleanup and
+30/40/50-minute limits remain unchanged. No parent warm-up query, additional
+provider mutation or retry is introduced.
+
+Fixed literal diagnostic codes distinguish invalid API configuration, project
+identity, parent identity, parent expiration and parent state. Successful API
+response shapes are checked safely before field access. Errors retain only fixed
+messages/codes, so the existing lifecycle receipt serializer can explain a future
+failure without including provider values, bodies, secrets or connection strings.
+The supervisor implementation and receipt schema are unchanged; initial environment
+validation remains a separate pre-receipt boundary.
+
+Independent reviewers approved the exact three implementation/test paths before
+edits. Regression coverage uses injected responses and the actual API/lifecycle
+owners; it includes one archived-parent child creation, preserved rejection of
+unsafe identities/states/expiry, strict child readiness, and journal redaction.
+The weekly-report fixture and every existing profile pin remain unchanged.
+
+Run `38308226714` remains failed at `7da4e48`, with zero tests executed. The new
+source has not been qualified on hosted Neon. A new paid run, merge, production
+installation or activation is not authorized by this repair record. CP13 remains
+open and its product/data contract is unchanged.
+
+Local validation of the repair passed 517 focused tests across 11 files, with
+zero failures or skips, including the unchanged closed-profile and runner gates.
+The implementation agent's 99 API tests are included in that total, not additive.
+All 19 architecture tests, type checking, changed-file lint and dependency checks passed. The first local
+typecheck launcher selected the host's old Node 20 through a nested Corepack call;
+the same typecheck passed using the existing Node 24/pnpm 11 wrappers on PATH.
+No project configuration or check was relaxed. Independent final review found no
+blocking safety, privacy or scope findings.

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
+import { DisposableNeonApi } from './disposable-neon-api';
 import { assertEmptyDisposableDatabase, disposableConfiguration, DISPOSABLE_AUTHORIZATION,
   integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
 
@@ -96,6 +97,50 @@ describe('disposable lifecycle failure boundaries', () => {
     expect(runtime.delete).toHaveBeenCalledOnce(); expect(receipt.failures).toEqual(['provision']);
     expect(JSON.stringify(receipt)).not.toContain('secret-bearing');
   });
+  it.each([
+    ['config', 'NEON_TEST_CONFIG_INVALID', 0],
+    ['project', 'NEON_TEST_PROJECT_IDENTITY_MISMATCH', 1],
+    ['parent', 'NEON_TEST_PARENT_IDENTITY_MISMATCH', 2],
+    ['expiration', 'NEON_TEST_PARENT_EXPIRATION_MISMATCH', 2],
+    ['state', 'NEON_TEST_PARENT_STATE_MISMATCH', 2],
+  ] as const)('journals the fixed %s target diagnostic without provider values or secrets', async (failure, code, requests) => {
+    const { receipt, runtime, journal } = setup();
+    const config = disposableConfiguration(valid);
+    const privateValue = 'private-provider-value-do-not-retain';
+    const apiKey = 'private-api-key-do-not-retain';
+    const fetch = vi.fn<typeof globalThis.fetch>(async input => {
+      const parentRequest = new URL(String(input)).pathname.includes('/branches/');
+      const project = { id: failure === 'project' ? privateValue : config.projectId, name: config.projectName };
+      const branch = { id: failure === 'parent' ? privateValue : config.parentBranchId,
+        project_id: config.projectId, name: config.parentBranchName,
+        expires_at: failure === 'expiration' ? privateValue : null,
+        current_state: failure === 'state' ? privateValue : 'archived' };
+      return new Response(JSON.stringify({ ...(parentRequest ? { branch } : { project }),
+        message: privateValue, detail: apiKey, cause: 'postgresql://private-owner:private-password@private-host/private-db' }));
+    });
+    const api = new DisposableNeonApi({ apiKey, fetch });
+    runtime.provision.mockImplementation(async () => api.validateTarget(failure === 'config'
+      ? { ...config, databaseName: privateValue } : config));
+    runtime.delete.mockRejectedValue(new Error('No created branch identity; deletion remains unverified.'));
+    const saved: IntegrationRunReceipt[] = [];
+    journal.mockImplementation(async () => { saved.push(structuredClone(receipt)); });
+    expect(await runIntegrationLifecycle(runtime, receipt, journal)).toBe(false);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    expect(fetch.mock.calls.every(([, init]) => init?.method === 'GET')).toBe(true);
+    expect(api.ownedReceipts()).toEqual([]);
+    expect(runtime.execute).not.toHaveBeenCalled();
+    expect(runtime.clean).not.toHaveBeenCalled(); expect(runtime.revoke).not.toHaveBeenCalled();
+    expect(receipt).toMatchObject({ stage: 'failed', tests: 'not-run', failures: ['provision', 'branch-deletion'],
+      diagnostics: [{ stage: 'provision', code }], schemaCleanupVerified: false, credentialsRevoked: false, branchDeletionVerified: false });
+    expect(receipt.qualification).not.toBe('passed');
+    expect(saved.at(-1)?.diagnostics).toEqual([{ stage: 'provision', code }]);
+    const persisted = JSON.stringify(saved);
+    for (const forbidden of [privateValue, apiKey, 'postgresql://', 'private-password', 'private-host']) {
+      expect(persisted).not.toContain(forbidden);
+    }
+    expect(runtime.close).toHaveBeenCalledOnce(); expect(runtime.delete).toHaveBeenCalledOnce();
+  });
+
   it('cleans failed tests after closure, but never reports a pass', async () => {
     const { receipt, runtime, journal } = setup(); runtime.execute.mockResolvedValue({ passed: false, closed: true });
     expect(await runIntegrationLifecycle(runtime, receipt, journal)).toBe(false);
