@@ -496,3 +496,67 @@ checks passed. The final parser-leaf source also repeated the 43-assertion actua
 writer/reader PostgreSQL diagnostic successfully with zero network attempts.
 Branch publication, source CI, preview readiness and any future hosted result
 remain separately reported; none of these local checks is a release.
+
+### Weekly report hosted attempt — October 12, 2026
+
+The user authorized one disposable `data-weekly-reports-v1` run at
+`7da4e4805f9f775bb02bb51b824757bcf78d14f5`, fixed 0.25 CU, a $1 authorization
+limit, existing deadlines, automatic cleanup and no automatic retry.
+[Run 38308226714](https://github.com/clawmachinejed/league-one-audit/actions/runs/38308226714)
+executed attempt 1 at that exact source and failed before tests. This consumed
+that one-run authorization; no second dispatch or rerun occurred. The $1 limit
+was authorization, not a provider-enforced billing cap; actual billing was not
+verified, and no disposable compute was created.
+
+- **Resource and path:** the selected eight-case weekly-report profile used the
+  existing protected integration-test workflow and disposable supervisor. The
+  exact fixture digest remained
+  `298dfeec2fa275eea7993c19822541360b5041356c4fc406a924251a9b8d09a2`.
+- **Persisted result:** seven immutable supervisor receipts and one empty journal
+  reservation were retained. Provisioning stopped at `api-target-validation`;
+  no branch-creation intent, child identity, SQL connection, migrations, database
+  credentials or test process were created. No qualification report exists.
+- **Actual proof:** zero collected, executed, passed, failed or skipped test cases;
+  all eight selected cases remain unexecuted. The independent offline audit passed
+  10 evidence-integrity checks with zero network attempts. It verified the source,
+  profile context, journal chain, archive members and acknowledged terminal
+  failure. It did not accept qualification. The supervisor elapsed time was
+  385 ms; the authored 29-minute SQL allowance remains unmeasured.
+- **Remaining gap:** hosted weekly-report LOGIN, contention, real admission cadence,
+  capacity and end-to-end parity remain unqualified. Earlier successful profiles
+  keep their original source bindings. CP13 remains open, with no merge, retained
+  installation, production release or activation.
+
+The terminal receipt records `tests:not-run` and failures `provision` and
+`branch-deletion`. Schema cleanup, credential revocation and branch deletion
+remain explicitly unverified, not falsely marked successful. Source inspection
+explains the second failure: no branch had been created, so the generic deletion
+step had no owned branch identity to verify. Fresh post-acknowledgment Neon
+inspection independently showed one branch, only `integration-test-base`
+(`br-plain-bread-b7sgfdl8`), in `steep-glitter-44680287`. No manual deletion,
+SQL query, local credential retrieval or provider configuration change was performed.
+
+The console showed that baseline archived after inactivity at the displayed
+local time `2026-10-12 13:24:42`. The pre-dispatch inventory already displayed
+its archived indicator; coordinator preflight missed its incompatibility with
+`validateTarget`'s strict `current_state === 'ready'` requirement. A nine-assertion
+local diagnostic with injected responses reproduced rejection of the otherwise
+identical archived parent, acceptance of ready, and the actual supervisor's
+failure stage/flags. It attempted no network, database connection or SQL.
+The archived state is an evidenced blocker, but the original receipt retained
+no specific plain-error reason or response fields, so the exact failed predicate
+cannot be reconstructed conclusively from the hosted artifact.
+
+[Neon's branch-archiving documentation](https://neon.com/docs/guides/branch-archiving)
+identifies archived as a normal state and documents automatic unarchiving when a
+child is created. A future narrowly reviewed harness repair should handle that
+state without weakening exact identity, expiration, denylist, empty-child,
+restricted-login or compute checks, and preserve a sanitized diagnostic reason.
+No such repair or new run is included in this evidence record.
+
+Ignored evidence is retained under
+`apps/site/test-results/data-backend/cp13/sql-38308226714` and its `-metadata`
+sibling. The immutable artifact ZIP SHA256 is
+`4502739c26de82c22725ad340588d5cb7ad9117a54ed2eab8c132d0faf423b30`;
+acknowledged terminal receipt `run-1791839077292-22c5bc5f-be6e-4e5e-b3cd-a6fabd8c4dda-0007.json`
+SHA256 is `696310b5d222fdce58dce5c3d7950c233a2c242064ce1cc14925a7b986750b17`.
