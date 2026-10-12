@@ -6,9 +6,9 @@ accepted eight-case run at `29be8bc`. Read it with the unchanged
 [completion contract](data-backend-readiness-contract.md),
 [CP13 acceptance plan](data-backend-cp13-plan.md) and
 [current evidence ledger](data-backend-evidence.md#current-checkpoint-summary).
-The runs retain their separate source and proof boundaries. Neither this
-supplement nor the two-case result changes runtime interpretation or declares
-CP13 complete.
+The runs retain their separate source and proof boundaries. The later
+[documented bracket interpretation](#documented-bracket-played-interpretation--october-12-2026)
+is a new source candidate, outside those hosted proof bindings. CP13 remains open.
 
 ## Resource, existing path and persisted evidence
 
@@ -218,3 +218,71 @@ original sources. CP13 remains open for supported weekly result interpretation
 and representative multiweek completion/correction; CP20 retains full-season
 application. The new source inventory does not justify another paid run by
 itself.
+
+
+## Documented bracket played interpretation — October 12, 2026
+
+**Resource and path.** This increment reads the existing accepted playoff-bracket
+resource through `composeOfficialResults`. The acquisition adapter, raw capture,
+normalizer, typed storage and receipt-bound readers remain the same. No new
+persisted field, query, feed, scorer or result calculator is introduced.
+
+The [official bracket API documentation](https://docs.sleeper.com/#getting-the-playoff-bracket)
+defines supplied winner/loser IDs as results of a played match. The composed
+bracket result now reports `provider-reported-played` with reason
+`bracket_outcomes_match_resolved_entrants` only when two distinct supplied
+results match exactly two distinct native roster entrants in slots 1 and 2.
+This means played as observed at that bracket receipt, with its resource's
+original source clock. A correction can reverse the result; removal of an
+outcome returns the interpretation to unknown at the newer receipt. Neither
+operation rewrites the original receipt.
+
+Partial/null/missing outcomes and unresolved or unsupported entrants remain
+unknown. Weekly result/finality, ties, byes, series membership, rank/seed and
+aggregate authority do not become known from this interpretation. No bracket
+match ID is joined to a weekly matchup ID. Positive tests are explicitly
+synthetic examples of documented semantics; no positive 2026 source capture
+or representative multiweek completion/correction chain has been acquired.
+
+**Compatibility and qualification.** Independent impact review found the reader
+is an unshipped opt-in backend composition, with no website/HTTP consumer or
+persisted result version. The current v1 selector and composer stay in place;
+no compatibility router is added. Four existing positive-bracket SQL expectations
+and the two module digests are updated under an explicit reviewed scope
+extension. Profile names, case counts/order, hooks, all unrelated pins, workflow,
+guards and deadlines stay unchanged. The eight-case proof at `29be8bc` and
+two-case proof at `e7977776` remain historical source-bound evidence; they do not
+qualify these changed finality assertions. New hosted qualification has not run.
+
+**New primary-source finding.** Sleeper's publicly linked
+[current web-client asset](https://sleepercdn.com/js/bundle-289984cc906c222f030c5be6f7eab819.js?vsn=d),
+observed October 12, exposes NFL playoff starts at weeks 11–17 or disabled.
+Under those options, the earliest two-week round spans weeks 11–12, so the
+week-5 sample inventory cannot supply that completed example yet. This is a
+client-menu observation, not proof of a universal server restriction. The same
+client maps `playoff_round_type` 0 to one-week rounds, 1 to a two-week
+championship and 2 to two-week rounds throughout. Its adjacent-week selector
+supports that reading, but does not prove historical applicability or a
+particular league's aggregate result. No new runtime series rule is added.
+
+The client also contains a weekly-report metadata query keyed by league and
+week. Its anonymous availability and payload meaning remain unverified; it was
+not invoked. The client's week-comparison completion display is UI behavior,
+not sufficient evidence to promote weekly finality in this backend.
+
+The retained ignored observation is
+`apps/site/test-results/data-backend/cp13/provider-client-source/observation-2026-10-12.json`
+(SHA256 `eca5f02318220bac6013aa6dbfecb7e2ca58191e196bb82aef3e2db8aa55cf69`),
+including source-page linkage, eight bounded excerpts, offsets and fetch clocks.
+The asset has 11,944,711 UTF-8 bytes and SHA256
+`c0c23993abe7425340031b943260c084326007152566154c654e3040a7837253`.
+This static-document research made no league API request, prior-season
+collection, credential access or paid SQL run. Frozen acceptance obligations
+remain in place; further score-only recaptures would not resolve them.
+
+Local validation for this increment passed 276 tests across six targeted files
+(133 composition/bracket/exact-score cases, 78 offline profile controls and 65
+stored-intake/standings reader regressions), with zero skips. Changed-file ESLint,
+generated route types, TypeScript and the scope/diff checks passed. These checks
+supply local source evidence; two independent final reviews accepted the implementation and qualification/documentation
+diff with no material findings. Normal CI/preview are reported separately. No hosted SQL run has tested the new interpretation.

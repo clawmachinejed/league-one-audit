@@ -12,6 +12,8 @@ The separate two-case result qualifies committed restricted-reader parity for 58
 
 The later [earlier-period investigation](data-backend-cp13-semantics.md#earlier-native-period-source-investigation--october-12-2026) captured another 25 public responses: five current-2026 metadata documents and 20 weekly documents covering 232 team rows in native weeks 1–4. It found one equal-score keeper matchup consistent with separately observed season tie counts, but no explicit weekly result/completion fields. It also corrected the documented authority of populated bracket `w/l` and the NFL correction-policy citation. New retained-source regressions provide local projector/composition evidence only; runtime and SQL qualification are unchanged. CP13 remains open.
 
+The next [documented bracket interpretation](data-backend-cp13-semantics.md#documented-bracket-played-interpretation--october-12-2026) adds a narrowly guarded `provider-reported-played` state to the existing composed bracket reader. It changes no acquisition or storage path. Its positive tests are synthetic; the affected SQL assertions and source pins are prepared for new-source qualification, which has not run. Earlier paid results remain bound to their original sources. Current web-client evidence also identifies the multiweek enum and a week-11 earliest exposed NFL playoff start; these observations do not qualify a completed 2026 series. CP13 remains open, with no paid run or production release authorized.
+
 ### Evidence maturity
 
 | Label | Meaning in this ledger |

@@ -14,7 +14,7 @@ export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const OFFICIAL_RESULTS_PROFILE = 'data-official-results-v1';
 export const OFFICIAL_RESULTS_MODULE = 'integration/official-results.integration-case.ts';
 // CP13 authored fixture, pinned after independent source review; hosted SQL qualification remains separate.
-export const OFFICIAL_RESULTS_SOURCE_DIGEST = '773d4eb1ebc30e90d55af2609da7d64b775903ea83476e805f7d542dcab3ed6b';
+export const OFFICIAL_RESULTS_SOURCE_DIGEST = '592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479';
 export const OFFICIAL_RESULTS_SUITE = 'official standings and results through restricted PostgreSQL';
 export const OFFICIAL_RESULTS_TESTS = [
   'stores provider record points and supplied placement through independent typed receipts',
@@ -31,7 +31,7 @@ export const OFFICIAL_RESULTS_PATTERN = closedPattern(OFFICIAL_RESULTS_FULL_NAME
 export const OFFICIAL_RESULTS_EVIDENCE_PROFILE = 'data-official-results-evidence-v1';
 export const OFFICIAL_RESULTS_EVIDENCE_MODULE = 'integration/official-results-evidence.integration-case.ts';
 // Separate CP13 retained evidence fixture; authored source is not hosted SQL qualification.
-export const OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST = '8958cb42f09f188380b77d60849678249eb9d368883c73ad507b581e632a741a';
+export const OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST = '342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae';
 export const OFFICIAL_RESULTS_EVIDENCE_SUITE = 'retained official standings and ordinary recovery through restricted PostgreSQL';
 export const OFFICIAL_RESULTS_EVIDENCE_TESTS = [
   'replays retained 2026 standings without refreshing source clocks or claiming membership',

@@ -26,7 +26,7 @@ const sourceDigest = (value: string) => createHash('sha256').update(value).diges
  * real source evidence with synthetic enrollment/fences and no intake witness.
  * The second uses synthetic responses through ordinary public owners:14 admissions,
  * 20 GET attempts, two failed stages and their backoffs, plus zero-GET settlement.
- * No exact-period/catalog acquisition or positive provider finality/series proof.
+ * No exact-period/catalog acquisition or positive live-provider finality/series proof.
  * Existing20s operation,60s admission,30/40/50min work/lifecycle/CI limits stay fixed. */
 describe.sequential('retained official standings and ordinary recovery through restricted PostgreSQL', () => {
   let connection: IndependentDatabase;
@@ -364,7 +364,7 @@ describe.sequential('retained official standings and ordinary recovery through r
         expect(current).toMatchObject({ status: 'available', cycle: { requestId: currentId, outcome: { disposition: 'complete' } },
           intake: { status: 'available', brackets: [{ collection: 'complete', resource: { status: 'available' } }], officialResults: [{ resource: {
             status: 'available', periods: [], standings: { status: 'available', coverage: { population: 'proven', entitySet: 'full' } },
-            brackets: [{ family: 'winners_bracket', reportedResults: [{ winner: { value: '2' }, loser: { value: '1' }, finality: { status: 'unknown' } }] },
+            brackets: [{ family: 'winners_bracket', reportedResults: [{ winner: { value: '2' }, loser: { value: '1' }, finality: { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' } }] },
               { family: 'losers_bracket', resource: { value: { publication: 'published', matches: [] } }, reportedResults: [] }],
           } }] } });
         const roster = await store.readAcceptedCurrentRoster(mapping), managers = await store.readAcceptedTeamManagers(mapping);

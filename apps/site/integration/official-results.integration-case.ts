@@ -36,7 +36,7 @@ type AvailableStandings = Extract<OfficialStandingsRead, { status: 'available' }
 /** AUTHORED / HOSTED SQL-UNQUALIFIED CP13. Seven60s cases + one1080s case + two120s
  * hooks =29min authored allowance, not measured fit. Resource cases use synthetic
  * enrollment/fences; ordinary case uses actual public dispatch/admission/witnesses.
- * All provider payloads are synthetic. No live-provider semantic/finality proof.
+ * All provider payloads are synthetic. Documented bracket played semantics are tested; no live-provider finality proof.
  * Existing20s worker,60s admission,30/40/50min work/lifecycle/CI limits stay fixed. */
 describe.sequential('official standings and results through restricted PostgreSQL', () => {
   let connection: IndependentDatabase;
@@ -409,7 +409,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       periods: [{ identity: { nativeWeek: 15 }, officialOutcome: { status: 'unknown' }, finality: { status: 'unknown' }, series: { status: 'unknown' } },
         { identity: { nativeWeek: 16 }, officialOutcome: { status: 'unknown' }, finality: { status: 'unknown' }, series: { status: 'unknown' } }],
       brackets: [{ reportedResults: [{ identity: { kind: 'bracket-match', externalMatchupId: '1' }, winner: { value: '1' }, loser: { value: '2' },
-        finality: { status: 'unknown' } }, { winner: { state: 'missing' }, finality: { status: 'unknown' } }] }, { reportedResults: [] }] });
+        finality: { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' } }, { winner: { state: 'missing' }, finality: { status: 'unknown' } }] }, { reportedResults: [] }] });
     if (value.status !== 'available') throw new Error('CP13 result composition unavailable.');
     for (const period of value.periods) { expect(period).not.toHaveProperty('aggregateScore'); expect(period).not.toHaveProperty('winner'); }
     expect(value.brackets[0].reportedResults[1]).not.toHaveProperty('bye');
@@ -529,7 +529,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
           { externalRosterId: '2', effectivePoints: { value: '123.4567', source: 'raw' } },
         ] } }, context: { status: 'available' }, officialOutcome: { status: 'unknown' }, finality: { status: 'unknown' } }],
         brackets: [{ family: 'winners_bracket', resource: { status: 'available', value: { publication: 'published' } },
-          reportedResults: [{ winner: { value: '1' }, loser: { value: '2' }, finality: { status: 'unknown' } }] },
+          reportedResults: [{ winner: { value: '1' }, loser: { value: '2' }, finality: { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' } }] },
         { family: 'losers_bracket', resource: { status: 'available', value: { publication: 'unpublished', matches: [] } }, reportedResults: [] }] });
       expect(originalStandings.capture.rosterReceiptId).not.toBe(failedCapture.capture.rosterReceiptId);
       expect(await read(mapping, failedCapture.capture.rosterReceiptId)).toEqual({ ...failedCapture, selection: 'receipt' });
@@ -574,7 +574,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
             { externalRosterId: '2', effectivePoints: { value: '123.4567', source: 'raw' } },
           ] } }, context: { status: 'available' }, officialOutcome: { status: 'unknown' } }],
           brackets: [{ family: 'winners_bracket', resource: { status: 'available' },
-            reportedResults: [{ winner: { value: '2' }, loser: { value: '1' }, finality: { status: 'unknown' } }] },
+            reportedResults: [{ winner: { value: '2' }, loser: { value: '1' }, finality: { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' } }] },
           { family: 'losers_bracket', resource: { status: 'available', value: { publication: 'published', matches: [] } }, reportedResults: [] }],
         } }] });
         const old = await readPublicSleeperIntake(database, store, id, { officialResultsVersion: 'v1' });

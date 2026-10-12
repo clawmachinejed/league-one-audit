@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import priorPeriods from '../../test-support/fixtures/cp13-live-source-2026/prior-periods.json';
+import liveSource from '../../test-support/fixtures/cp13-live-source-2026/source.json';
 import type { AdministrationFamily, JsonValue } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
@@ -33,7 +34,7 @@ function scores(nativeWeek: number, custom = 0): Extract<ExactMatchupValuesRead,
 function bracket(family: BracketFamily = 'winners_bracket', payload: JsonValue = [
   { r: 2, m: 7, t1: 1, t2: 2, w: 1, l: 2, p: 1 },
 ]): Extract<AcceptedBracketRead, { status: 'available' }> {
-  // Synthetic reported outcomes test preservation, not observed availability in a real league.
+  // Synthetic reported outcomes test documented meaning, not observed availability in a real league.
   const normalized = projectPlayoffBracket(normalize(payload, family));
   if (normalized.status !== 'accepted') throw new Error('Invalid bracket fixture.');
   return { status: 'available', version: BRACKET_VALUE_VERSION, selection: 'receipt', contentId: id(51),
@@ -114,18 +115,75 @@ describe('stored official result composition', () => {
     expect(JSON.stringify(source)).toBe(before);
   });
 
-  it('returns supplied bracket outcomes in their own namespace with unknown finality and opaque position', () => {
-    const result = available();
-    expect(result.brackets[0].reportedResults).toEqual([{
-      identity: { kind: 'bracket-match', season: 2026, family: 'winners_bracket', externalMatchupId: '7' },
-      source: { bracketReceiptId: id(52), sourceOrdinal: 0, winnerPath: 'w', loserPath: 'l' },
-      winner: { state: 'supplied', raw: 1, value: '1' }, loser: { state: 'supplied', raw: 2, value: '2' },
-      finality: { status: 'unknown', reason: 'provider_finality_evidence_unproved' },
-    }]);
-    expect(result.brackets[0].reportedResults[0]).not.toHaveProperty('nativeWeek');
-    expect(result.brackets[0].reportedResults[0]).not.toHaveProperty('rank');
-    expect(result.brackets[0].resource).toEqual(bracket());
+  it.each(['winners_bracket', 'losers_bracket'] as const)(
+    'interprets synthetic supplied %s outcomes as played within their own match and observation', family => {
+      const resource = bracket(family, [{ r: 1, m: 1, t1: 3, t2: null, w: null, l: null },
+        { r: 2, m: 7, t1: '1', t2: 2, w: 1, l: '2', p: 1 }]);
+      const source = { ...input(), brackets: [{ family, resource }] }, before = JSON.stringify(source), result = available(source);
+      expect(result.brackets[0].reportedResults[1]).toEqual({
+        identity: { kind: 'bracket-match', season: 2026, family, externalMatchupId: '7' },
+        source: { bracketReceiptId: id(52), sourceOrdinal: 1, winnerPath: 'w', loserPath: 'l' },
+        winner: { state: 'supplied', raw: 1, value: '1' }, loser: { state: 'supplied', raw: '2', value: '2' },
+        finality: { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' },
+      });
+      expect(result.brackets[0].reportedResults[0].finality.status).toBe('unknown');
+      for (const field of ['nativeWeek', 'rank', 'seed', 'tie', 'bye', 'series', 'aggregateScore']) {
+        expect(result.brackets[0].reportedResults[1]).not.toHaveProperty(field);
+      }
+      expect(result.brackets[0].resource).toEqual(resource);
+      expect(result.brackets[0].resource).not.toBe(resource);
+      expect(result.periods.every(period => period.finality.status === 'unknown')).toBe(true);
+      expect(JSON.stringify(source)).toBe(before);
+    });
+
+  it.each([
+    ['missing outcomes', { t1: 1, t2: 2 }],
+    ['winner only', { t1: 1, t2: 2, w: 1 }],
+    ['loser only', { t1: 1, t2: 2, l: 2 }],
+    ['null winner', { t1: 1, t2: 2, w: null, l: 2 }],
+    ['null loser', { t1: 1, t2: 2, w: 1, l: null }],
+    ['null outcomes', { t1: 1, t2: 2, w: null, l: null }],
+    ['missing entrant', { t1: 1, w: 1, l: 2 }],
+    ['null entrant', { t1: 1, t2: null, w: 1, l: 2 }],
+    ['unresolved entrant', { t1: 1, t2: { w: 99 }, w: 1, l: 2 }],
+    ['unsupported entrant', { t1: 1, t2: { future: 99 }, w: 1, l: 2 }],
+  ] satisfies [string, JsonValue][])('retains unknown bracket finality for synthetic %s', (_name, fields) => {
+    const resource = bracket('winners_bracket', [{ r: 2, m: 7, ...(fields as Record<string, JsonValue>) }]);
+    const result = available({ ...input(), brackets: [{ family: 'winners_bracket', resource }] });
+    expect(result.brackets[0].resource).toEqual(resource);
+    expect(result.brackets[0].reportedResults[0]).toMatchObject({ winner: resource.value.matches[0].winner,
+      loser: resource.value.matches[0].loser, finality: { status: 'unknown', reason: 'provider_finality_evidence_unproved' } });
+    expect(result.brackets[0].reportedResults[0]).not.toHaveProperty('bye');
   });
+
+  it.each(['winner', 'loser'] as const)('does not promote a typed unsupported %s outcome to played', field => {
+    const resource = bracket(), match = resource.value.matches[0];
+    const unsupported = { ...resource, value: { ...resource.value, matches: [{ ...match,
+      [field]: { state: 'unsupported' as const, raw: { future: 1 }, value: null } }] } };
+    const result = available({ ...input(), brackets: [{ family: 'winners_bracket', resource: unsupported }] });
+    expect(result.brackets[0].reportedResults[0].finality.status).toBe('unknown');
+  });
+
+  it.each(['missing', 'single', 'duplicate-slot', 'extra'] as const)(
+    'does not promote an incomplete typed entrant structure (%s) to played', mode => {
+      const resource = bracket(), match = resource.value.matches[0], [first, second] = match.entrants;
+      const entrants = mode === 'missing' ? [] : mode === 'single' ? [first]
+        : mode === 'duplicate-slot' ? [first, { ...second, slot: 1 as const }] : [first, second, first];
+      const incomplete = { ...resource, value: { ...resource.value, matches: [{ ...match, entrants }] } };
+      const result = available({ ...input(), brackets: [{ family: 'winners_bracket', resource: incomplete }] });
+      expect(result.brackets[0].reportedResults[0].finality.status).toBe('unknown');
+    });
+
+  it.each([
+    ['duplicate entrants', { t1: 1, t2: '1', w: 1, l: 2 }, 'duplicate_bracket_entrant'],
+    ['same winner and loser', { t1: 1, t2: 2, w: 1, l: '1' }, 'conflicting_bracket_results'],
+    ['foreign winner', { t1: 1, t2: 2, w: 3, l: 2 }, 'bracket_result_outside_entrants'],
+    ['foreign loser', { t1: 1, t2: 2, w: 1, l: 3 }, 'bracket_result_outside_entrants'],
+  ] satisfies [string, JsonValue, string][])(
+    'keeps synthetic %s rejected by the existing bracket projector', (_name, fields, code) => {
+      const projection = projectPlayoffBracket(normalize([{ r: 2, m: 7, ...(fields as Record<string, JsonValue>) }], 'winners_bracket'));
+      expect(projection).toMatchObject({ status: 'rejected', value: null, diagnostics: [{ code }] });
+    });
 
   it('retains a keeper multi-entrant group and an unpaired team without inventing tied or bye outcomes', () => {
     const payload: JsonValue = [{ roster_id: 1, matchup_id: 7, points: 200, custom_points: 0 },
@@ -147,7 +205,7 @@ describe('stored official result composition', () => {
     for (const field of ['winner', 'tie', 'bye', 'aggregateScore']) expect(result.periods[0]).not.toHaveProperty(field);
   });
 
-  it('does not finalize contests when a later league observation reports complete and a last-scored leg', () => {
+  it('does not finalize weekly contests when a later league observation reports complete and a last-scored leg', () => {
     const observed = context(15), completed = context(15, {}, 'complete', 2);
     const original = available({ ...input(), periods: [{ nativeWeek: 15, values: scores(15), context: observed }] });
     const recapturedValues = { ...scores(15), matchupsReceiptId: id(75), provenance: completed.observedConfiguration.provenance };
@@ -162,7 +220,8 @@ describe('stored official result composition', () => {
     expect(current.periods[0].officialOutcome).toEqual(original.periods[0].officialOutcome);
     expect(current.periods[0].finality).toEqual(original.periods[0].finality);
     expect(current.periods[0].series).toEqual(original.periods[0].series);
-    expect(current.brackets[0].reportedResults[0]).toMatchObject({ winner: { value: '1' }, finality: { status: 'unknown' } });
+    expect(current.brackets[0].reportedResults).toEqual(original.brackets[0].reportedResults);
+    expect(current.brackets[0].reportedResults[0].finality.status).toBe('provider-reported-played');
     expect(original.periods[0].context).toEqual(observed);
   });
 
@@ -204,17 +263,32 @@ describe('stored official result composition', () => {
     expect(available({ mapping, standings: standings(), periods: [], brackets: [] }).periods).toEqual([]);
   });
 
-  it('keeps corrected supplied outcomes and scores separate from retained receipts and clocks', () => {
-    const original = available(), correctedBracket = { ...bracket('winners_bracket', [{ r: 2, m: 7, t1: 1, t2: 2, w: 2, l: 1 }]),
-      bracketReceiptId: id(72), provenance: { ...provenance, sourceObservedAt: '2026-10-11T10:30:00Z' } };
-    const corrected = available({ ...input(), brackets: [{ family: 'winners_bracket', resource: correctedBracket }] });
-    expect(corrected.brackets[0].reportedResults[0].winner.value).toBe('2');
-    expect(corrected.brackets[0].reportedResults[0].source.bracketReceiptId).toBe(id(72));
-    expect(original.brackets[0].reportedResults[0].winner.value).toBe('1');
-    expect(corrected.periods).toEqual(original.periods);
-    expect(corrected.standings).toEqual(original.standings);
-    expect(available()).toEqual(original);
-  });
+  it.each(['winners_bracket', 'losers_bracket'] as const)(
+    'retains synthetic %s played corrections and outcome removal with immutable original receipts and clocks', family => {
+      const originalInput = { ...input(), brackets: [{ family, resource: bracket(family) }] };
+      const correctedBracket = { ...bracket(family, [{ r: 2, m: 7, t1: 1, t2: 2, w: 2, l: 1 }]),
+        bracketReceiptId: id(72), provenance: { ...provenance, sourceObservedAt: '2026-10-11T10:30:00Z' } };
+      const removedBracket = { ...bracket(family, [{ r: 2, m: 7, t1: 1, t2: 2, w: null, l: null }]),
+        bracketReceiptId: id(73), provenance: { ...provenance, sourceObservedAt: '2026-10-11T11:00:00Z' } };
+      const correctedInput = { ...input(), brackets: [{ family, resource: correctedBracket }] };
+      const removedInput = { ...input(), brackets: [{ family, resource: removedBracket }] };
+      const before = JSON.stringify([originalInput, correctedInput, removedInput]);
+      const original = available(originalInput), corrected = available(correctedInput), removed = available(removedInput);
+      expect(original.brackets[0].reportedResults[0]).toMatchObject({ winner: { value: '1' }, loser: { value: '2' },
+        source: { bracketReceiptId: id(52) }, finality: { status: 'provider-reported-played' } });
+      expect(corrected.brackets[0].reportedResults[0]).toMatchObject({ winner: { value: '2' }, loser: { value: '1' },
+        source: { bracketReceiptId: id(72) }, finality: { status: 'provider-reported-played' } });
+      expect(removed.brackets[0].reportedResults[0]).toMatchObject({ winner: { state: 'null', value: null },
+        loser: { state: 'null', value: null }, source: { bracketReceiptId: id(73) },
+        finality: { status: 'unknown', reason: 'provider_finality_evidence_unproved' } });
+      for (const [result, source] of [[original, originalInput], [corrected, correctedInput], [removed, removedInput]] as const) {
+        expect(result.brackets[0].resource).toEqual(source.brackets[0].resource);
+        expect(result.periods).toEqual(original.periods);
+        expect(result.standings).toEqual(original.standings);
+        expect(available(source)).toEqual(result);
+      }
+      expect(JSON.stringify([originalInput, correctedInput, removedInput])).toBe(before);
+    });
 
   it.each(['season', 'mapping', 'score-mapping', 'score-week', 'bracket-mapping', 'bracket-family', 'duplicate-week', 'duplicate-bracket'] as const)(
     'rejects %s scope confusion before returning composed facts', mode => {
@@ -255,6 +329,38 @@ describe('stored official result composition', () => {
   it.each([0, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid selected native week %s even without stored values', nativeWeek => {
     expect(composeOfficialResults({ ...input(), periods: [{ nativeWeek, values: { status: 'missing' } }] }))
       .toEqual({ status: 'unavailable', reason: 'official_results_scope_mismatch' });
+  });
+});
+
+describe('retained public 2026 bracket evidence', () => {
+  it.each(liveSource.samples.flatMap(sample => (['winners_bracket', 'losers_bracket'] as const).map(family => ({ sample, family }))))
+  ('keeps $sample.key $family null outcomes unknown with its original source clock', ({ sample, family }) => {
+    // Canonical identities and receipt wrappers are synthetic; the native payload and clocks are retained source evidence.
+    const sourceMapping = { ...mapping, scope: { ...mapping.scope, leagueKey: sample.key, externalLeagueId: sample.externalLeagueId } };
+    const { document } = sample.resources[family];
+    const sourceProvenance = { origin: 'network' as const, requestStartedAt: document.requestStartedAt,
+      requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt, checkedAt: document.requestCompletedAt };
+    const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+      normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: sourceMapping.scope,
+      family, week: null, completeness: 'complete', payload: document.payload as JsonValue, provenance: sourceProvenance });
+    const projection = projectPlayoffBracket(normalized);
+    if (projection.status !== 'accepted') throw new Error('Expected retained native bracket.');
+    const resource: AcceptedBracketRead = { status: 'available', version: BRACKET_VALUE_VERSION, selection: 'receipt',
+      contentId: id(51), bracketReceiptId: id(52), acceptanceId: id(53), acceptedGeneration: 1,
+      sourceMappingRevisionId: sourceMapping.revisionId, provenance: sourceProvenance, value: projection.value };
+    const source: OfficialResultsInput = { mapping: sourceMapping, standings: { status: 'missing' }, periods: [], brackets: [{ family, resource }] };
+    const before = JSON.stringify(source), result = available(source);
+    expect(result.brackets[0].resource).toEqual(resource);
+    expect(result.brackets[0].reportedResults).toHaveLength(document.payload?.length ?? 0);
+    for (const [sourceOrdinal, reported] of result.brackets[0].reportedResults.entries()) {
+      expect(document.payload![sourceOrdinal]).toMatchObject({ w: null, l: null });
+      expect(reported).toEqual({ identity: { kind: 'bracket-match', season: 2026, family,
+        externalMatchupId: String(document.payload![sourceOrdinal].m) },
+      source: { bracketReceiptId: id(52), sourceOrdinal, winnerPath: 'w', loserPath: 'l' },
+      winner: { state: 'null', raw: null, value: null }, loser: { state: 'null', raw: null, value: null },
+      finality: { status: 'unknown', reason: 'provider_finality_evidence_unproved' } });
+    }
+    expect(JSON.stringify(source)).toBe(before);
   });
 });
 
