@@ -1,6 +1,6 @@
 # Checkpoint 13: official results and standings plan
 
-Status: design gates resolved in the [implementation design](data-backend-cp13-design.md); the isolated source candidate implements independent typed standings and selected stored result composition. The bounded eight-case hosted profile passed at `29be8bc`; unresolved source-semantic and remaining acceptance obligations keep CP13 open. See the [current evidence record](data-backend-evidence.md) and [October 12 source/acceptance supplement](data-backend-cp13-semantics.md). Prepared October 11, 2026 against `de3f0225de7c088bb82282333488e33e6742e8f8` (accepted CP12 executable source `be012efb6582c26daab5162f4841c5c7a9ba31bb`). This plan preserves the [readiness contract](data-backend-readiness-contract.md), [frozen acceptance baseline](data-backend-acceptance-baseline.md), and [current qualification record](data-backend-evidence.md#current-checkpoint-summary).
+Status: design gates resolved in the [implementation design](data-backend-cp13-design.md); the isolated source candidate implements independent typed standings and selected stored result composition. The bounded eight-case hosted profile passed at `29be8bc`; a separate two-case retained-source/recovery profile passed at `e7977776`. Their source-bound proof scopes remain separate, and unresolved source-semantic and remaining acceptance obligations keep CP13 open. See the [current evidence record](data-backend-evidence.md) and [October 12 source/acceptance supplement](data-backend-cp13-semantics.md). Prepared October 11, 2026 against `de3f0225de7c088bb82282333488e33e6742e8f8` (accepted CP12 executable source `be012efb6582c26daab5162f4841c5c7a9ba31bb`). This plan preserves the [readiness contract](data-backend-readiness-contract.md), [frozen acceptance baseline](data-backend-acceptance-baseline.md), and [current qualification record](data-backend-evidence.md#current-checkpoint-summary).
 
 ## Outcome and scope
 
@@ -109,21 +109,25 @@ For the initial planning revision, the existing scope checker passed against its
 
 The follow-up impact review changed only this plan. Independent contract and upstream/writer reviewers approved the correction with no remaining material findings in their reviewed scopes. This establishes planning/source consistency only. Its validation and publication state are recorded with the review revision; no CP13 application code, SQL run, migration application, provider acquisition or production action was performed.
 
-## October 12 retained-source and recovery verification candidate
+## October 12 retained-source and recovery verification
 
-After the accepted eight-case run and public-source inventory, the next proof
-unit is a separate two-case `data-official-results-evidence-v1` profile. It
-reuses current standings receipt/write/read paths for 58 retained native rows,
-and ordinary intake/refresh owners for accepted-membership and historical-pair
-preservation through later failures. Source clocks remain original; retained
-replay supplies no new acquisition or population witness. The existing eight
-cases and source pin remain unchanged. Independent exact-path design review
-approved qualification wiring and documentation only.
+After the accepted eight-case run and public-source inventory, the separate
+two-case `data-official-results-evidence-v1` profile passed at `e7977776` in
+[run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+with independently accepted report and automatic cleanup. It reused existing
+standings receipt/write/read paths for 58 retained native rows, and ordinary
+intake/refresh owners for accepted-membership and historical-pair preservation
+through later failures. Source clocks remain original; replay supplies no new
+acquisition or population witness. The existing eight cases and source pin
+remain unchanged; their selected-period/player-link proof was not rerun.
 
-The selected authored allowance is 23 minutes (60s + 1080s + two 120s hooks),
-within unchanged supervisor limits but not measured fit. Standard discovery
-adds one module, from 57 to 58; this makes no full-suite duration claim. The
+The selected authored allowance stayed 23 minutes (60s + 1080s + two 120s hooks).
+Cases took 3.259333s and 858.555202s; lifecycle was 947.032s, within unchanged
+supervisor limits. Standard discovery adds one module, from 57 to 58; this
+makes no full-suite duration claim. The
 [qualification notes](../../apps/site/integration/README.md#cp13-retained-source-and-ordinary-recovery-candidate)
 record case boundaries. Local/source verification, hosted qualification and
-release remain separate. Positive official-result and representative multiweek
-obligations above remain CP13 work after this candidate.
+release remain separate. The one-run authorization is consumed. Positive
+official-result and representative multiweek obligations above remain CP13 work,
+with the [next source-meaning proof unit](data-backend-cp13-semantics.md#next-complete-proof-unit)
+specified separately from this closeout.

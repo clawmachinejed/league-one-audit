@@ -1,12 +1,14 @@
 # CP13 provider meaning and remaining acceptance
 
-This October 12, 2026 supplement records the next CP13 increment after the
+This October 12, 2026 supplement records public source evidence and the accepted
+two-case retained-source/recovery run at `e7977776`, following the separately
 accepted eight-case run at `29be8bc`. Read it with the unchanged
 [completion contract](data-backend-readiness-contract.md),
 [CP13 acceptance plan](data-backend-cp13-plan.md) and
 [current evidence ledger](data-backend-evidence.md#current-checkpoint-summary).
-It adds public source evidence and deterministic reader tests. It does not
-change runtime interpretation or declare CP13 complete.
+The runs retain their separate source and proof boundaries. Neither this
+supplement nor the two-case result changes runtime interpretation or declares
+CP13 complete.
 
 ## Resource, existing path and persisted evidence
 
@@ -18,11 +20,13 @@ change runtime interpretation or declare CP13 complete.
   the owners. No second acquisition, scorer, writer or publication pipeline.
 - **Persisted result:** a minimized [source fixture](../../apps/site/test-support/fixtures/cp13-live-source-2026/source.json)
   with [provenance and minimization rules](../../apps/site/test-support/fixtures/cp13-live-source-2026/README.md),
-  a field-level inventory and additional tests of existing readers. No database
-  persistence is performed by this increment.
+  a field-level inventory and additional tests of existing readers. The later
+  two-case hosted run qualifies retained standings persistence/readback and
+  synthetic ordinary later-failure recovery through those same owners.
 - **Evidence:** one bounded public inventory, original capture clocks/digests,
-  offline native-to-projection parity and deterministic reader tests. The earlier
-  hosted 8/8 run remains bound to `29be8bc`; no new SQL run is implied.
+  offline native-to-projection parity and deterministic reader tests, followed by
+  the separately accepted [hosted 2/2 result](data-backend-evidence.md#cp13-retained-source-and-ordinary-recovery-hosted-qualification--october-12-2026)
+  at `e7977776`. The earlier hosted 8/8 run remains bound to `29be8bc`.
 
 ## Fresh public observations
 
@@ -88,53 +92,63 @@ unknown into a completed checkbox.
 
 ## Acceptance map after this increment
 
-The eleven CP13 acceptance obligations are not interchangeable with the eight
-hosted test cases. The following names the proof owner and remaining work; local
-tests never silently promote a database or live obligation to qualified.
+The eleven CP13 acceptance obligations are not interchangeable with the separate
+eight-case and two-case hosted profiles. The following names the proof owner and
+remaining work; local tests never silently promote a database or live obligation
+to qualified, and retained-source replay is not fresh live acquisition.
 
 | Obligation | Existing accepted proof and this increment | Remaining boundary |
 | --- | --- | --- |
-| CP13-01/02: standings and field states | Hosted synthetic type/field/identity/capacity cases; fresh positive PF/PA and season tie-count witnesses; retained-source offline parity | Positive supplied rank/seed not observed. Fresh source captures have not undergone a new hosted native-to-typed-to-reader run. |
+| CP13-01/02: standings and field states | Hosted synthetic type/field/identity/capacity cases at `29be8bc`; positive PF/PA and season tie-count witnesses; hosted retained-native-to-typed-to-reader parity for all 58 rows at `e7977776` | Positive supplied rank/seed not observed. Replay preserves original source clocks, unproved population and no membership/acquisition witness; it is not live ordinary ingestion. |
 | CP13-03: unusual score groups | Hosted custom-zero/equal/unpaired negatives; additional deterministic keeper composition with three entrants and an unpaired team | Added keeper/group combination is unit composition proof, not a new hosted case or positive weekly tie/bye. |
 | CP13-04: bracket evidence | Hosted synthetic outcomes/null/empty/corrections; retained current bracket entrants/edges and offline parity | No positive current-2026 `w/l` capture. Contradictory-reference component tests retain their separate source scope. |
 | CP13-05: multiweek and applicability | Hosted independent weeks 15/16 with unknown series; additional changed/contradictory applicability tests | Supported series identity, actual included legs/rules, positive completion and correction remain open through the complete chain. |
 | CP13-06: clocks and state | Hosted recapture/replay/correction history; deterministic completed-league observation and exact receipt-context pairing | League status does not finalize a contest. New transition combinations have no new hosted qualification. |
 | CP13-07/10: integrity and fences | Accepted restricted LOGIN, remap/forgery/permission checks, observed blocking and changed/equal deferred-COMMIT rollback | Preserve exact source/run binding. No runtime or database change in this increment. |
-| CP13-08: ordinary composition | Accepted populated roster/manager/selected-score/standings/bracket recovery and one corrected refresh | Bounded synthetic case is passed; full-history/live operation is not implied. |
-| CP13-09: current failure versus history | Accepted fresh failed-core recovery; new mocked-store current pending pair versus explicit old pair, and later core rejection alongside retained membership | Actual SQL preservation after previously accepted membership followed by a malformed core is still not established by these reader stubs. |
+| CP13-08: ordinary composition | Accepted populated roster/manager/selected-score/standings/bracket recovery and one corrected refresh at `29be8bc` | The `e7977776` recovery case selects neither exact periods nor a catalog and does not rerun the earlier combined proof. Full-history/live operation is not implied. |
+| CP13-09: current failure versus history | Fresh failed-core recovery at `29be8bc`; actual SQL preservation at `e7977776` after accepted membership, a pending bracket sibling and later malformed core, with request-bound standings, explicit old pairs and complete recovery | This bounded synthetic ordinary journey closes the later-core/pending-pair SQL gap. It does not establish live recurrence, other failure combinations or sustained operation. |
 | CP13-11: scope and compatibility | Existing hosted team/capacity/default-off cases; explicit 18-period/two-family and invalid-period composition boundaries | Selection of 18 stored stubs is not acquisition of 18 periods or measured maximum-reader capacity. |
 
 ## Next complete proof unit
 
-Before another paid run, assemble the source-backed interpretation and exact
-remaining SQL cases, then freeze a bounded profile with the original harness
-limits. The missing later-core/pending-pair database scenarios can use existing
-intake, receipt and bracket owners. Positive multiweek proof additionally needs
-2026 evidence for participants, included legs, applicable configuration, bracket
-identity, outcome authority and a corrected observation with old history intact.
-A synthetic completed fixture cannot establish that Sleeper exposes this chain.
+The later-core/pending-pair SQL scenarios are now qualified within their bounded
+synthetic scope. The next CP13 proof unit is a bounded current-2026 source-meaning
+inventory for official weekly outcomes, ties/byes and completion as observed.
+Start with the already verified league identities and completed native periods;
+record each candidate source field, its documented authority, exact scope and
+retained observation before changing interpretation. Scores, `last_scored_leg`,
+league status and season tie counts are not automatically contest-finality proof.
+
+For a representative supported multiweek series, establish actual participants,
+included legs, applicable configuration, bracket identity, outcome authority and
+a corrected observation with old history intact. Distinguish absent, uncollected
+and uninterpreted evidence; a synthetic completed fixture cannot establish that
+Sleeper exposes this chain. Implement and qualify only supported semantics
+through existing owners, with a separately reviewed bounded SQL candidate if
+needed. This closeout does not authorize new acquisition or another paid run.
 
 The five inspected leagues have no reported playoff results yet. That limits
 these samples; it does not establish that no suitable 2026 source can exist.
 Do not traverse prior seasons, accelerate the calendar, redefine finality or
 move the representative obligation to CP20. CP13 retains supported semantics
 and representative completion/correction; CP20 retains full-current-season
-application. Earlier paid-run authorizations remain consumed.
+application. All paid-run authorizations recorded here remain consumed.
 
-## Authored retained-source and recovery candidate
+## Accepted retained-source and recovery proof
 
-The approved continuation authors the separate two-case
-`data-official-results-evidence-v1` candidate. Its first case targets native
-58-row to committed typed row to restricted reader parity while preserving
-original observation clocks and unproved population. Its second case targets
-actual SQL preservation after accepted ordinary membership, partial current
-bracket failure, explicit historical pair reads, later malformed core with valid
-standings, and recovery. These are intended assertions, not new accepted results.
-The earlier eight-case module and its exact source pin remain unchanged.
+The separate two-case `data-official-results-evidence-v1` profile passed at
+`e7977776` in [run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+with independently accepted report and automatic cleanup. Its first case proved
+58 native rows through committed typed storage and restricted readers while
+preserving original observation clocks and unproved population. Its second case
+proved ordinary accepted-membership/history preservation through partial current
+bracket failure, later malformed core with valid standings, and recovery. The
+earlier eight-case module and its exact source pin remain unchanged.
 
-The candidate contains no new provider acquisition or runtime interpretation.
+The run contains no new live provider acquisition or runtime interpretation.
 It does not change the remaining rank/seed, weekly outcome/tie/bye/finality or
 representative multiweek obligations in the acceptance map. The selected
-23-minute authored allowance is unmeasured; full default discovery grows from
-57 to 58 modules without a full-suite fit claim. Separate exact-source paid-run
-authorization and complete report/cleanup review remain required.
+23-minute authored allowance remained fixed; measured case durations were
+3.259333 seconds and 858.555202 seconds, with a 947.032-second lifecycle. Full
+default discovery grows from 57 to 58 modules without a full-suite fit claim.
+The single-run authorization is consumed; CP13 remains open.

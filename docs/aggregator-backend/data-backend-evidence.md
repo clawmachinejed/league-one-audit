@@ -4,11 +4,11 @@
 
 As of **October 12, 2026**, this is the authoritative status overlay for the DATA backend. Read it with the frozen [CP1 completion contract](data-backend-readiness-contract.md), [CP2 source baseline and checklist](data-backend-acceptance-baseline.md), and the [CP13 scope and acceptance plan](data-backend-cp13-plan.md). The dated records below retain their original source, meaning and failures; their historical words such as “current,” “complete,” “missing” or “not started” do not override this summary.
 
-The latest bounded hosted-qualified application source is `29be8bc44d9e971105c8c9d95e6a2719f2ef2300`, with `apps/site` tree `0e554515186ed593ba6bf23d8c4a9a8cd4e4b645`. CP13's third separately authorized hosted run, [38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033), passed all eight cases of `data-official-results-v1`, including both previously failing cases and their remaining assertions. Independent artifact review accepted the source-bound report and complete automatic cleanup; a fresh Neon console inventory confirmed the disposable child is absent. The prior attempts remain failed: six passed/two failed at `f28f673`, and seven passed/one failed at `67b43a6`. The current provider inventory also resolves the prior child-absence inspection gap without changing that failed result. Earlier checkpoint results remain bound to their own sources. **CP13 is not complete: live official semantics and representative multiweek completion/correction remain open. CP1–13 are not a jointly qualified complete backend, and DATA is not production-verified.** CP3–4 remain deferred. No retained installation, production merge or DATA activation follows from this result; freshly checked local/GitHub main and Vercel production remain `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
+The latest bounded hosted qualification is the two-case `data-official-results-evidence-v1` run [38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550) at `e7977776a645439fea966751dca389a4188a447b`, accepted with complete automatic cleanup and independently observed child absence. The earlier eight-case `data-official-results-v1` proof remains bound to `29be8bc44d9e971105c8c9d95e6a2719f2ef2300`, with `apps/site` tree `0e554515186ed593ba6bf23d8c4a9a8cd4e4b645`, in [38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033). These are separate profiles at separate sources, not ten cases rerun together. The prior attempts remain failed: six passed/two failed at `f28f673`, and seven passed/one failed at `67b43a6`; their cleanup and inspection histories remain recorded below. Earlier checkpoint results retain their own source bindings. **CP13 is not complete: live official semantics and representative multiweek completion/correction remain open. CP1–13 are not a jointly qualified complete backend, and DATA is not production-verified.** CP3–4 remain deferred. No retained installation, production merge or DATA activation follows from this result; freshly checked local/GitHub main and Vercel production remain `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
 
 The October 12 continuation adds [retained public 2026 source evidence and an acceptance map](data-backend-cp13-semantics.md): 25 public GETs across five leagues, positive PF/PA and W/L/T for 58 teams, two nonzero season tie counts, and real bracket entrants/edges in three sample pairs. All 58 records lacked rank/seed; all captured bracket winners/losers were null. This narrows the source inventory without proving a completed weekly tie, bye, final result or multiweek series. Added offline parity/composition tests supply no new hosted qualification. The original paid profile, runtime, migrations and frozen contract remain unchanged.
 
-A further approved continuation authors a separate two-case `data-official-results-evidence-v1` candidate for retained-source SQL readback and ordinary later-failure preservation. Its new standard module changes default discovery from 57 to 58 while preserving the original eight-case fixture and source pin. This is source authoring only; no new hosted result, provider request or production capability is implied. The acceptance gaps above remain open.
+The separate two-case result qualifies committed restricted-reader parity for 58 retained native standings rows and one synthetic ordinary intake/refresh journey preserving accepted membership and exact historical brackets through later failures. Original source clocks and unproved replay population remain explicit. The run made no live Sleeper acquisition and selected neither exact periods nor a player catalog. Standard discovery grows from 57 to 58 modules; the original eight-case fixture and source pin remain unchanged. This measured selected run does not establish full-suite fit or close the acceptance gaps above.
 
 ### Evidence maturity
 
@@ -37,7 +37,7 @@ These labels describe evidence scope, not interchangeable completion badges. Imp
 | 10 | **Implemented and individually qualified; limited joint intake/refresh proof:** exact native-period lineup/order, player/starter scores and raw/custom/effective team values, including custom zero and corrections. | Seven cases at `3408998` ([38102677986](https://github.com/clawmachinejed/league-one-audit/actions/runs/38102677986)); ordinary changed refresh covered one selected period. Separate week-15/week-16 values do not establish an aggregate playoff series, official tie, winner or finality. |
 | 11 | **Implemented and individually qualified:** typed bracket rounds, entrants, advancement references and supplied winner/loser facts; null/empty/unsupported states and receipt-bound history. | Seven cases at `d14ced25` ([38143139162](https://github.com/clawmachinejed/league-one-audit/actions/runs/38143139162)). Bracket IDs/rounds are not weekly matchup IDs/periods; native `p` remains opaque. This synthetic resource profile was not rerun after CP12 changed shared composition. |
 | 12 | **Implemented and jointly qualified for the selected ordinary bracket path:** paired acquisition, sibling-failure preservation, original-fence rollback/recovery and one corrected refresh with immutable old pairs. | Five cases at `be012ef` ([38148712253](https://github.com/clawmachinejed/league-one-audit/actions/runs/38148712253)), using one two-roster synthetic league plus empty discovery. The main case used 14 admissions/20 GET attempts. Bracket-plus-period selectors were checked as metadata, not jointly acquired; player lists were empty and manager evidence used the default path. Live brackets and operating workload remain unqualified. |
-| 13 | **Implemented and individually qualified; limited joint intake/refresh proof:** independent typed standings and opt-in selected stored results. | Eight cases passed at `29be8bc` ([38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033)); exact-source artifact audit and automatic cleanup accepted, provider absence confirmed. PostgreSQL-precision ordering and the complete synthetic recovery/correction journey now pass together. The fresh five-league source inventory adds positive PF/PA, season tie counts and bracket structures, with offline parity only. Weekly result/finality/tie/bye and representative multiweek obligations remain open; CP13 is not complete. |
+| 13 | **Implemented and individually qualified; limited joint intake/refresh proof:** independent typed standings and opt-in selected stored results. | Eight cases passed at `29be8bc` ([38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033)). Two separate cases passed at `e7977776` ([38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550)), adding retained-native standings SQL parity and later-failure preservation/recovery; both source-bound reports and cleanup were independently accepted. The original selected-period/player-link composition remains evidence from the eight-case source. Weekly result/finality/tie/bye and representative multiweek obligations remain open; CP13 is not complete. |
 
 ### Composition and remaining acceptance owners
 
@@ -47,7 +47,7 @@ Current code permits brackets alongside either an exact-period selector or the 1
 
 | Gap from the review | Existing checkpoint owner and required acceptance |
 | --- | --- |
-| Supplied results/standings, official versus derived outcomes, provisional/unknown/final states; no score-based inference of official winners | **CP13:** the [concrete scope/acceptance matrix](data-backend-cp13-plan.md). The implemented candidate passed its bounded eight-case hosted profile; the live fact/evidence inventory has advanced through five 2026 samples, while official-result, tie/bye/finality and representative multiweek obligations remain open. See the [eleven-obligation acceptance map](data-backend-cp13-semantics.md#acceptance-map-after-this-increment), including the still-unproved later-core SQL preservation case. |
+| Supplied results/standings, official versus derived outcomes, provisional/unknown/final states; no score-based inference of official winners | **CP13:** the [concrete scope/acceptance matrix](data-backend-cp13-plan.md). The separate eight-case and two-case hosted profiles qualify their stated scopes, including retained-source standings parity and later-core SQL preservation. Official-result, tie/bye/finality and representative multiweek obligations remain open in the [eleven-obligation acceptance map](data-backend-cp13-semantics.md#acceptance-map-after-this-increment). |
 | Complete functional within-2026 period coverage and one coherent journey through schedules/history, settings, lineups, scores, results and brackets; explicit missing multiweek correspondence | **CP20:** complete and qualify the ordinary acquisition-to-reader composition, including full nonempty supported-period acquisition, version/coverage/correction semantics and the joint resource journey. Source-exposed period/series links need evidence; an unknown remains a gap, not an invented relation. |
 | Ordinary transactions, full 2026 transaction history, drafts, selections and traded picks | **CP14–19:** extend the existing acquisition/acceptance/readers and qualify their bounded compositions. Their metadata/raw paths do not count as completed typed DATA coverage. |
 | Fresh installation, constraints and role lifecycle; actual process death/restart; independent workers, fairness and failure isolation | **CP21–23:** real isolated installation and process/concurrency scenarios. Earlier selected role/rollback/recovery cases remain useful but do not complete these inventories. |
@@ -68,7 +68,87 @@ The frozen workload/targets remain unchanged. CP13 may proceed as the next resou
 3. **Persisted result:** corrected documentation that separates planning, implemented capabilities, bounded individual/joint qualification and production verification. Frozen CP1/2 contracts, original checkpoint numbering, historical failures and exact run bindings remain intact.
 4. **Real evidence and gaps:** read-only source/tree and retained-artifact review at `de3f022`, independent document review, scope and actual-diff checks. This reconciliation executes no new SQL/provider qualification and adds no production or operating proof.
 
+## CP13 retained-source and ordinary recovery hosted qualification — October 12, 2026
+
+**Accepted result.** [Run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+attempt 1, passed both ordered cases of `data-official-results-evidence-v1` at
+`e7977776a645439fea966751dca389a4188a447b`: two collected, executed and passed;
+zero failures, skips, filtered cases, retries, repeats, flaky results or unhandled
+errors. The maintained validator passed and the independent artifact audit
+accepted all 16 checks with zero issues. The earlier eight-case result and
+failed attempts retain their exact source/run scope.
+
+**Confirmed resource and path.** Retained native standings from five 2026
+leagues/58 teams passed through the existing canonical registration, receipt
+writer, committed typed storage and actual restricted LOGIN readers. Native
+W/L/T, PF/PA values/components, absent rank/seed, canonical scope and exact receipt
+readback matched. Original request/source clocks were preserved; new validation
+time did not create fresh source evidence. Population remained unproved, with
+no accepted roster/manager membership or acquisition witness invented.
+
+The second case completed one synthetic ordinary intake and configured refresh
+through the existing worker/store/readers. Fourteen admissions retained real
+60-second spacing; 20 intercepted GETs covered failed bracket-sibling and core
+stages, recovery and zero-GET settlement. Current pending pairs could not borrow
+old pairs. Later malformed core data preserved accepted nonempty membership and
+ownership while valid new standings remained request-bound. Recovery advanced
+accepted generations once, with original and failed-core standings receipts and
+exact historical bracket pairs still readable. Stored reads made zero GETs.
+No live Sleeper, catalog or exact-period acquisition occurred; reported bracket
+result finality remained unknown. This is not natural cadence or fleet proof.
+
+**Measured bounds and artifacts.** The retained-source case took 3,259.332905 ms
+of 60,000 ms; the ordinary case took 858,555.202297 ms of 1,080,000 ms. Supervisor
+lifecycle was 947,032 ms (15m 47.032s). The 23-minute authored case/hook allowance
+and original 20-second worker, 60-second admission and 30/40/50-minute
+work/lifecycle/CI limits were unchanged. This measures the selected run only.
+The actual restricted-role identity oracle passed; the Neon console directly
+confirmed PostgreSQL major 18 and fixed min/max 0.25 CU. No patch version or
+actual billed cost is claimed.
+
+The original archive is artifact `11761464596`. Ignored audit/report evidence is
+under `apps/site/test-results/data-backend/cp13/sql-38281416550-metadata`.
+
+| Evidence | SHA256 |
+| --- | --- |
+| Original archive | `52756d7b9785e20ff7e55c87f6ee79e0b09567a55a92ed35d178a8e8614ad276` |
+| Raw qualification report | `d5822ef844f6d79f503fbae87427caa023be1ad4b7e4fde91c1859613ab2f021` |
+| Terminal receipt `0012` | `60626414eb7771ccb48b56a2420ae20d528c504ed75397743fdb2799b58cb92d` |
+| `independent-qualification-audit.json` | `d0d064c1e312e3a5512521cda8e10470595689bd717cb8c001936abec1d211e3` |
+
+**Cleanup and authority.** Terminal acknowledgment at 17:17:53.9298366 UTC
+confirmed all required automatic cleanup, including process/schema closure,
+generated database-credential revocation and child deletion. A fresh Neon
+inventory at 17:19:41.563 UTC showed only the baseline. The single 0.25-CU / $1
+run authorization is consumed; no automatic retry occurred. The $1 envelope is
+an authorization limit, not an independently measured provider billing cap.
+
+**Source, preview and release remain separate.** Source CI
+[38278411383](https://github.com/clawmachinejed/league-one-audit/actions/runs/38278411383)
+tested merge `b292288cb2eaa666268322e7d77d389d5825379d`, whose tree
+`2c3824c856edc7640d4d29945285353a10343b58` exactly matches `e7977776`.
+It passed 7,143 unit tests with zero skips, 121 public browser cases with 20
+intentional account-only exclusions, and the separate 20-case account suite;
+these totals are distinct from the two SQL cases and prior local results.
+The Ready preview `Epqb1sSuBJsmfMUExReoB6tPXnEi` at the executed source was
+inspected for My Fantasy, 12 standings rows each for League One/League Two and
+correctly scoped links, with no observed console warnings/errors. Draft PR303
+remains unmerged; fresh local/GitHub main and Vercel production agree at
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Runtime and migrations are unchanged.
+This documentation closeout is not another SQL execution, installation or release.
+
+**Remaining CP13 work.** Establish source-backed weekly outcome/tie/bye/finality
+and representative multiweek completion/correction semantics, including supplied
+rank/seed availability and actual participants, included legs, applicable rules,
+bracket identity and correction lineage. Obtainable but uncollected or
+uninterpreted evidence remains open CP13 work; CP20 owns full-current-season
+application. The [next proof unit](data-backend-cp13-semantics.md#next-complete-proof-unit)
+does not follow from this consumed paid-run authority.
+
 ## CP13 retained-source readback and ordinary recovery candidate — October 12, 2026
+
+This preserved source-authoring record predates the accepted two-case run above;
+its pending statements and unmeasured allowances describe that earlier stage.
 
 **Resource and path.** A separate two-case `data-official-results-evidence-v1`
 profile targets retained standings storage/readback and accepted membership plus

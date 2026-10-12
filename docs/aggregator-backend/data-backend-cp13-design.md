@@ -14,12 +14,22 @@ season tie counts. Rank/seed were absent from all 58 records. Three sample
 bracket pairs supplied entrants and advancement edges, with every winner/loser
 still null; two pairs were JSON null. All original endpoint times are preserved.
 
+The separate two-case [retained-source/recovery qualification](data-backend-evidence.md#cp13-retained-source-and-ordinary-recovery-hosted-qualification--october-12-2026)
+subsequently passed at `e7977776`, with accepted report and automatic cleanup.
+It adds hosted restricted-reader parity for the 58 retained standings rows and
+synthetic ordinary later-failure preservation/recovery. Replay preserves original
+source clocks and unproved population; it is not fresh live ingestion. The
+eight-case result remains bound to `29be8bc`, and runtime/migrations are unchanged.
+
 Sleeper's [PF/PA guidance](https://support.sleeper.com/en/articles/4121810-do-pf-and-pa-track-the-whole-season)
 limits those totals to regular-season play. The existing `season-to-date` reader
 label describes the observed provider summary, not an aggregate across every
 phase or historically applicable standings. No runtime or payload change follows.
-This public capture is not new SQL qualification; positive weekly tie/bye,
-finality and representative multiweek completion/correction remain open. Finality means evidenced completion as observed, with corrections retained; the original inventory wording below does not add an irreversibility requirement.
+The public capture and later retained-source SQL replay have distinct scopes;
+positive weekly tie/bye, finality and representative multiweek
+completion/correction remain open. Finality means evidenced completion as observed,
+with corrections retained; the original inventory wording below does not add an
+irreversibility requirement.
 
 ## Initial fact and evidence inventory
 
@@ -79,6 +89,9 @@ At this design baseline, local pure tests covered retained zero-field parsing, s
 CP13 retains the obligation to establish supported official result/standings semantics and representative ties/byes/multiweek completion/correction. Unknown output safely represents present uncertainty but does not close that obligation. CP20 owns complete within-2026 periods/legs/history composition and application of established semantics; CP23–26 own fleet refresh and sustained freshness proof, and CP30 owns coherent final-source qualification. This increment does not prove the frozen few-minute active-data target or the fifteen-minute results/standings refresh target.
 
 ## Retained-source and later-failure qualification continuation
+
+This section preserves the pre-run design. Its pending statements describe that
+earlier stage; the accepted result is recorded in the current overlay above.
 
 The next candidate uses a separate closed two-case module/profile so the
 accepted eight-case source and inventory retain their exact meanings. Existing

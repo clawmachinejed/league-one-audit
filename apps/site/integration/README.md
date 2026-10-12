@@ -800,10 +800,12 @@ above remain historical failures. This continuation preserves that module and
 its source pin unchanged.
 
 The separate `data-official-results-evidence-v1` profile selects exactly two
-ordered cases in `official-results-evidence.integration-case.ts`. It is an
-**authored, hosted SQL-unqualified candidate**. Its future fixed command is
-`pnpm test:integration --profile=data-official-results-evidence-v1`, only after
-separate exact-source authorization. Standard discovery grows from 57 to 58
+ordered cases in `official-results-evidence.integration-case.ts`. Both passed at
+`e7977776a645439fea966751dca389a4188a447b` in separately authorized
+[run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+with independently accepted report and automatic cleanup. Its fixed command is
+`pnpm test:integration --profile=data-official-results-evidence-v1`; that one-run
+authorization is consumed and supplies no retry. Standard discovery grows from 57 to 58
 modules, retaining all prior modules. This is not a claim that the complete
 suite fits the 30-minute work limit.
 
@@ -818,9 +820,9 @@ have distinct meanings. Replay has a live write fence but no fabricated current
 acquisition witness or backdated reservation. Population remains unproved and
 minimized rows cannot establish accepted roster or manager membership.
 
-The ordinary case first completes a synthetic intake with populated membership
-and both brackets, then tests a failed bracket sibling and malformed core data
-during refresh. Assertions must show pending current pairs cannot borrow old
+The ordinary case completed a synthetic intake with populated membership
+and both brackets, then tested a failed bracket sibling and malformed core data
+during refresh. Its assertions showed pending current pairs cannot borrow old
 pairs, exact historical pairs remain stable, independently valid standings stay
 request-bound, prior membership survives rejection, and recovery settles. It
 selects neither exact-period acquisition nor a player-directory acquisition;
@@ -828,11 +830,15 @@ canonical player resolution and selected scores retain their separate earlier
 proof. All HTTP responses in this case are intercepted synthetic fixtures.
 
 One 60-second case, one 1,080-second case and two 120-second hooks total a
-23-minute authored allowance, not an elapsed measurement or cost guarantee.
-The ordinary design budgets 14 admissions and 20 GET attempts, both real retry
-backoffs and zero-GET settlement within its existing 1,080 seconds. All original
+23-minute authored allowance. The measured cases took 3.259333 seconds and
+858.555202 seconds; supervisor lifecycle was 947.032 seconds. The ordinary case
+passed 14 admissions and 20 intercepted GET attempts, both real retry backoffs
+and zero-GET settlement within its existing 1,080 seconds. All original
 worker, admission, supervisor, lifecycle and CI deadlines and cleanup/identity/
-role/source guards remain unchanged. Offline source and report tests do not
-qualify PostgreSQL behavior. Passing these cases would narrow retained-source
-readback and failure-preservation gaps; it would not establish positive provider
-finality, weekly ties/byes, multiweek completion/correction or fleet freshness.
+role/source guards remain unchanged. The selected hosted run qualifies retained-source
+readback and failure preservation within its exact source/case boundaries;
+offline checks and the earlier eight-case proof remain separate evidence. No
+positive provider finality, weekly ties/byes, multiweek completion/correction,
+natural cadence, full-suite timing or fleet freshness follows. Full report,
+cleanup, source-CI and release state are in the
+[DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md#cp13-retained-source-and-ordinary-recovery-hosted-qualification--october-12-2026).
