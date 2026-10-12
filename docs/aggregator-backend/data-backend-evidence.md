@@ -6,6 +6,8 @@ As of **October 12, 2026**, this is the authoritative status overlay for the DAT
 
 The latest bounded hosted-qualified application source is `29be8bc44d9e971105c8c9d95e6a2719f2ef2300`, with `apps/site` tree `0e554515186ed593ba6bf23d8c4a9a8cd4e4b645`. CP13's third separately authorized hosted run, [38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033), passed all eight cases of `data-official-results-v1`, including both previously failing cases and their remaining assertions. Independent artifact review accepted the source-bound report and complete automatic cleanup; a fresh Neon console inventory confirmed the disposable child is absent. The prior attempts remain failed: six passed/two failed at `f28f673`, and seven passed/one failed at `67b43a6`. The current provider inventory also resolves the prior child-absence inspection gap without changing that failed result. Earlier checkpoint results remain bound to their own sources. **CP13 is not complete: live official semantics and representative multiweek completion/correction remain open. CP1–13 are not a jointly qualified complete backend, and DATA is not production-verified.** CP3–4 remain deferred. No retained installation, production merge or DATA activation follows from this result; freshly checked local/GitHub main and Vercel production remain `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`.
 
+The October 12 continuation adds [retained public 2026 source evidence and an acceptance map](data-backend-cp13-semantics.md): 25 public GETs across five leagues, positive PF/PA and W/L/T for 58 teams, two nonzero season tie counts, and real bracket entrants/edges in three sample pairs. All 58 records lacked rank/seed; all captured bracket winners/losers were null. This narrows the source inventory without proving a completed weekly tie, bye, final result or multiweek series. Added offline parity/composition tests supply no new hosted qualification. The original paid profile, runtime, migrations and frozen contract remain unchanged.
+
 ### Evidence maturity
 
 | Label | Meaning in this ledger |
@@ -33,7 +35,7 @@ These labels describe evidence scope, not interchangeable completion badges. Imp
 | 10 | **Implemented and individually qualified; limited joint intake/refresh proof:** exact native-period lineup/order, player/starter scores and raw/custom/effective team values, including custom zero and corrections. | Seven cases at `3408998` ([38102677986](https://github.com/clawmachinejed/league-one-audit/actions/runs/38102677986)); ordinary changed refresh covered one selected period. Separate week-15/week-16 values do not establish an aggregate playoff series, official tie, winner or finality. |
 | 11 | **Implemented and individually qualified:** typed bracket rounds, entrants, advancement references and supplied winner/loser facts; null/empty/unsupported states and receipt-bound history. | Seven cases at `d14ced25` ([38143139162](https://github.com/clawmachinejed/league-one-audit/actions/runs/38143139162)). Bracket IDs/rounds are not weekly matchup IDs/periods; native `p` remains opaque. This synthetic resource profile was not rerun after CP12 changed shared composition. |
 | 12 | **Implemented and jointly qualified for the selected ordinary bracket path:** paired acquisition, sibling-failure preservation, original-fence rollback/recovery and one corrected refresh with immutable old pairs. | Five cases at `be012ef` ([38148712253](https://github.com/clawmachinejed/league-one-audit/actions/runs/38148712253)), using one two-roster synthetic league plus empty discovery. The main case used 14 admissions/20 GET attempts. Bracket-plus-period selectors were checked as metadata, not jointly acquired; player lists were empty and manager evidence used the default path. Live brackets and operating workload remain unqualified. |
-| 13 | **Implemented and individually qualified; limited joint intake/refresh proof:** independent typed standings and opt-in selected stored results. | Eight cases passed at `29be8bc` ([38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033)); exact-source artifact audit and automatic cleanup accepted, provider absence confirmed. PostgreSQL-precision ordering and the complete synthetic recovery/correction journey now pass together. Live official-result/finality/tie/bye and representative multiweek obligations remain open; CP13 is not complete. |
+| 13 | **Implemented and individually qualified; limited joint intake/refresh proof:** independent typed standings and opt-in selected stored results. | Eight cases passed at `29be8bc` ([38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033)); exact-source artifact audit and automatic cleanup accepted, provider absence confirmed. PostgreSQL-precision ordering and the complete synthetic recovery/correction journey now pass together. The fresh five-league source inventory adds positive PF/PA, season tie counts and bracket structures, with offline parity only. Weekly result/finality/tie/bye and representative multiweek obligations remain open; CP13 is not complete. |
 
 ### Composition and remaining acceptance owners
 
@@ -43,7 +45,7 @@ Current code permits brackets alongside either an exact-period selector or the 1
 
 | Gap from the review | Existing checkpoint owner and required acceptance |
 | --- | --- |
-| Supplied results/standings, official versus derived outcomes, provisional/unknown/final states; no score-based inference of official winners | **CP13:** the [concrete scope/acceptance matrix](data-backend-cp13-plan.md). The implemented candidate passed its bounded eight-case hosted profile; the live fact/evidence inventory and unresolved official-result, tie/bye/finality and representative multiweek obligations remain open. |
+| Supplied results/standings, official versus derived outcomes, provisional/unknown/final states; no score-based inference of official winners | **CP13:** the [concrete scope/acceptance matrix](data-backend-cp13-plan.md). The implemented candidate passed its bounded eight-case hosted profile; the live fact/evidence inventory has advanced through five 2026 samples, while official-result, tie/bye/finality and representative multiweek obligations remain open. See the [eleven-obligation acceptance map](data-backend-cp13-semantics.md#acceptance-map-after-this-increment), including the still-unproved later-core SQL preservation case. |
 | Complete functional within-2026 period coverage and one coherent journey through schedules/history, settings, lineups, scores, results and brackets; explicit missing multiweek correspondence | **CP20:** complete and qualify the ordinary acquisition-to-reader composition, including full nonempty supported-period acquisition, version/coverage/correction semantics and the joint resource journey. Source-exposed period/series links need evidence; an unknown remains a gap, not an invented relation. |
 | Ordinary transactions, full 2026 transaction history, drafts, selections and traded picks | **CP14–19:** extend the existing acquisition/acceptance/readers and qualify their bounded compositions. Their metadata/raw paths do not count as completed typed DATA coverage. |
 | Fresh installation, constraints and role lifecycle; actual process death/restart; independent workers, fairness and failure isolation | **CP21–23:** real isolated installation and process/concurrency scenarios. Earlier selected role/rollback/recovery cases remain useful but do not complete these inventories. |
@@ -63,6 +65,90 @@ The frozen workload/targets remain unchanged. CP13 may proceed as the next resou
 2. **Existing path:** this ledger's current overlay and preserved source/run history → [public intake notes](data-backend-ingestion.md) and the [CP13 plan](data-backend-cp13-plan.md). No adapter, writer, reader, migration or worker changes.
 3. **Persisted result:** corrected documentation that separates planning, implemented capabilities, bounded individual/joint qualification and production verification. Frozen CP1/2 contracts, original checkpoint numbering, historical failures and exact run bindings remain intact.
 4. **Real evidence and gaps:** read-only source/tree and retained-artifact review at `de3f022`, independent document review, scope and actual-diff checks. This reconciliation executes no new SQL/provider qualification and adds no production or operating proof.
+
+## CP13 public source evidence and remaining acceptance — October 12, 2026
+
+**Scope and result.** Continued with the existing public Sleeper adapter,
+administration normalizer, standings/bracket projectors and stored result readers.
+Persisted a minimized [25-document fixture](../../apps/site/test-support/fixtures/cp13-live-source-2026/README.md)
+and the [provider-meaning/acceptance supplement](data-backend-cp13-semantics.md).
+The five sample leagues include native type 0/1/2 observations and all three
+regression customers. Current identity and season 2026 were verified before
+dependent GETs. This was public read-only acquisition followed by offline tests,
+not a database ingestion or a repeated paid qualification run.
+
+The first successful metadata response was retained at `15:36:56.262Z`.
+A disposable-script selector error (`leg` instead of `settings.leg`) stopped that
+attempt; the resume reused its unchanged response and clocks, making 24 new
+requests. The original failed attempt remains retained. All **25 total GETs**
+returned HTTP 200; zero redirects or automatic retries. Native/source clocks and
+serialized-original/minimized-document hashes remain separate. The 92,529 bytes
+of original serialized documents and 97,097-byte pretty-printed minimized fixture
+have different envelopes/metadata and are not HTTP wire sizes. Manifest SHA256:
+`85ab60e5e4e5e785342122d6147520d14aac21859d1b6b5bea3391988818155a`.
+Fixture SHA256:
+`a50f6085548815519f77f1be1be8c4e0fd12acbfdd7ae7a023ab451361fbad0d`.
+
+All 58 roster rows supplied positive PF/PA with native decimal components and
+W/L/T; two supplied `ties: 1`. Rank and seed were absent from all 58. Four bracket
+responses were JSON null; six contained 36 total matches and 40 advancement
+edges, with every `w/l` null. These are observations of those sources, not
+provider-wide absence or positive weekly outcome evidence. Primary Sleeper
+guidance establishes that PF/PA excludes playoffs/consolation; the existing
+`season-to-date` label does not claim otherwise or historical applicability.
+
+**Deterministic additions.** Existing test files now check all captured standings
+components and exact values, native bracket structure, custom-zero keeper groups
+with more than two entrants, an unpaired team, completed-league status without
+contest finality, changed/contradictory applicability, 18 selected periods with
+both bracket families, excess/invalid selections, current pending bracket pairs
+versus explicitly selected older pairs, and retained membership alongside later
+failed core work. The last scenarios use mocked stores: they do not establish
+actual SQL write preservation. No runtime, integration fixture/profile pin,
+migration, provider configuration, scheduler or production setting changed.
+
+**Review and local verification.** Independent GPT-6 Astra ultra review accepted
+all 25 original-to-minimized copies, hashes, clocks, request accounting, test
+assertions, exact scope extensions and CP13/CP20 boundary. Review corrected the
+first-capture timestamp and clarified that source-evidenced finality can later
+be corrected; irreversibility is not an added contract requirement.
+
+The increment adds 31 deterministic cases. Scope, dependency consistency, full
+lint, generated route types and TypeScript passed. The first verification failed
+on a JSON-import inference issue in the new bracket test; a narrow `JsonValue`
+boundary annotation fixed it without changing native data or assertions. The
+next normal full run passed 7,128 tests, skipped one and timed out one unchanged
+artifact-heavy diagnostic case at Vitest's 5,000-ms default; build was not reached.
+That diagnostic file independently passed 220/220 with unchanged deadlines when
+run alone. The complete suite then passed **7,129 tests in 314 files, one skip**,
+using four local workers and every original case/deadline, followed by a passing
+normal production build. The skip is the existing scoped-IPv6 listener test on
+this Windows host without a scoped IPv6 interface. Execution load sensitivity is
+plausible, not a measured root cause. Neither failed run is rewritten as passing;
+the four-worker command differs from the default workflow. Hosted CI and browser
+results for publication remain separate evidence.
+
+Retained logs under `test-results/cp13/`:
+
+| Artifact | SHA256 |
+| --- | --- |
+| `source-evidence-verify.log` — initial typing failure | `7e9ba0959c4a21ab037a3ba654bfcb507906dc02280430288f014639e63c8ff5` |
+| `source-evidence-verify-corrected.log` — normal full-suite timeout | `2072048ff35a4d88f565cd8a7d13044bb44d5c18401fc8bf48cac869c05a37ae` |
+| `source-evidence-diagnostic-targeted.log` — 220/220 isolated pass | `ccd4c12bd80346f50633331617d95030b68d4e84b51b32c2bb3ea0d435456f97` |
+| `source-evidence-unit-bounded-workers.log` — full four-worker pass | `fa370e116b2297d6d820de90c13722155a10e955b2df808c96f3e1c0c1ad9424` |
+| `source-evidence-build.log` — build pass | `15e372c0d7cd28a8a33c1c120f4bec21d2175a23ccd64034ba791556d7de1cc6` |
+
+**Source and release boundary.** Freshly rechecked local/GitHub `main`, Vercel
+repository/root/production branch and Ready production still agree on
+`87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; no competing production owner was
+observed in the inspected worktree/PR/workflow/deployment evidence. The preceding
+documentation closeout at `14c6d7b` passed verify and browser-smoke in
+[38270092080](https://github.com/clawmachinejed/league-one-audit/actions/runs/38270092080).
+The hosted 8/8 proof remains bound to `29be8bc`. New tests/fixture bytes change the
+application source tree without changing its runtime bytes. CP13 remains open;
+positive supported semantics, representative multiweek completion/correction
+and the named remaining SQL scenarios require their own evidence. No merge,
+DATA activation or production release occurred. No new paid run is authorized.
 
 ## CP13 bounded hosted qualification — October 12, 2026
 

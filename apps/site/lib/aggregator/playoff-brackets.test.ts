@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AdministrationEnvelope, JsonValue, NormalizedAdministrationObservation } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
+import liveSource from '../../test-support/fixtures/cp13-live-source-2026/source.json';
 import { BRACKET_MATCH_LIMIT, BRACKET_PAYLOAD_BYTE_LIMIT, BRACKET_POLICY, bracketScope, projectPlayoffBracket,
   type BracketFamily } from './playoff-brackets';
 
@@ -173,5 +174,81 @@ describe('typed native playoff bracket projection', () => {
     expect(first.contentHash).not.toBe(reordered.contentHash);
     expect(value(source).matches.map(match => match.externalMatchupId)).toEqual(['3', '2', '1']);
     expect(value([...source].reverse()).matches.map(match => match.externalMatchupId)).toEqual(['1', '2', '3']);
+  });
+});
+
+describe('retained October 12 public playoff bracket observations', () => {
+  type NativeMatch = { m: number; r: number; t1: number | null; t2: number | null; w: null; l: null; p?: number;
+    t1_from?: { w?: number; l?: number }; t2_from?: { w?: number; l?: number } };
+  const expected: Record<string, { matches: number; edges: number; winners: readonly number[]; losers: readonly number[] }> = {
+    league1: { matches: 0, edges: 0, winners: [], losers: [] },
+    league2: { matches: 0, edges: 0, winners: [], losers: [] },
+    dynasty: { matches: 4, edges: 4, winners: [8, 4, 9, 1], losers: [7, 6, 3, 2] },
+    'keeper-sample': { matches: 7, edges: 8, winners: [10, 3, 5, 12, 11, 7], losers: [6, 8, 9, 1, 4, 2] },
+    'redraft-sample': { matches: 7, edges: 8, winners: [2, 12, 7, 5, 10, 4], losers: [8, 11, 3, 6, 9, 1] },
+  };
+
+  it.each(liveSource.samples.flatMap(sample => (['winners_bracket', 'losers_bracket'] as const).map(family => ({ sample, family }))))
+  ('preserves $sample.key $family publication, entrants and advancement without an outcome', ({ sample, family }) => {
+    const { document } = sample.resources[family];
+    // JSON imports infer optional undefined members for heterogeneous rows; retained JSON contains no undefined values.
+    const normalized = normalize(document.payload as JsonValue, family, {
+      scope: { provider: 'sleeper', leagueKey: sample.key, externalLeagueId: sample.externalLeagueId, season: 2026 },
+      provenance: { origin: 'network', requestStartedAt: document.requestStartedAt,
+        requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt,
+        checkedAt: document.requestCompletedAt },
+    });
+    const result = projectPlayoffBracket(normalized);
+    expect(result.status).toBe('accepted');
+    if (result.status !== 'accepted') throw new Error('Expected retained native bracket to be representable.');
+    const bracket = result.value;
+    const inventory = expected[sample.key];
+    expect(bracket.family).toBe(family);
+    expect(bracket.season).toBe(2026);
+    expect(bracket.matches).toHaveLength(inventory.matches);
+    expect(bracket.edges).toHaveLength(inventory.edges);
+    expect(bracket.limitations).toEqual([]);
+    expect(bracket).not.toHaveProperty('finality');
+    expect(bracket).not.toHaveProperty('scoringPeriodId');
+    const rows = document.payload as readonly NativeMatch[] | null;
+    if (rows === null) {
+      expect(bracket).toEqual({ family, season: 2026, publication: 'unpublished', rounds: [], matches: [], edges: [], limitations: [] });
+      return;
+    }
+    expect(bracket.publication).toBe('published');
+    expect(bracket.matches.flatMap(match => match.entrants.flatMap(entrant => entrant.native.value?.kind === 'roster'
+      ? [Number(entrant.native.value.externalRosterId)] : []))).toEqual(family === 'winners_bracket' ? inventory.winners : inventory.losers);
+    for (const [index, row] of rows.entries()) {
+      const match = bracket.matches[index];
+      expect(match.externalMatchupId).toBe(String(row.m));
+      expect(match.sourceOrdinal).toBe(index);
+      expect(match.round).toBe(row.r);
+      expect(match.winner).toEqual({ state: 'null', raw: null, value: null });
+      expect(match.loser).toEqual({ state: 'null', raw: null, value: null });
+      expect(row.w).toBeNull();
+      expect(row.l).toBeNull();
+      expect(match.nativePosition).toEqual(Object.hasOwn(row, 'p')
+        ? { state: 'supplied', raw: row.p, value: row.p } : { state: 'missing', raw: null, value: null });
+      expect(match).not.toHaveProperty('seed');
+      expect(match).not.toHaveProperty('bye');
+      for (const slot of [1, 2] as const) {
+        const native = row[slot === 1 ? 't1' : 't2'];
+        const from = row[slot === 1 ? 't1_from' : 't2_from'];
+        expect(match.entrants[slot - 1].native).toEqual(native === null
+          ? { state: 'null', raw: null, value: null }
+          : { state: 'supplied', raw: native, value: { kind: 'roster', externalRosterId: String(native) } });
+        expect(match.entrants[slot - 1].from).toEqual(from === undefined
+          ? { state: 'missing', raw: null, value: null }
+          : { state: 'supplied', raw: from, value: { outcome: from.w === undefined ? 'loser' : 'winner',
+            externalMatchupId: String(from.w ?? from.l) } });
+      }
+    }
+    expect(bracket.edges).toEqual(rows.flatMap(row => ([1, 2] as const).flatMap(slot => {
+      const from = row[slot === 1 ? 't1_from' : 't2_from'];
+      return from === undefined ? [] : [{ targetMatchupId: String(row.m), slot,
+        sourceMatchupId: String(from.w ?? from.l), outcome: from.w === undefined ? 'loser' : 'winner',
+        origin: 'explicit', sourceMatchPresent: true }];
+    })));
+    expect(normalized.envelope.payload).toEqual(document.payload);
   });
 });

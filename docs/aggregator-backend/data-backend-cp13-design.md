@@ -2,7 +2,30 @@
 
 This records the implementation decisions following the [CP13 plan](data-backend-cp13-plan.md), against planning source `6c6e9cfc92ceedd2fed347bc8e1aa3918493c1da`. It does not revise the frozen [readiness contract](data-backend-readiness-contract.md) or [acceptance baseline](data-backend-acceptance-baseline.md), declare CP13 complete, or authorize a provider capture, SQL run, migration application or release. Local synthetic tests establish behavior; they cannot establish that a real provider league supplied a fact.
 
-## Fact and evidence inventory
+## Current source-evidence overlay — October 12, 2026
+
+The bounded hosted profile subsequently passed at `29be8bc`; its exact source,
+eight-case result and cleanup are in the [evidence ledger](data-backend-evidence.md#cp13-bounded-hosted-qualification--october-12-2026).
+The [source/acceptance supplement](data-backend-cp13-semantics.md) now records
+25 public GETs across five current-2026 samples and offline projector parity.
+It supersedes the original inventory's uncollected-positive-PA statement:
+58 teams supplied positive PF/PA and W/L/T components, including two nonzero
+season tie counts. Rank/seed were absent from all 58 records. Three sample
+bracket pairs supplied entrants and advancement edges, with every winner/loser
+still null; two pairs were JSON null. All original endpoint times are preserved.
+
+Sleeper's [PF/PA guidance](https://support.sleeper.com/en/articles/4121810-do-pf-and-pa-track-the-whole-season)
+limits those totals to regular-season play. The existing `season-to-date` reader
+label describes the observed provider summary, not an aggregate across every
+phase or historically applicable standings. No runtime or payload change follows.
+This public capture is not new SQL qualification; positive weekly tie/bye,
+finality and representative multiweek completion/correction remain open. Finality means evidenced completion as observed, with corrections retained; the original inventory wording below does not add an irreversibility requirement.
+
+## Initial fact and evidence inventory
+
+The following inventory is preserved as the implementation-design baseline.
+Its uncollected statements describe that earlier evidence, not the current
+capture inventory linked above.
 
 Evidence categories are separate: observed in a retained source, absent from an inspected capture, documented source shape, synthetic behavior witness, uncollected source, and uninterpreted source meaning. An absent field in one capture is not proof that the provider never supplies it. An uncollected or uninterpreted obtainable fact remains an open obligation.
 
@@ -51,6 +74,6 @@ Public intake/refresh exposure is opt-in through `officialResultsVersion: 'v1'`.
 
 The author/root and independent upstream/reader/contract reviewers agreed this supplement is smaller than a separate standings acceptance lifecycle while preserving independent field coverage. Read-only projection unchanged would remain player-gated and lack independent durable typing; weakening player acceptance would corrupt its meaning. A separate generic lifecycle is not justified while the existing receipt, attempt and witness can carry the result.
 
-Local pure tests cover retained zero-field parsing, synthetic field states/identity/capacity, unrelated-player rejection independence, corrections, exact decimals, namespace isolation and unknown interpretation. Hosted restricted-LOGIN PostgreSQL qualification, original-fence late-COMMIT proof and ordinary persisted failure/recovery remain required; source tests and the separately recorded local PostgreSQL diagnostics do not replace them. A new live provider fixture acquisition has not been performed for this inventory.
+At this design baseline, local pure tests covered retained zero-field parsing, synthetic field states/identity/capacity, unrelated-player rejection independence, corrections, exact decimals, namespace isolation and unknown interpretation. Hosted restricted-LOGIN qualification, late-COMMIT and ordinary failure/recovery were then pending, and no new live capture had been performed. Their subsequent bounded qualification and the October 12 public inventory are recorded in the current overlay above; source tests and local diagnostics do not replace hosted evidence.
 
 CP13 retains the obligation to establish supported official result/standings semantics and representative ties/byes/multiweek completion/correction. Unknown output safely represents present uncertainty but does not close that obligation. CP20 owns complete within-2026 periods/legs/history composition and application of established semantics; CP23–26 own fleet refresh and sustained freshness proof, and CP30 owns coherent final-source qualification. This increment does not prove the frozen few-minute active-data target or the fifteen-minute results/standings refresh target.

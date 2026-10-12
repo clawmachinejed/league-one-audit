@@ -1190,6 +1190,22 @@
       "proof": "Source candidate only. Require targeted/full source checks, actual-query local diagnostics, independent exact-source review and separately authorized hosted restricted-LOGIN qualification. No paid run, credentials, retained migration application, merge, release, deadline increase or new provider feed authorized.",
       "reviewer": "Independent GPT-6 Astra ultra /root/cp13_upstream_audit, /root/cp11_contract and /root/cp13_contract_review confirmed storage, reader and contract purposes before implementation; coordinating root confirmed shared-core necessity. Final source review remains required.",
       "reviewReference": "DATA-CP13-2026-10-11-OFFICIAL-RESULTS"
+    },
+    {
+      "path": "apps/site/test-support/fixtures/cp13-live-source-2026/source.json",
+      "resource": "CP13 current-2026 retained public official-result source evidence",
+      "purpose": "Retain minimized public 2026 league identity/settings, roster standings, selected week-five score fields and both bracket responses from five already evidenced sample league IDs. Preserve original endpoint times, field absence/null/value/order, serialized-original and minimized-document digests, and the reused first metadata response. No synthetic positive result, inferred seed/bye/series/finality, raw manager/player metadata or other-season traversal.",
+      "proof": "Source evidence and offline parity only; validate every retained slice and digest against original captures, independently review claims, run targeted/source checks. Existing runtime, SQL fixture/profile pins, guards, frozen contract and production remain unchanged. No new paid SQL, credentials, retained installation or release.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/cp13_retained_source_inventory confirmed these exact fixture paths and purposes before registration; final content/provenance review remains required.",
+      "reviewReference": "DATA-CP13-2026-10-12-SOURCE-EVIDENCE"
+    },
+    {
+      "path": "apps/site/test-support/fixtures/cp13-live-source-2026/README.md",
+      "resource": "CP13 current-2026 retained public official-result source evidence",
+      "purpose": "Document exact sample provenance, 25 public GET attempts, retained first response after a disposable-script selector error, minimization/hash rules and native field observations. Distinguish public source/offline parser proof from hosted stored-reader qualification, coverage limits and unresolved CP13 semantics.",
+      "proof": "Source evidence and offline parity only; validate every retained slice and digest against original captures, independently review claims, run targeted/source checks. Existing runtime, SQL fixture/profile pins, guards, frozen contract and production remain unchanged. No new paid SQL, credentials, retained installation or release.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/cp13_retained_source_inventory confirmed these exact fixture paths and purposes before registration; final content/provenance review remains required.",
+      "reviewReference": "DATA-CP13-2026-10-12-SOURCE-EVIDENCE"
     }
   ],
   "governanceChanges": [

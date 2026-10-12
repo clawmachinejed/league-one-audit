@@ -183,3 +183,132 @@ describe('additive DATA official-results composition', () => {
     expect(f.query.mock.calls.find(call => call[0].includes('read-request'))?.[1]).toEqual([requestId]);
   });
 });
+
+describe('current CP13 collection versus explicitly retained history', () => {
+  it('keeps a pending bracket pair unavailable while an explicitly selected prior request retains its exact pair', async () => {
+    const f = intakeFixture(), priorRequestId = id(80);
+    const fetch = vi.fn(() => { throw Error('provider access is forbidden during stored reads'); }); vi.stubGlobal('fetch', fetch);
+    const witness: PublicCaptureWitness = { ...f.witness,
+      work: { requestId: priorRequestId, revision: 5, kind: 'playoff-brackets', season: 2026, externalLeagueId: mapping.scope.externalLeagueId },
+      fence: { ...f.witness.fence, workerId: id(61), generation: 4 }, dispatchNonce: id(62),
+      attempts: { winners_bracket: { id: id(63), nonce: id(64) }, losers_bracket: { id: id(65), nonce: id(66) } } };
+    const provenance = { ...f.row.provenance, acquisition: witness, sourceObservedAt: '2026-10-10T12:00:00.000Z' };
+    const readBracket = vi.fn(async (_mapping: unknown, selection: { family: BracketFamily; bracketReceiptId?: string }): Promise<AcceptedBracketRead> => ({
+      status: 'available', version: BRACKET_VALUE_VERSION, selection: 'receipt', contentId: id(67), bracketReceiptId: selection.bracketReceiptId!,
+      acceptanceId: id(68), acceptedGeneration: 1, sourceMappingRevisionId: mapping.revisionId, provenance,
+      value: { family: selection.family, season: 2026, publication: 'unpublished', matches: [], edges: [], rounds: [], limitations: [] } }));
+    const administration = { ...f.administration, readAcceptedBracket: readBracket };
+    const checkpoint = { ordinal: 1, season: 2026, external_league_id: mapping.scope.externalLeagueId,
+      status: 'complete', failure_count: 0, reason: null, league_season_id: mapping.leagueSeasonId, source_mapping: mapping,
+      worker_id: id(61), generation: 4, winners_bracket_receipt_id: id(69), losers_bracket_receipt_id: id(70), recorded_at: at };
+    const query = vi.fn((sql: string, values: readonly unknown[]): readonly DatabaseRow[] => {
+      const prior = values[0] === priorRequestId;
+      expect([requestId, priorRequestId]).toContain(values[0]);
+      if (sql.includes('read-request')) return [{ id: values[0], seasons: [2026], terminal: prior, external_manager_id: '777',
+        selected_playoff_brackets: PUBLIC_PLAYOFF_BRACKETS }];
+      // A pending task has no paired checkpoint; the reader must not borrow either earlier accepted family.
+      if (sql.includes('read-brackets')) return [prior ? checkpoint : { ordinal: 1, season: 2026,
+        external_league_id: mapping.scope.externalLeagueId, status: 'pending', failure_count: 1, reason: 'losers-bracket-pending',
+        worker_id: null, generation: null, league_season_id: null, source_mapping: null, recorded_at: null,
+        winners_bracket_receipt_id: null, losers_bracket_receipt_id: null }];
+      if (sql === PUBLIC_OFFICIAL_STANDINGS_SQL && prior) return [];
+      return f.query(sql, values);
+    });
+    const client = database(query), options = { officialResultsVersion: 'v1' as const };
+    const current = await readPublicSleeperIntake(client, administration, requestId, options);
+    expect(current).toMatchObject({ status: 'pending', request: { id: requestId },
+      brackets: [{ collection: 'pending', failureCount: 1, resource: { status: 'unavailable', reason: 'bracket-capture-not-complete' }, acquisition: null }],
+      officialResults: [{ resource: { standings: f.resource, brackets: [
+        { family: 'winners_bracket', resource: { status: 'unavailable', reason: 'bracket-capture-not-complete' }, reportedResults: [] },
+        { family: 'losers_bracket', resource: { status: 'unavailable', reason: 'bracket-capture-not-complete' }, reportedResults: [] },
+      ] } }] });
+    expect(readBracket).not.toHaveBeenCalled();
+
+    const prior = await readPublicSleeperIntake(client, administration, priorRequestId, options);
+    expect(prior).toMatchObject({ request: { id: priorRequestId }, brackets: [{ collection: 'complete',
+      resource: { status: 'available', winners_bracket: { bracketReceiptId: id(69), provenance },
+        losers_bracket: { bracketReceiptId: id(70), provenance } },
+      acquisition: { winnersBracketReceiptId: id(69), losersBracketReceiptId: id(70) } }],
+    officialResults: [{ resource: { brackets: [
+      { family: 'winners_bracket', resource: { bracketReceiptId: id(69), provenance } },
+      { family: 'losers_bracket', resource: { bracketReceiptId: id(70), provenance } },
+    ] } }] });
+    expect(readBracket.mock.calls).toEqual([
+      [mapping, { family: 'winners_bracket', bracketReceiptId: id(69) }],
+      [mapping, { family: 'losers_bracket', bracketReceiptId: id(70) }],
+    ]);
+    const reread = await readPublicSleeperIntake(client, administration, requestId, options);
+    expect(reread).toMatchObject({ status: 'pending', brackets: 'brackets' in current ? current.brackets : undefined });
+    expect(readBracket).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { reader: 'intake', terminal: false, status: 'pending' },
+    { reader: 'intake', terminal: true, status: 'partial' },
+    { reader: 'refresh', terminal: false, status: 'pending' },
+    { reader: 'refresh', terminal: true, status: 'partial' },
+  ] as const)('$reader exposes retained membership after a later core rejection without completing the current request (terminal=$terminal)', async ({ reader, terminal, status }) => {
+    const f = intakeFixture(), priorRequestId = id(80), targetId = id(40), priorAt = '2026-10-04T12:00:00.000Z';
+    const fetch = vi.fn(() => { throw Error('provider access is forbidden during stored reads'); }); vi.stubGlobal('fetch', fetch);
+    const accepted = { scope: { kind: 'enrolled-resource' as const, connectionId: mapping.connectionId,
+      leagueSeasonId: mapping.leagueSeasonId, family: 'teams' as const, entityId: null, scoringPeriodId: null,
+      audienceId: 'public', coverageSpecId: 'sleeper-current-all-teams-primary-owners-v1' },
+      canonicalNormalizerVersion: 'sleeper-current-team-managers-v1', sourceMappingRevisionId: mapping.revisionId,
+      contentId: id(81), observationIds: [id(82)], validationVersion: 'latest-network-attempt-v1', acceptedGeneration: 1,
+      verifiedAt: priorAt, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'observed' as const };
+    const provenance = { origin: 'network' as const, requestStartedAt: priorAt, requestCompletedAt: priorAt,
+      sourceObservedAt: priorAt, checkedAt: priorAt };
+    const retainedMembership = { status: 'available' as const, accepted,
+      receipt: { id: id(82), attemptId: id(83), ordinal: 1, provenance, configurationContentId: id(84),
+        expectedTeamCount: 1, legacyObservationId: id(85) },
+      teams: [{ seasonTeamId: id(86), sourceTeam: { provider: 'sleeper' as const, resourceKind: 'roster',
+        nativeNamespace: mapping.scope.externalLeagueId, nativeId: '1' },
+        primaryOwner: { state: 'owned' as const, manager: { providerManagerId: id(87),
+          sourceManager: { provider: 'sleeper' as const, resourceKind: 'user', nativeNamespace: 'sleeper', nativeId: '777' } } },
+        coManagers: { state: 'known' as const, managers: [], completeness: 'complete' as const, sourceRefs: [id(82)], observedAt: priorAt },
+        assurance: 'provider-observed' as const, effectiveFrom: null, effectiveTo: null, effectiveEvidence: 'unknown' as const }] };
+    const before = structuredClone(retainedMembership);
+    // This simulates a stored rejection plus an existing accepted head. It does not execute a writer or prove SQL preservation.
+    const readMembership = vi.fn(async () => retainedMembership), recordObservation = vi.fn();
+    const administration = { ...f.administration, readAcceptedTeamManagers: readMembership, recordObservation };
+    const rejection = { revision: 4, resource: 'core', source_scope: mapping.scope,
+      request_started_at: at, request_completed_at: at, reason: 'roster-primary-owner-invalid' };
+    const target = { id: targetId, provider: 'sleeper', source_manager_account_id: id(41), external_manager_id: '777',
+      configuration_revision: 3, current_cycle: 4, next_due_at: at, last_served_at: at, selection_failure_count: 0,
+      selection_failed_at: null, selection_next_eligible_at: at, identity_request_id: priorRequestId, seasons: [2026], cadence_seconds: 60,
+      expires_at: '2026-10-12T12:00:00.000Z', paused: false, configured_at: at, cycle_configuration_revision: 2,
+      intake_id: requestId, cycle_created_at: at, due_at: at, disposition: terminal ? 'partial' : null,
+      outcome_recorded_at: terminal ? at : null, outcome_next_due_at: terminal ? at : null, cycle_seasons: [2026] };
+    const query = vi.fn((sql: string, values: readonly unknown[]): readonly DatabaseRow[] => {
+      if (sql.includes('public-data-refresh:read')) { expect(values).toEqual([targetId]); return [target]; }
+      const prior = values[0] === priorRequestId;
+      expect([requestId, priorRequestId]).toContain(values[0]);
+      if (sql.includes('read-request')) return [{ id: values[0], seasons: [2026], terminal: prior || terminal, external_manager_id: '777' }];
+      if (sql.includes('read-candidates')) return [{ season: 2026, external_league_id: mapping.scope.externalLeagueId,
+        name: 'Independent standings', stage: prior ? 'complete' : 'unavailable', league_season_id: mapping.leagueSeasonId,
+        managers_receipt_id: prior ? id(82) : null }];
+      if (sql.includes('read-rejections')) return prior ? [] : [rejection];
+      if (sql === PUBLIC_OFFICIAL_STANDINGS_SQL && prior) return [];
+      return f.query(sql, values);
+    });
+    const client = database(query), options = { officialResultsVersion: 'v1' as const };
+    const prior = await readPublicSleeperIntake(client, administration, priorRequestId, options);
+    expect(prior).toMatchObject({ leagues: [{ resources: { teamManagers: retainedMembership } }] });
+    query.mockClear();
+    const refresh = reader === 'refresh' ? await readPublicDataRefresh(client, administration, targetId, options) : null;
+    const current = refresh?.status === 'available' ? refresh.intake
+      : await readPublicSleeperIntake(client, administration, requestId, options);
+    expect(current).toMatchObject({ status, request: { id: requestId, terminal }, rejected: [rejection],
+      leagues: [{ collection: 'unavailable', resources: { teamManagers: {
+        status: 'unavailable', reason: 'intake-capture-not-current-head', retained: before } } }],
+      officialResults: [{ acquisition: { requestId }, resource: { status: 'available', standings: f.resource } }] });
+    if (refresh) expect(refresh).toMatchObject({ status: 'available', cycle: { requestId, configurationRevision: 2 },
+      target: { identityRequestId: priorRequestId, configurationRevision: 3 } });
+    expect(query.mock.calls.filter(([sql]) => sql.includes('read-request')).map(([, values]) => values)).toEqual([[requestId]]);
+    expect(retainedMembership).toEqual(before);
+    expect(readMembership).toHaveBeenCalledWith(mapping);
+    expect(recordObservation).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
