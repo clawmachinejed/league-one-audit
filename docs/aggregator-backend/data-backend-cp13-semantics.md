@@ -392,3 +392,107 @@ scope guard and diff checks passed. Runtime, migrations, qualification profiles,
 frozen CP1/2/13 requirements and earlier source fixtures are unchanged from
 700d7fa. No application test suite or paid verification was rerun for this
 static evidence increment; publication and automatic checks are reported separately.
+
+## Weekly report integration candidate — October 12, 2026
+
+This continuation implements the previously identified report path. It does not
+change the frozen CP13 acceptance requirements. Selected current-2026 weeks 1–18
+use the existing intake/refresh owner and bounded Sleeper adapter, with one
+anonymous GraphQL POST per report work. Omitted or empty selectors add no report
+work, capability query or report reader query. The existing 20-second work and
+60-second admission limits remain unchanged.
+
+The new native weekly_report family retains the complete response and exact
+league/week key. Additive R049 stores two typed tables (report header and team
+facts) through the existing generic reservation, receipt and acceptance lifecycle;
+R050 extends existing durable tasks, witnesses, recovery and checkpoints. Reports
+cannot borrow roster, bracket or other-resource acceptance. Canonical team links
+use source roster IDs without a sample-league allowlist. No migration has been
+applied to a retained or hosted database by this continuation.
+
+Every optional fact retains known/absent/null/invalid state. Native rank, round,
+record, streak, W/L/T and points retain their supplied values and source paths;
+record strings remain uninterpreted. Provider created/last_updated values are
+separate from retrieval clocks. Report facts do not replace current roster
+standings, identify weekly contests, or establish completion/series semantics.
+
+Current reads select the latest attempt before qualification. A failed latest
+capture returns unavailable; earlier accepted receipts remain explicitly readable.
+A successful metadata:null observation records unpublished state with no team
+rows, independently of a published empty report. Corrections retain new immutable
+receipts even when provider metadata timestamps are unchanged. PostgreSQL compares
+reservation/capture timestamps at database precision and stores decimals as NUMERIC.
+
+Resource bounds are 20 teams, 8 MiB raw response and 1 MiB typed value per report.
+JavaScript checks compact JSON bytes; PostgreSQL checks its jsonb text serialization,
+which can conservatively reject a near-limit value. These are admission ceilings,
+not proof of maximum capacity, all-league availability or a freshness guarantee.
+
+Initial local evidence:140 focused parser/composer/normalizer tests passed. A
+network-blocked PGlite diagnostic applied all 50 maintained migrations to an empty
+in-memory database and passed 43 assertions using the actual restricted SET ROLE
+writer and reader. It covered 24 retained rows, independent source/replay clocks,
+exact decimals, equal-provider-clock correction, replay, failed-current/history,
+null removal, optional field parity, direct-mutation/private-helper denials and
+forged-value rejection. Zero network attempts were made. This is local PostgreSQL
+source validation, not hosted LOGIN/concurrency qualification or live acquisition.
+The source-bound eight-case `data-weekly-reports-v1` candidate is authored and
+independently reviewed. Its 29-minute authored allowance has not been measured by
+a hosted run. The fixture LF SHA256 is
+`298dfeec2fa275eea7993c19822541360b5041356c4fc406a924251a9b8d09a2`.
+
+Positive current-2026 played-bracket evidence, generic weekly outcome/finality
+semantics and representative multiweek completion/correction remain open. Earlier
+paid results retain their original source bindings; no paid run, merge, production
+installation or activation is authorized by this implementation record.
+
+### Final review findings and local verification
+
+Review reproduced a raw-size bypass: rejected report payloads could still be
+stored through the generic writer, including submissions without typed acceptance.
+The new report-only outer R049 guard now rejects a PostgreSQL-serialized raw body
+over 8 MiB before either delegation path. The repaired local diagnostic requires
+no durable writer changes for either rejection. Bounded malformed evidence remains
+storable. Original failure evidence is retained; the passing result does not erase it.
+
+The complete unit suite also exposed a prohibited runtime import cycle. The sole
+parser, constants and DTOs now live in a pure dependency leaf; the public report
+facade keeps the same exports and source-verifying projector. The architecture
+rule was preserved. A native test fixture collision was independently reproduced
+and repaired within the new fixture: it reuses an existing native mapping unchanged,
+or remaps only the connection it created after its exact native assertions. Both
+module orders were exercised locally without changing the older source fixture.
+
+Local PostgreSQL records under ignored repo-root test-results/cp13/local-sql are
+separate from hosted qualification:
+
+| Diagnostic | Passed assertions | Boundary |
+| --- | ---: | --- |
+| Native report/limits/original fence expiry | 61 | Includes the earlier 43 native round-trip assertions plus capacity rejection and changed/equal-content commit rollback after expiry. Single-session SET ROLE, not blocked multi-connection LOGIN proof. |
+| Repaired raw admission | 61 | Includes shared native setup plus hard raw rejection through both writer paths and bounded rejected-evidence controls. Counts overlap the preceding diagnostic and are not additive. |
+| Ordinary witnessed intake/refresh | 37 | Actual adapter, writer, scheduler, checkpoint and readers; 13 dispatches, 15 synthetic requests and three report POSTs. Owner-only scheduler-clock acceleration was explicit; original source/receipt/reservation clocks and 20-second fences were unchanged. This does not prove real 60-second cadence. |
+| Native fixture module ordering | 18 | Both report-first and prior-evidence-first identity arrangements pass with exact native report keys and rows. |
+
+All used an empty in-memory database with all 50 maintained migrations, the
+restricted runtime role and zero real network attempts. Original hosted LOGIN,
+blocked-relation contention and real admission timing remain in the prepared
+hosted profile. The prior eight-case/two-case hosted proofs retain their original
+sources; this new profile does not requalify the changed played-bracket assertions.
+
+The local full lint command initially included an ignored downloaded Sleeper
+client bundle and exhausted its default heap. Application lint passes when that
+local test-results evidence directory is excluded; no lint configuration or rule
+was relaxed. An existing diagnostic test hit its unchanged five-second timeout
+under full parallel local load, then passed focused execution. Final full local
+verification uses four workers; production work and qualification deadlines are
+unchanged. Profile-digest failures during concurrent fixture authoring are retained
+as working-source checks and are superseded only by checks of the frozen pin.
+
+Frozen-candidate local units passed: 7,298 tests in 318 files, with one explicit
+scoped-IPv6 listener test skipped because this host has no matching interface.
+The acyclic architecture check passes. All 259 closed profile/runner checks passed
+independently, and final TypeScript, application lint, dependency, scope and diff
+checks passed. The final parser-leaf source also repeated the 43-assertion actual
+writer/reader PostgreSQL diagnostic successfully with zero network attempts.
+Branch publication, source CI, preview readiness and any future hosted result
+remain separately reported; none of these local checks is a release.

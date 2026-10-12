@@ -56,6 +56,8 @@ export async function recordCapturedAdministration(
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     /** Both reservations precede the original witnessed bracket requests. */
     bracketAttempts?: Readonly<Record<BracketFamily, RosterAttempt>>;
+    /** Exact report reservation, made before its original network request. */
+    weeklyReportAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
@@ -120,7 +122,9 @@ export async function recordCapturedAdministration(
       ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
     const bracketAttempt = origin === 'network' && (document.family === 'winners_bracket' || document.family === 'losers_bracket')
       ? options.bracketAttempts?.[document.family] : undefined;
-    let mapping = Boolean(bracketAttempt) || ['rosters', 'league'].includes(document.family)
+    const weeklyReportAttempt = origin === 'network' && document.family === 'weekly_report'
+      && options.weeklyReportAttempt?.week === document.week ? options.weeklyReportAttempt.attempt : undefined;
+    let mapping = Boolean(bracketAttempt) || Boolean(weeklyReportAttempt) || ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
         || options.calculationCapture?.week === document.week))
@@ -148,7 +152,10 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => bracketAttempt
+    const write = () => weeklyReportAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, { attempt: weeklyReportAttempt })
+      : bracketAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, { attempt: bracketAttempt })
       : managerEvidenceAttempt

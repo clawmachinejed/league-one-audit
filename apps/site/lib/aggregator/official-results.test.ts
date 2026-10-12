@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import weeklyReportSource from '../../test-support/fixtures/cp13-live-source-2026/weekly-reports.json';
+import { WEEKLY_REPORT_VERSION, projectWeeklyReport, type AcceptedWeeklyReportRead } from './weekly-reports';
 import priorPeriods from '../../test-support/fixtures/cp13-live-source-2026/prior-periods.json';
 import liveSource from '../../test-support/fixtures/cp13-live-source-2026/source.json';
 import type { AdministrationFamily, JsonValue } from '../league-administration/contracts';
@@ -502,5 +504,53 @@ describe('retained public 2026 prior-period score evidence', () => {
     expect(period).toMatchObject({ identity: { season: 2026, nativeWeek: 1 }, officialOutcome: { status: 'unknown' },
       finality: { status: 'unknown' }, series: { status: 'unknown' } });
     expect(period).not.toHaveProperty('tie');
+  });
+});
+
+
+describe('separate selected report facts', () => {
+  function reportInput(): OfficialResultsInput {
+    const source = weeklyReportSource.observations[0];
+    const scoped = { ...mapping, scope: { ...mapping.scope, externalLeagueId: source.externalLeagueId } };
+    const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+      normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', family: 'weekly_report', week: 1,
+      scope: scoped.scope, completeness: 'complete', payload: source.report.document,
+      provenance: { origin: 'network', requestStartedAt: source.report.source.requestStartedAt,
+        requestCompletedAt: source.report.source.requestCompletedAt, sourceObservedAt: source.report.source.sourceObservedAt,
+        checkedAt: source.report.source.requestCompletedAt } });
+    const report = projectWeeklyReport(normalized);
+    if (report.status !== 'accepted') throw new Error('Expected retained report');
+    // Canonical IDs and receipts are synthetic; native report values and clocks are real retained evidence.
+    const resource: AcceptedWeeklyReportRead = { status: 'available', version: WEEKLY_REPORT_VERSION, selection: 'receipt',
+      contentId: id(801), reportReceiptId: id(802), acceptanceId: id(803), acceptedGeneration: 1,
+      sourceMappingRevisionId: scoped.revisionId, provenance: normalized.envelope.provenance,
+      freshness: 'unknown', historicalApplicability: 'report-only',
+      value: { ...report.value, teams: report.value.teams.map(team => ({ ...team, seasonTeamId: id(900 + Number(team.externalRosterId)) })) } };
+    return { mapping: scoped, standings: { status: 'missing' }, periods: [], brackets: [], reports: [{ nativeWeek: 1, resource }] };
+  }
+  it('preserves selected report receipt, native values and clocks without replacing other components', () => {
+    const input = reportInput(), before = JSON.stringify(input), result = composeOfficialResults(input);
+    expect(result.status).toBe('available');
+    if (result.status !== 'available') throw new Error('Unavailable');
+    expect(result.reports).toEqual(input.reports); expect(result.reports).not.toBe(input.reports);
+    expect(result.periods).toEqual([]); expect(result.standings).toEqual({ status: 'missing' }); expect(result.brackets).toEqual([]);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+  it('keeps omitted report output absent and an explicit missing report visible', () => {
+    const input = reportInput(); delete (input as { reports?: unknown }).reports;
+    expect(composeOfficialResults(input)).not.toHaveProperty('reports');
+    expect(composeOfficialResults({ ...input, reports: [{ nativeWeek: 4, resource: { status: 'missing' } }] }))
+      .toMatchObject({ reports: [{ nativeWeek: 4, resource: { status: 'missing' } }] });
+  });
+  it.each(['duplicate', 'week', 'mapping', 'key', 'season', 'version'] as const)('rejects cross-scope report composition: %s', field => {
+    const input = structuredClone(reportInput());
+    const reports = input.reports as { nativeWeek: number; resource: Extract<AcceptedWeeklyReportRead, { status: 'available' }> }[];
+    if (field === 'duplicate') reports.push(reports[0]);
+    if (field === 'week') reports[0].nativeWeek = 2;
+    if (field === 'mapping') reports[0].resource = { ...reports[0].resource, sourceMappingRevisionId: id(999) };
+    if (field === 'key') reports[0].resource = { ...reports[0].resource, value: { ...reports[0].resource.value, reportKey: 'another-league_1' } };
+    if (field === 'season') reports[0].resource = { ...reports[0].resource, value: { ...reports[0].resource.value, season: 2025 as 2026 } };
+    if (field === 'version') reports[0].resource = { ...reports[0].resource, version: 'wrong' as typeof WEEKLY_REPORT_VERSION };
+    expect(composeOfficialResults(input)).toEqual({ status: 'unavailable', reason: 'official_results_scope_mismatch' });
   });
 });

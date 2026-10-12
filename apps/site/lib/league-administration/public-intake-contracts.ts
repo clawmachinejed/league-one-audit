@@ -19,7 +19,8 @@ export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; 
   officialResultsVersion?: 'v1' }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
-  exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets }>;
+  exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets;
+  weeklyReports?: readonly PublicExactPeriod[] }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -41,6 +42,10 @@ export type PublicBracketCheckpoint = Readonly<{
   observations: Readonly<{ winners_bracket: string; losers_bracket: string }>;
   receipts: Readonly<{ winners_bracket: string; losers_bracket: string }>;
 }>;
+export type PublicWeeklyReportCheckpoint = Readonly<{
+  observations: Readonly<{ weekly_report: string }>;
+  receipts: Readonly<{ weekly_report: string }>;
+}>;
 export type PublicIntakeStore = Readonly<{
   submit: (input: PublicIntakeInput) => Promise<void>;
   recover: (requestId: string, fence: AdministrationWriteFence) => Promise<void>;
@@ -60,6 +65,9 @@ export type PublicIntakeStore = Readonly<{
   /** R047 capability; selected bracket tasks require witnessed paired completion. */
   completeBrackets?: (work: Extract<PublicIntakeWork, { kind: 'playoff-brackets' }>, mapping: AdministrationSourceMapping,
     checkpoint: PublicBracketCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
+  /** R050 optional exact-week report completion, bound to its original acquisition. */
+  completeWeeklyReport?: (work: Extract<PublicIntakeWork, { kind: 'weekly-report' }>, mapping: AdministrationSourceMapping,
+    checkpoint: PublicWeeklyReportCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
   fail: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<void>;
 }>;
 
@@ -96,6 +104,24 @@ export function normalizePublicPlayoffBrackets(value: unknown, seasons: readonly
   }
   return PUBLIC_PLAYOFF_BRACKETS;
 }
+/** Explicit report keys are independent of matchup inventory and never traverse seasons. */
+export function normalizePublicWeeklyReports(value: unknown, seasons: readonly number[]): readonly PublicExactPeriod[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 18) throw new Error('Invalid public weekly-report scope.');
+  if (!value.length) return [];
+  if (seasons.length !== 1 || seasons[0] !== 2026) throw new Error('Invalid public weekly-report season.');
+  const periods = value.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Invalid public weekly-report scope.');
+    const period = entry as Record<string, unknown>;
+    if (Object.keys(period).sort().join('|') !== 'nativeWeek|season' || period.season !== 2026
+      || !Number.isInteger(period.nativeWeek) || Number(period.nativeWeek) < 1 || Number(period.nativeWeek) > 18) {
+      throw new Error('Invalid public weekly-report scope.');
+    }
+    return { season: 2026, nativeWeek: Number(period.nativeWeek) };
+  });
+  if (new Set(periods.map(period => period.nativeWeek)).size !== periods.length) throw new Error('Duplicate public weekly-report week.');
+  return periods.sort((left, right) => left.nativeWeek - right.nativeWeek);
+}
 export function publicInventoryPeriods(): readonly PublicExactPeriod[] {
   return Array.from({ length: 18 }, (_, index) => ({ season: 2026, nativeWeek: index + 1 }));
 }
@@ -118,10 +144,11 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
     || !Array.isArray(input.seasons) || input.seasons.length < 1 || input.seasons.length > 3
     || input.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
+  const weeklyReports = normalizePublicWeeklyReports(input.weeklyReports, input.seasons);
   const playoffBrackets = normalizePublicPlayoffBrackets(input.playoffBrackets, input.seasons);
   const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
   if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), username: input.username, seasons: [...input.seasons].sort((a, b) => a - b),
-    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}) };
+    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}) };
 }

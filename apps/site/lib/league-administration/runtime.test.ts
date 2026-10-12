@@ -38,6 +38,27 @@ function fakeStore(): LeagueAdministrationStore {
 }
 
 describe('administration collection and enrollment composition', () => {
+  it('forwards only the original network reservation for the exact report week', async () => {
+    const store = fakeStore();
+    const reportScope = { ...scope, externalLeagueId: '1395875117568913408' };
+    const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',
+      revisionId: '33333333-3333-4333-8333-333333333333', generation: 1, scope: reportScope };
+    const attempt = { id: 'report-attempt', scopeId: 'report-scope', ordinal: 1, expectedGeneration: 0 };
+    const report = { family: 'weekly_report' as const, week: 4, payload: { data: { metadata: null } },
+      requestStartedAt: time, requestCompletedAt: time };
+    await recordCapturedAdministration(reportScope, [{ ...report, origin: 'network' }],
+      { store, mapping, weeklyReportAttempt: { week: 4, attempt }, now: () => new Date(time) });
+    const first = vi.mocked(store.recordObservation).mock.calls[0];
+    expect(first[0]).toMatchObject({ status: 'accepted', envelope: { family: 'weekly_report', week: 4 } });
+    expect(first[2]).toEqual(mapping); expect(first.slice(3, 12).every(value => value === undefined)).toBe(true);
+    expect(first[12]).toEqual({ attempt });
+    await recordCapturedAdministration(reportScope, [{ ...report, origin: 'cache' }],
+      { store, mapping, weeklyReportAttempt: { week: 4, attempt }, now: () => new Date(time) });
+    await recordCapturedAdministration(reportScope, [{ ...report, week: 1, origin: 'network' }],
+      { store, mapping, weeklyReportAttempt: { week: 4, attempt }, now: () => new Date(time) });
+    expect(vi.mocked(store.recordObservation).mock.calls[1]).toHaveLength(3);
+    expect(vi.mocked(store.recordObservation).mock.calls[2]).toHaveLength(3);
+  });
   it('forwards only the reserved exact native transaction week, including Week 0', async () => {
     const store = fakeStore();
     const mapping = { connectionId: '11111111-1111-4111-8111-111111111111', leagueSeasonId: '22222222-2222-4222-8222-222222222222',

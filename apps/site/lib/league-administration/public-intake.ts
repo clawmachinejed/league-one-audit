@@ -1,6 +1,6 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
+import { capturePublicSleeperCore, capturePublicSleeperWeeklyReport, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
 import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import type { CapturedAdministrationDocument } from './contracts';
@@ -21,6 +21,7 @@ export type PublicIntakeDependencies = Readonly<{
   jobs: Pick<ProjectionStore, 'acquireJob' | 'completeJob' | 'failJob'>;
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
+    weeklyReport?: typeof capturePublicSleeperWeeklyReport;
     bracket?: (leagueId: string, family: BracketFamily, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument> }>;
   now?: () => Date;
@@ -63,7 +64,7 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
   const source: NonNullable<PublicIntakeDependencies['source']> = dependencies.source ?? { identity: capturePublicSleeperIdentity,
-    leagues: capturePublicSleeperLeagueList,
+    leagues: capturePublicSleeperLeagueList, weeklyReport: capturePublicSleeperWeeklyReport,
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
       capturePublicSleeperCore(leagueId, family, captureSignal, undefined, witness),
     bracket: (leagueId: string, family: BracketFamily, captureSignal: AbortSignal, witness: PublicCaptureWitness) =>
@@ -176,7 +177,26 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         throw new Error('Intake mapping unavailable.');
       }
       const observations: { league?: string; rosters?: string; users?: string } = {};
-      if (work.kind === 'playoff-brackets') {
+      if (work.kind === 'weekly-report') {
+        if (work.season !== 2026 || !source.weeklyReport || !administration.beginWeeklyReportAttempt
+          || !intake.completeWeeklyReport || !intake.captureWitness) throw new Error('Witnessed weekly-report intake is unsupported.');
+        const report = await administration.beginWeeklyReportAttempt(mapping, work.nativeWeek, randomUUID(), fence);
+        const witness = await captureWitness(mapping, { weekly_report: report.id });
+        if (!witness) throw new Error('Weekly-report intake requires its database acquisition witness.');
+        signal.throwIfAborted();
+        requests++;
+        const document = await source.weeklyReport(work.externalLeagueId, work.nativeWeek, signal, witness);
+        if (document.family !== 'weekly_report' || document.week !== work.nativeWeek || document.origin !== 'network'
+          || document.sourceObservedAt !== document.requestCompletedAt) throw new Error('Weekly-report source returned a different capture.');
+        const captured = await recordCapturedAdministration(mapping.scope, [document], { store: administration, signal, fence, mapping, now,
+          weeklyReportAttempt: { week: work.nativeWeek, attempt: report }, expectedAcquisition: witness });
+        const result = captured.results.find(entry => entry.family === 'weekly_report')?.result;
+        if (!result?.observationId || result.weeklyReportAcceptance?.status !== 'accepted') {
+          throw new Error('Weekly-report typed capture remains incomplete.');
+        }
+        await intake.completeWeeklyReport(work, mapping, { observations: { weekly_report: result.observationId },
+          receipts: { weekly_report: result.weeklyReportAcceptance.receiptId } }, fence);
+      } else if (work.kind === 'playoff-brackets') {
         if (work.season !== 2026 || !source.bracket || !administration.beginBracketAttempt
           || !intake.completeBrackets || !intake.captureWitness) throw new Error('Witnessed bracket intake is unsupported.');
         const winners = await administration.beginBracketAttempt(mapping, 'winners_bracket', randomUUID(), fence);

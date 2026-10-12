@@ -33,25 +33,26 @@ export function parsePublicCaptureWitness(value: unknown): PublicCaptureWitness 
   const work = value.work, kind = work.kind;
   const workKeys = ['requestId', 'revision', 'kind', ...(kind === 'identity' ? ['username']
     : kind === 'leagues' ? ['userId', 'season'] : ['externalLeagueId', 'season']),
-  ...(kind === 'exact-matchups' ? ['nativeWeek'] : [])];
-  if (!['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets'].includes(String(kind))
+  ...((kind === 'exact-matchups' || kind === 'weekly-report') ? ['nativeWeek'] : [])];
+  if (!['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report'].includes(String(kind))
     || !keys(work, workKeys)
     || (kind === 'identity' ? typeof work.username !== 'string' || !/^[a-zA-Z0-9_]{1,100}$/u.test(work.username)
       : !Number.isInteger(work.season) || Number(work.season) < 1920 || Number(work.season) > 2200
         || typeof work[kind === 'leagues' ? 'userId' : 'externalLeagueId'] !== 'string'
         || !/^[1-9][0-9]{0,31}$/u.test(String(work[kind === 'leagues' ? 'userId' : 'externalLeagueId'])))
-    || (kind === 'exact-matchups' && (!Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18))
-    || (kind === 'playoff-brackets' && work.season !== 2026)) {
+    || ((kind === 'exact-matchups' || kind === 'weekly-report') && (!Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18))
+    || ((kind === 'playoff-brackets' || kind === 'weekly-report') && work.season !== 2026)) {
     throw new Error('Invalid public capture work.');
   }
-  const mapped = ['core', 'users', 'exact-matchups', 'playoff-brackets'].includes(String(kind));
+  const mapped = ['core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report'].includes(String(kind));
   if (mapped ? !isAdministrationSourceMapping(value.mapping)
     || value.mapping.scope.externalLeagueId !== work.externalLeagueId || value.mapping.scope.season !== work.season
     : value.mapping !== null) throw new Error('Invalid public capture mapping.');
   const roles = kind === 'core' ? ['settings', 'players', 'managers',
     ...(Object.hasOwn(value.attempts, 'managersV2') ? ['managersV2'] : [])]
     : kind === 'exact-matchups' ? ['settings', 'matchups']
-      : kind === 'playoff-brackets' ? ['winners_bracket', 'losers_bracket'] : [];
+      : kind === 'playoff-brackets' ? ['winners_bracket', 'losers_bracket']
+        : kind === 'weekly-report' ? ['weekly_report'] : [];
   if (!keys(value.attempts, roles)) throw new Error('Invalid public capture group.');
   const ids = new Set<string>(), nonces = new Set<string>();
   for (const attempt of Object.values(value.attempts)) {
@@ -107,7 +108,7 @@ export function validateRequestedPublicCaptureWitness(value: unknown, work: Publ
 
 /** Called at the actual transport entry, before starting the provider request. */
 export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
-  family: 'identity' | 'leagues' | 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket', identity: string,
+  family: 'identity' | 'leagues' | 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket' | 'weekly_report', identity: string,
   period: number | null = null): PublicCaptureWitness | undefined {
   if (value === undefined) return undefined;
   const witness = parsePublicCaptureWitness(value), work = witness.work;
@@ -118,7 +119,8 @@ export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
           : family === 'rosters' ? work.kind === 'core' && period === null
             : family === 'users' ? work.kind === 'users' && period === null
               : family === 'matchups' ? work.kind === 'exact-matchups' && work.nativeWeek === period
-                : (family === 'winners_bracket' || family === 'losers_bracket') && work.kind === 'playoff-brackets' && period === null);
+                : family === 'weekly_report' ? work.kind === 'weekly-report' && work.nativeWeek === period
+                  : (family === 'winners_bracket' || family === 'losers_bracket') && work.kind === 'playoff-brackets' && period === null);
   if (!matches) throw new Error('Public capture request scope mismatch.');
   return witness;
 }

@@ -5,14 +5,19 @@ import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from './exa
 import { BRACKET_VALUE_VERSION, type AcceptedBracketRead, type BracketFamily, type BracketField, type BracketMatch } from './playoff-brackets';
 import { OFFICIAL_STANDINGS_VERSION, type OfficialStandingsRead } from './official-standings';
 
+import { WEEKLY_REPORT_VERSION, type AcceptedWeeklyReportRead } from './weekly-reports';
+
 export const OFFICIAL_RESULTS_VERSION = 'sleeper-official-results-v1' as const;
 export type OfficialResultsPeriodInput = Readonly<{
   nativeWeek: number; values: ExactMatchupValuesRead; context?: ExactPeriodContextRead;
 }>;
 export type OfficialResultsBracketInput = Readonly<{ family: BracketFamily; resource: AcceptedBracketRead }>;
+export type OfficialResultsReportInput = Readonly<{ nativeWeek: number; resource: AcceptedWeeklyReportRead }>;
 export type OfficialResultsInput = Readonly<{
   mapping: AdministrationSourceMapping; standings: OfficialStandingsRead;
   periods: readonly OfficialResultsPeriodInput[]; brackets: readonly OfficialResultsBracketInput[];
+  /** Report facts remain separate from current roster standings and weekly contests. */
+  reports?: readonly OfficialResultsReportInput[];
 }>;
 export type OfficialResultFinality = Readonly<{
   status: 'unknown'; reason: 'provider_finality_evidence_unproved';
@@ -36,6 +41,7 @@ export type OfficialResultsRead = Readonly<{
   status: 'available'; version: typeof OFFICIAL_RESULTS_VERSION; mapping: AdministrationSourceMapping;
   /** Components retain independent observation clocks. This is not a season-completion assertion. */
   scope: 'selected-resources'; standings: OfficialStandingsRead; periods: readonly OfficialResultsPeriod[];
+  reports?: readonly OfficialResultsReportInput[];
   brackets: readonly (OfficialResultsBracketInput & Readonly<{ reportedResults: readonly OfficialBracketReportedResult[] }>)[];
 }> | Readonly<{ status: 'unavailable'; reason: string }>;
 
@@ -62,9 +68,9 @@ function bracketFinality(match: BracketMatch): OfficialBracketResultFinality {
  */
 export function composeOfficialResults(input: OfficialResultsInput): OfficialResultsRead {
   try {
-    const { mapping, standings, periods, brackets } = input;
+    const { mapping, standings, periods, brackets, reports } = input;
     if (!isAdministrationSourceMapping(mapping) || mapping.scope.season !== 2026
-      || periods.length > 18 || brackets.length > 2) throw new Error('Invalid result scope.');
+      || periods.length > 18 || brackets.length > 2 || reports !== undefined && reports.length > 18) throw new Error('Invalid result scope.');
     if (standings.status === 'available' && (standings.version !== OFFICIAL_STANDINGS_VERSION
       || compatibleRevision(standings.mapping) !== compatibleRevision(mapping))) throw new Error('Invalid standings scope.');
     const weeks = new Set<number>();
@@ -105,7 +111,21 @@ export function composeOfficialResults(input: OfficialResultsInput): OfficialRes
         })) : [];
       return { ...bracket, reportedResults };
     });
+    const reportWeeks = new Set<number>();
+    const composedReports = reports?.map(report => {
+      const { nativeWeek, resource } = report;
+      if (!Number.isSafeInteger(nativeWeek) || nativeWeek < 1 || nativeWeek > 18 || reportWeeks.has(nativeWeek)) {
+        throw new Error('Invalid result report week.');
+      }
+      reportWeeks.add(nativeWeek);
+      if (resource.status === 'available' && (resource.version !== WEEKLY_REPORT_VERSION
+        || resource.sourceMappingRevisionId !== mapping.revisionId || resource.value.family !== 'weekly_report'
+        || resource.value.season !== mapping.scope.season || resource.value.nativeWeek !== nativeWeek
+        || resource.value.reportKey !== `${mapping.scope.externalLeagueId}_${nativeWeek}`)) throw new Error('Invalid report scope.');
+      return report;
+    });
     return structuredClone({ status: 'available', version: OFFICIAL_RESULTS_VERSION, mapping,
-      scope: 'selected-resources', standings, periods: composedPeriods, brackets: composedBrackets });
+      scope: 'selected-resources', standings, periods: composedPeriods, brackets: composedBrackets,
+      ...(composedReports === undefined ? {} : { reports: composedReports }) });
   } catch { return { status: 'unavailable', reason: 'official_results_scope_mismatch' }; }
 }
