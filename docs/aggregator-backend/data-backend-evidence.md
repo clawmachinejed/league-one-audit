@@ -8,6 +8,8 @@ The latest bounded hosted-qualified application source is `29be8bc44d9e971105c8c
 
 The October 12 continuation adds [retained public 2026 source evidence and an acceptance map](data-backend-cp13-semantics.md): 25 public GETs across five leagues, positive PF/PA and W/L/T for 58 teams, two nonzero season tie counts, and real bracket entrants/edges in three sample pairs. All 58 records lacked rank/seed; all captured bracket winners/losers were null. This narrows the source inventory without proving a completed weekly tie, bye, final result or multiweek series. Added offline parity/composition tests supply no new hosted qualification. The original paid profile, runtime, migrations and frozen contract remain unchanged.
 
+A further approved continuation authors a separate two-case `data-official-results-evidence-v1` candidate for retained-source SQL readback and ordinary later-failure preservation. Its new standard module changes default discovery from 57 to 58 while preserving the original eight-case fixture and source pin. This is source authoring only; no new hosted result, provider request or production capability is implied. The acceptance gaps above remain open.
+
 ### Evidence maturity
 
 | Label | Meaning in this ledger |
@@ -65,6 +67,91 @@ The frozen workload/targets remain unchanged. CP13 may proceed as the next resou
 2. **Existing path:** this ledger's current overlay and preserved source/run history → [public intake notes](data-backend-ingestion.md) and the [CP13 plan](data-backend-cp13-plan.md). No adapter, writer, reader, migration or worker changes.
 3. **Persisted result:** corrected documentation that separates planning, implemented capabilities, bounded individual/joint qualification and production verification. Frozen CP1/2 contracts, original checkpoint numbering, historical failures and exact run bindings remain intact.
 4. **Real evidence and gaps:** read-only source/tree and retained-artifact review at `de3f022`, independent document review, scope and actual-diff checks. This reconciliation executes no new SQL/provider qualification and adds no production or operating proof.
+
+## CP13 retained-source readback and ordinary recovery candidate — October 12, 2026
+
+**Resource and path.** A separate two-case `data-official-results-evidence-v1`
+profile targets retained standings storage/readback and accepted membership plus
+historical bracket preservation after later ordinary refresh failures. It uses
+the existing canonical registration, receipt writer, typed reader, intake and
+refresh owners. The original eight-case module remains byte-unchanged with LF
+digest `773d4eb1ebc30e90d55af2609da7d64b775903ea83476e805f7d542dcab3ed6b`.
+No runtime, migration, public payload, provider configuration or contract changes
+are included. The new module/profile LF pin is
+`8958cb42f09f188380b77d60849678249eb9d368883c73ad507b581e632a741a`.
+Normal discovery grows from 57 to 58 modules, retaining all older members.
+
+**Candidate and bounds.** Case one replays the five retained native leagues and
+58 minimized standings rows. Original request/source timestamps remain unchanged;
+new local `checkedAt` records validation only. Population stays unproved, and
+no membership or acquisition witness is invented. Case two completes an ordinary
+synthetic intake, then checks a failed bracket sibling and malformed core during
+refresh, preserved accepted nonempty membership/ownership, unavailable current
+pairs, explicit old pairs, independently readable standings and recovery. It
+expects 14 admissions/20 intercepted GETs, both retry backoffs and settlement.
+It does not acquire a player catalog or exact periods. The selected allowance
+is 60s + 1080s + two 120s hooks = 23 minutes, unmeasured; original 20s worker,
+60s admission and 30/40/50-minute work/lifecycle/CI limits remain. No full-suite
+duration claim follows from the additional module.
+
+**Independent review.** GPT-6 Astra ultra review approved exact paths before edits
+and the final source/pin afterward. It caught an invalid hyphenated synthetic
+username, corrected before execution. Review confirmed source-clock preservation,
+independent BigInt PF/PA value checks, absent rank/seed, exact source selection,
+no implicit catalog acquisition, old source pins and closed report/CLI controls.
+
+**Local SQL diagnostic.** An independent ephemeral PGlite 0.5.8/PostgreSQL 18.3
+probe applied all 48 maintained migrations and exercised `SET ROLE
+league_one_runtime` under Node 24.19.0. All **1,356 assertions** passed across
+five native leagues/58 teams: committed values, canonical scope, original clocks,
+unproved population, exact receipt readback and no roster/manager acceptance.
+It made zero network attempts/external connections and 35 stored-read statements
+with zero mutations. Its 2,394-ms total is local diagnostic evidence, not hosted
+LOGIN or 20-second performance qualification; session user remained `postgres`.
+The complete ordinary recovery case has not run. The initial ignored diagnostic
+had its own nonexistent-column query and then a report-write permission failure;
+its original output is retained, and only that diagnostic was corrected before
+the fresh successful local probe. No application repair was needed.
+
+Probe report: `test-results/cp13/local-sql/retained-evidence-attempt-2.json`,
+SHA256 `a4a0944d6dafe5f8632587512bd913f1fdd7429fee90250958faa6e2bfd82814`.
+Script LF SHA256:
+`5c7dd116daaff590f5fb4fbab9c5dcbb81887c1b425677fd9f2ea0db022a6452`.
+Initial failure output SHA256:
+`3e0573a691fe7b84b2f58613f63715738c7d3bc9f8dfef0d98ffcba45e88f94b`.
+
+**Source verification.** Closed-profile unit tests passed 78/78 and mocked CLI
+controls passed 168/168. Scope, dependencies, full lint and maintained generated
+types/TypeScript passed. A preliminary sandboxed direct TypeScript command
+reported unrelated dependency errors; the same command with required worktree
+permission and the normal repository typecheck both passed. No source fix was
+made for those preliminary errors. The default `pnpm verify` unit stage passed
+7,141, skipped one and timed out one unchanged diagnostic test at five seconds;
+that run failed and did not reach build. The unchanged diagnostic file then
+passed 220/220 in isolation. The complete suite with four local workers passed
+**7,142 tests in 314 files, one skip**, with unchanged assertions/deadlines.
+The normal production build subsequently passed. Its complete log is
+`test-results/cp13/evidence-recovery-build.log`, SHA256
+`9ca6b4aac1c282e54854f2f386a642ba01dd54627592f563f787ddda8882d0d3`.
+The skip remains the existing scoped-IPv6 host capability check. These outcomes
+support local load sensitivity, not a proved timing root cause. Hosted default
+CI and preview results are reported separately; no failed run is relabeled.
+
+Retained local source logs:
+
+| Artifact under `test-results/cp13/` | SHA256 |
+| --- | --- |
+| `evidence-recovery-verify.log` | `910cf074e3d3be79443721da73f6c80e1bbe5e153174c55dc4afafee58c92dd6` |
+| `evidence-recovery-diagnostic-isolated.log` | `d2eefddf29482863213ee308fdbcf7985285374d6f1ebd614756d6e9b6fbc18b` |
+| `evidence-recovery-unit-four-workers.log` | `06bed8f4b59fa80f16c308998d961a261b02e6fb37f7d1477ed1dcce59f97584` |
+| `evidence-recovery-typecheck.log` | `ccef16f544c964cef615da6690f5200fd8ac717c3ee7661bda06485085af661d` |
+| `qualification-profile-final-20261012.log` | `fb1339387086cfd2ff4227d77a5321d3af8ccd29949fde50df6117c8223392cd` |
+
+**Acceptance remains separate.** Neither new case is hosted-qualified and no
+new paid run has been dispatched. The earlier 8/8 result remains bound to
+`29be8bc`. Positive provider outcome/tie/bye/finality and representative multiweek
+completion/correction remain CP13 obligations. Production still runs `87da4d0`;
+this candidate supplies no retained installation, merge or DATA activation.
 
 ## CP13 public source evidence and remaining acceptance — October 12, 2026
 

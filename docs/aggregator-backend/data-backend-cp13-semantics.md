@@ -120,3 +120,21 @@ Do not traverse prior seasons, accelerate the calendar, redefine finality or
 move the representative obligation to CP20. CP13 retains supported semantics
 and representative completion/correction; CP20 retains full-current-season
 application. Earlier paid-run authorizations remain consumed.
+
+## Authored retained-source and recovery candidate
+
+The approved continuation authors the separate two-case
+`data-official-results-evidence-v1` candidate. Its first case targets native
+58-row to committed typed row to restricted reader parity while preserving
+original observation clocks and unproved population. Its second case targets
+actual SQL preservation after accepted ordinary membership, partial current
+bracket failure, explicit historical pair reads, later malformed core with valid
+standings, and recovery. These are intended assertions, not new accepted results.
+The earlier eight-case module and its exact source pin remain unchanged.
+
+The candidate contains no new provider acquisition or runtime interpretation.
+It does not change the remaining rank/seed, weekly outcome/tie/bye/finality or
+representative multiweek obligations in the acceptance map. The selected
+23-minute authored allowance is unmeasured; full default discovery grows from
+57 to 58 modules without a full-suite fit claim. Separate exact-source paid-run
+authorization and complete report/cleanup review remain required.

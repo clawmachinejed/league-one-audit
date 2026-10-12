@@ -790,3 +790,49 @@ positive provider finality, fleet freshness, the complete SQL suite or CP13's
 unresolved source-evidence obligations. Record tested database version, source,
 duration, actual results and remaining gaps in the
 [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP13 retained-source and ordinary recovery candidate
+
+The earlier eight-case profile subsequently passed at `29be8bc` in run
+[38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033),
+with independently accepted report and automatic cleanup. The failed attempts
+above remain historical failures. This continuation preserves that module and
+its source pin unchanged.
+
+The separate `data-official-results-evidence-v1` profile selects exactly two
+ordered cases in `official-results-evidence.integration-case.ts`. It is an
+**authored, hosted SQL-unqualified candidate**. Its future fixed command is
+`pnpm test:integration --profile=data-official-results-evidence-v1`, only after
+separate exact-source authorization. Standard discovery grows from 57 to 58
+modules, retaining all prior modules. This is not a claim that the complete
+suite fits the 30-minute work limit.
+
+The retained-source case replays the 58 minimized roster standings from five
+captured 2026 leagues through canonical registration, the existing restricted
+writer and stored reader. It preserves native league/team identities, endpoint
+clocks, field presence and exact decimal components. A new local `checkedAt`
+records validation time only; request and source-observation times remain original.
+The original full-document
+digest, minimized fixture/slice hashes and newly stored minimized-content hash
+have distinct meanings. Replay has a live write fence but no fabricated current
+acquisition witness or backdated reservation. Population remains unproved and
+minimized rows cannot establish accepted roster or manager membership.
+
+The ordinary case first completes a synthetic intake with populated membership
+and both brackets, then tests a failed bracket sibling and malformed core data
+during refresh. Assertions must show pending current pairs cannot borrow old
+pairs, exact historical pairs remain stable, independently valid standings stay
+request-bound, prior membership survives rejection, and recovery settles. It
+selects neither exact-period acquisition nor a player-directory acquisition;
+canonical player resolution and selected scores retain their separate earlier
+proof. All HTTP responses in this case are intercepted synthetic fixtures.
+
+One 60-second case, one 1,080-second case and two 120-second hooks total a
+23-minute authored allowance, not an elapsed measurement or cost guarantee.
+The ordinary design budgets 14 admissions and 20 GET attempts, both real retry
+backoffs and zero-GET settlement within its existing 1,080 seconds. All original
+worker, admission, supervisor, lifecycle and CI deadlines and cleanup/identity/
+role/source guards remain unchanged. Offline source and report tests do not
+qualify PostgreSQL behavior. Passing these cases would narrow retained-source
+readback and failure-preservation gaps; it would not establish positive provider
+finality, weekly ties/byes, multiweek completion/correction or fleet freshness.

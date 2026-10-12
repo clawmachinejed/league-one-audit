@@ -77,3 +77,23 @@ The author/root and independent upstream/reader/contract reviewers agreed this s
 At this design baseline, local pure tests covered retained zero-field parsing, synthetic field states/identity/capacity, unrelated-player rejection independence, corrections, exact decimals, namespace isolation and unknown interpretation. Hosted restricted-LOGIN qualification, late-COMMIT and ordinary failure/recovery were then pending, and no new live capture had been performed. Their subsequent bounded qualification and the October 12 public inventory are recorded in the current overlay above; source tests and local diagnostics do not replace hosted evidence.
 
 CP13 retains the obligation to establish supported official result/standings semantics and representative ties/byes/multiweek completion/correction. Unknown output safely represents present uncertainty but does not close that obligation. CP20 owns complete within-2026 periods/legs/history composition and application of established semantics; CP23–26 own fleet refresh and sustained freshness proof, and CP30 owns coherent final-source qualification. This increment does not prove the frozen few-minute active-data target or the fifteen-minute results/standings refresh target.
+
+## Retained-source and later-failure qualification continuation
+
+The next candidate uses a separate closed two-case module/profile so the
+accepted eight-case source and inventory retain their exact meanings. Existing
+canonical registration, roster receipts, typed standings and restricted readers
+own the retained 58-row replay; existing intake/refresh dispatch, membership
+acceptance and paired bracket readers own the failure/recovery journey. No
+runtime, schema, public API or source interpretation change is included.
+
+An original retained capture is older than the new write reservation. Therefore
+it is replayed without a fabricated current acquisition or population witness,
+with original endpoint timestamps and distinct source/minimized/stored hashes.
+The intended SQL proof compares supplied native fields through committed typed
+rows and exact receipt reads; it does not prove live ordinary acquisition.
+The separate synthetic ordinary case starts from completed intake, preserving
+its accepted membership and old exact bracket pair while current refresh work
+fails and later recovers. This targets a different proof gap from the original
+fresh failed-core case. Both cases remain hosted-unqualified until execution;
+all existing operational limits and the CP13/CP20 interpretation boundary remain.

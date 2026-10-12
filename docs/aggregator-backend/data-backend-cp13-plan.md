@@ -108,3 +108,22 @@ The initial GPT-6 Astra ultra source/contract review by `/root/cp13_contract_rev
 For the initial planning revision, the existing scope checker passed against its unchanged canonical baseline, and its 23 self-tests passed. Read-only validation checked 30 local document links/anchors, confirmed historical ledger bodies are unchanged except their explicit historical wrapper, and confirmed application/workflow files and frozen CP1/2 contracts are byte-unchanged from the planning base. No local application suite, SQL qualification, provider acquisition or production action was performed for the initial documentation increment. Publication and automatic CI/preview status are reported separately; these checks establish documentation consistency, not CP13 runtime readiness.
 
 The follow-up impact review changed only this plan. Independent contract and upstream/writer reviewers approved the correction with no remaining material findings in their reviewed scopes. This establishes planning/source consistency only. Its validation and publication state are recorded with the review revision; no CP13 application code, SQL run, migration application, provider acquisition or production action was performed.
+
+## October 12 retained-source and recovery verification candidate
+
+After the accepted eight-case run and public-source inventory, the next proof
+unit is a separate two-case `data-official-results-evidence-v1` profile. It
+reuses current standings receipt/write/read paths for 58 retained native rows,
+and ordinary intake/refresh owners for accepted-membership and historical-pair
+preservation through later failures. Source clocks remain original; retained
+replay supplies no new acquisition or population witness. The existing eight
+cases and source pin remain unchanged. Independent exact-path design review
+approved qualification wiring and documentation only.
+
+The selected authored allowance is 23 minutes (60s + 1080s + two 120s hooks),
+within unchanged supervisor limits but not measured fit. Standard discovery
+adds one module, from 57 to 58; this makes no full-suite duration claim. The
+[qualification notes](../../apps/site/integration/README.md#cp13-retained-source-and-ordinary-recovery-candidate)
+record case boundaries. Local/source verification, hosted qualification and
+release remain separate. Positive official-result and representative multiweek
+obligations above remain CP13 work after this candidate.
