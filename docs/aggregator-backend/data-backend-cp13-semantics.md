@@ -77,8 +77,8 @@ invent one atomic snapshot or claim fresh public data was stored in Neon.
 | Official seeding | [Qualification rules](https://support.sleeper.com/en/articles/2203518-how-do-playoff-teams-get-determined), [commissioner seeding](https://support.sleeper.com/en/articles/2528718-can-i-customize-my-league-s-playoff-seeding) | Provider placement may include division and commissioner decisions. Preserve supplied rank/seed only; neither score sorting nor bracket source order supplies them. |
 | Ties | [Tiebreak rules](https://support.sleeper.com/en/articles/4238872-can-i-set-tiebreakers), [record recalculation](https://support.sleeper.com/en/articles/12076832-recalculate-matchup-records) | Regular-season ties and playoff seed-based tiebreaking are distinct. Score equality alone cannot establish completed outcome, applicable seed or record synchronization. |
 | Byes | [Odd-team leagues](https://support.sleeper.com/en/articles/4044507-can-we-do-a-league-with-an-odd-of-teams) | The product permits first-round playoff byes, not regular-season byes. A missing row or unresolved bracket entrant is insufficient proof of a particular bye. |
-| Bracket results | [API bracket contract](https://docs.sleeper.com/#getting-the-playoff-bracket) | Preserve supplied `w/l` within the bracket's match namespace. The documented contract does not supply a generic weekly join or explicit contest-finality evidence. Native `p` stays uninterpreted. |
-| Correction and finality | [Stat corrections](https://support.sleeper.com/en/articles/2441282-stat-corrections), [commissioner score changes](https://support.sleeper.com/en/articles/9786258-adjusting-weekly-lineups-scores) | Scores and records may change or synchronize at different times. Separate receipt clocks are necessary; league status, elapsed time and weekly reports alone do not establish finality. |
+| Bracket results | [API bracket contract](https://docs.sleeper.com/#getting-the-playoff-bracket) | Preserve supplied `w/l` within the bracket's match namespace. The API defines these as winner/loser roster IDs for a played match, supporting reported played-result meaning when valid populated values are observed. This does not establish a generic weekly join, included periods or an irreversible result. Native `p` stays uninterpreted; the current 2026 captures have no positive `w/l` witness. |
+| Correction and finality | [Stat corrections](https://support.sleeper.com/en/articles/2441282-stat-corrections), [commissioner score changes](https://support.sleeper.com/en/articles/3410666-adjusting-weekly-lineups-scores) | Scores and records may change or synchronize at different times. Separate receipt clocks are necessary; league status, elapsed time and weekly reports alone do not establish finality. |
 | Multiweek | [Official playoff guide](https://sleeper.com/blog/how-do-fantasy-playoffs-work/) | The product offers a two-week championship and reseeding. This does not define the API enum, included-period mapping, aggregate authority or correction propagation for a particular league. |
 | Other competition behavior | [Median games](https://support.sleeper.com/en/articles/3971690-extra-game-each-week-against-league-median), [consolation versus Toilet Bowl](https://support.sleeper.com/en/articles/2203534-consolation-bracket-vs-toilet-bowl) | A roster's record need not encode only head-to-head outcomes; advancement can mean winning or losing depending on bracket rules. Preserve native facts independently. |
 
@@ -112,12 +112,14 @@ to qualified, and retained-source replay is not fresh live acquisition.
 ## Next complete proof unit
 
 The later-core/pending-pair SQL scenarios are now qualified within their bounded
-synthetic scope. The next CP13 proof unit is a bounded current-2026 source-meaning
-inventory for official weekly outcomes, ties/byes and completion as observed.
-Start with the already verified league identities and completed native periods;
-record each candidate source field, its documented authority, exact scope and
-retained observation before changing interpretation. Scores, `last_scored_leg`,
-league status and season tie counts are not automatically contest-finality proof.
+synthetic scope. The subsequent bounded inventory below collected native weeks 1–4 from the
+already verified current-2026 league identities. It closes that collection task,
+while official weekly outcome, tie/bye and completion meaning remains unresolved.
+The next evidence needed is an authoritative result/completion signal for a
+specific contest, with documented meaning and retained source scope. Repeating
+the same score-only captures does not establish that signal. Scores,
+`last_scored_leg`, league status and season tie counts are not automatically
+contest-finality proof.
 
 For a representative supported multiweek series, establish actual participants,
 included legs, applicable configuration, bracket identity, outcome authority and
@@ -152,3 +154,67 @@ representative multiweek obligations in the acceptance map. The selected
 3.259333 seconds and 858.555202 seconds, with a 947.032-second lifecycle. Full
 default discovery grows from 57 to 58 modules without a full-suite fit claim.
 The single-run authorization is consumed; CP13 remains open.
+
+## Earlier native-period source investigation — October 12, 2026
+
+The approved continuation captured five fresh league metadata documents and
+20 weekly matchup documents (native weeks 1–4 for each existing sample), using
+`capturePublicSleeperCore` at `0525bff09a29124e01b92eb69969082eae6997a2`.
+All 25 GETs returned HTTP 200, with redirects and retries disabled. Metadata
+confirmed NFL/2026 identity before each league's weekly requests. The existing
+12-second adapter timeout and 20-second per-capture bound were preserved; the
+longest capture took 605.439 ms. This is a source-capture measurement, not a
+whole-worker or database deadline qualification.
+
+The inventory ran from `2026-10-12T17:52:00.817Z` through
+`2026-10-12T17:52:05.759Z`, retaining 143,817 serialized-document bytes. Its
+manifest SHA-256 is
+`ad6b99a4dd63355715d2193080a476f1534e96922e4b9ef99a4e19832e073c02`.
+Original captures remain ignored under
+`apps/site/test-results/data-backend/cp13/completed-period-inventory/2026-10-12T17-52-00-815Z/`.
+The minimized [prior-period fixture](../../apps/site/test-support/fixtures/cp13-live-source-2026/prior-periods.json)
+retains exact native values, field presence, original clocks, source hashes and
+original row-key inventories under its [documented minimization policy](../../apps/site/test-support/fixtures/cp13-live-source-2026/README.md).
+The first inventory and its source fixture remain unchanged.
+
+All 232 team rows form 116 two-team groups. Each raw row has only
+`custom_points`, `matchup_id`, `players`, `players_points`, `points`, `roster_id`,
+`starters`, and `starters_points`; every custom override is null. No explicit
+weekly winner, tie, bye or completion field was present in these responses.
+All five metadata observations have `settings.leg: 5` and
+`settings.last_scored_leg: 4`. Earlier native-period selection does not establish
+historical settings applicability or define that latter field.
+
+The keeper sample supplies equal `110.2` scores for rosters 10 and 12 in week 1,
+matchup ID 1, observed at `2026-10-12T17:52:04.547Z`. This is consistent with
+the separately captured season tie counts for those teams. It remains a
+candidate tied contest, not a directly reported weekly outcome. The source
+responses have independent clocks, and season records cannot be silently
+reassigned to a particular week. An attempted public Sleeper matchup-page
+inspection redirected to another league and rendered no usable content; it
+provided no additional identity or result evidence.
+
+Primary-source review corrects two earlier documentation statements. The
+[bracket API](https://docs.sleeper.com/#getting-the-playoff-bracket) does give
+populated valid `w/l` played-match meaning; no current-2026 positive witness
+was acquired in this increment, so runtime finality remains unknown. The
+correction-policy link above now points to the
+[NFL article](https://support.sleeper.com/en/articles/3410666-adjusting-weekly-lineups-scores),
+replacing the same-titled Fantasy FC article. This fixes source attribution,
+not the contract. The NFL [record-recalculation guidance](https://support.sleeper.com/en/articles/12076832-recalculate-matchup-records)
+also describes late-drafted weeks initially receiving ties, another reason
+score comparison cannot substitute for official records. Targeted official
+documentation searches did not establish `last_scored_leg` semantics or the
+`playoff_round_type` numeric mapping; this is an unresolved evidence gap, not
+proof of provider-wide unavailability.
+
+The added regressions exercise retained native scores and pairing through the
+existing pure projector and composed reader. Their canonical identities and
+receipts are test fixtures, not live SQL acceptance. They preserve unknown
+weekly outcome/finality/series and independent source times. No runtime,
+migration, paid profile, scoring, contract, production or prior-season change
+is included. The accepted eight-case and two-case SQL proofs retain their
+original sources. CP13 remains open for supported weekly result interpretation
+and representative multiweek completion/correction; CP20 retains full-season
+application. The new source inventory does not justify another paid run by
+itself.

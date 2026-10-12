@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import priorPeriods from '../../test-support/fixtures/cp13-live-source-2026/prior-periods.json';
 import type { AdministrationFamily, JsonValue } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
@@ -253,5 +255,146 @@ describe('stored official result composition', () => {
   it.each([0, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid selected native week %s even without stored values', nativeWeek => {
     expect(composeOfficialResults({ ...input(), periods: [{ nativeWeek, values: { status: 'missing' } }] }))
       .toEqual({ status: 'unavailable', reason: 'official_results_scope_mismatch' });
+  });
+});
+
+describe('retained public 2026 prior-period score evidence', () => {
+  type Sample = typeof priorPeriods.samples[number];
+  type Capture = Sample['resources']['league']['document'] | Sample['resources']['matchups'][number]['document'];
+  function sourceInput(sample: Sample): OfficialResultsInput {
+    // Canonical IDs and receipt/content wrappers are synthetic test inputs, never SQL identity or intake proof.
+    const base = 1000 + priorPeriods.samples.indexOf(sample) * 100;
+    const sourceMapping: AdministrationSourceMapping = { connectionId: id(base), leagueSeasonId: id(base + 1),
+      revisionId: id(base + 2), generation: 1, scope: { provider: 'sleeper', leagueKey: sample.key,
+        externalLeagueId: sample.externalLeagueId, season: 2026 } };
+    const captured = (document: Capture) => {
+      if (document.origin !== 'network' || document.family !== 'league' && document.family !== 'matchups') {
+        throw new Error('Unexpected retained capture.');
+      }
+      return normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+        normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1', scope: sourceMapping.scope,
+        family: document.family, week: document.week, completeness: 'complete', payload: document.payload,
+        provenance: { origin: document.origin, requestStartedAt: document.requestStartedAt,
+          requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt,
+          checkedAt: document.requestCompletedAt } });
+    };
+    const league = captured(sample.resources.league.document);
+    if (!league.leagueSettings?.value) throw new Error('Missing retained league settings.');
+    const observedConfiguration = { contentId: id(base + 3), configurationVersionId: null,
+      rawContentHash: league.contentHash, provenance: league.envelope.provenance,
+      value: league.leagueSettings.value, applicability: 'observation-only' as const };
+    const calendar: ExactPeriodMappingQualification = { status: 'unmapped', reason: 'calendar_evidence_missing' };
+    const unknown = { status: 'unknown', reason: 'period_mapping_unproved' } as const;
+    return { mapping: sourceMapping, standings: { status: 'missing' }, brackets: [],
+      periods: sample.resources.matchups.map(({ document }, index) => {
+        const normalized = captured(document), matchupsReceiptId = id(base + 10 + index);
+        const values: ExactMatchupValuesRead = { status: 'available', version: EXACT_MATCHUP_VALUES_VERSION,
+          selection: 'receipt', contentId: id(base + 20 + index), matchupsReceiptId,
+          acceptanceId: id(base + 30 + index), acceptedGeneration: 1, sourceMappingRevisionId: sourceMapping.revisionId,
+          provenance: normalized.envelope.provenance,
+          value: projectExactMatchupValues(normalized, document.payload.map(row => ({
+            seasonTeamId: id(base + 50 + row.roster_id), externalRosterId: String(row.roster_id) }))) };
+        const periodContext: ExactPeriodContextRead = { status: 'available', version: EXACT_PERIOD_CONTEXT_VERSION,
+          period: { season: 2026, nativeWeek: document.week }, sourceMappingRevisionId: sourceMapping.revisionId,
+          capture: { matchupsReceiptId, settingsReceiptId: null, configurationContentId: observedConfiguration.contentId },
+          observedConfiguration, calendar, configuration: { scoring: unknown, roster: unknown, competition: unknown },
+          nativeOfficialPhase: { status: 'unknown', reason: 'native-period-phase-not-exposed' },
+          phase: deriveExactPeriodPhase(calendar, unknown) };
+        return { nativeWeek: document.week, values, context: periodContext };
+      }) };
+  }
+
+  it('binds 25 minimized captures and the original row-key inventory to their source clocks and digests', () => {
+    expect(createHash('sha256').update(JSON.stringify(priorPeriods)).digest('hex'))
+      .toBe('2aa76dd22eafd07756f08f9a68bed390847c55f6d5453b49520f1452081db52c');
+    expect(priorPeriods.acquisition).toMatchObject({ sourceRevision: '0525bff09a29124e01b92eb69969082eae6997a2',
+      manifestSha256: 'ad6b99a4dd63355715d2193080a476f1534e96922e4b9ef99a4e19832e073c02',
+      totalNetworkRequests: 25, serializedDocumentBytes: 143817, databaseAccess: false, credentialsLoaded: false });
+    let documents = 0, rows = 0;
+    for (const sample of priorPeriods.samples) {
+      expect(sample.resources.league.document.payload).toMatchObject({ league_id: sample.externalLeagueId,
+        sport: 'nfl', season: '2026', status: 'in_season', settings: { leg: 5, last_scored_leg: 4 } });
+      expect(sample.resources.matchups.map(resource => resource.document.week)).toEqual([1, 2, 3, 4]);
+      for (const resource of [sample.resources.league, ...sample.resources.matchups]) {
+        const { document, source } = resource;
+        expect(source.endpoint).toBe(`https://api.sleeper.app/v1/league/${sample.externalLeagueId}`
+          + (document.week === null ? '' : `/matchups/${document.week}`));
+        expect(source.responseUrl).toBe(source.endpoint);
+        expect(source.httpStatus).toBe(200);
+        expect(createHash('sha256').update(JSON.stringify(document)).digest('hex')).toBe(resource.sliceSha256);
+        expect(document.origin).toBe('network');
+        expect(document.sourceObservedAt).toBe(document.requestCompletedAt);
+        expect(Date.parse(document.requestStartedAt)).toBeLessThanOrEqual(Date.parse(source.networkRequestStartedAt));
+        expect(Date.parse(source.networkRequestStartedAt)).toBeLessThanOrEqual(Date.parse(document.sourceObservedAt));
+        documents += 1;
+      }
+      for (const resource of sample.resources.matchups) {
+        expect(resource.source.originalRowKeyInventory).toEqual([{
+          keys: ['points', 'players', 'roster_id', 'custom_points', 'matchup_id', 'starters', 'starters_points', 'players_points'],
+          sourceOrdinals: resource.document.payload.map((_, index) => index),
+        }]);
+        rows += resource.document.payload.length;
+      }
+    }
+    expect(documents).toBe(25);
+    expect(rows).toBe(232);
+  });
+
+  it.each(priorPeriods.samples)('preserves every $key score and group in four independently observed native periods', sample => {
+    const source = sourceInput(sample), before = JSON.stringify(source), result = available(source);
+    expect(result.mapping.scope.externalLeagueId).toBe(sample.externalLeagueId);
+    expect(result.periods.map(period => period.identity)).toEqual([1, 2, 3, 4].map(nativeWeek => ({
+      kind: 'native-period', season: 2026, nativeWeek })));
+    expect(result.standings).toEqual({ status: 'missing' });
+    expect(result.brackets).toEqual([]);
+    const receiptIds = [], observedAt = [];
+    for (const [index, period] of result.periods.entries()) {
+      const document = sample.resources.matchups[index].document, values = period.values, context = period.context;
+      if (values.status !== 'available' || context?.status !== 'available') throw new Error('Missing composed source facts.');
+      expect(values).toEqual(source.periods[index].values);
+      expect(values).not.toBe(source.periods[index].values);
+      expect(values.provenance).toEqual({ origin: 'network', requestStartedAt: document.requestStartedAt,
+        requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt,
+        checkedAt: document.requestCompletedAt });
+      expect(context.observedConfiguration.provenance.sourceObservedAt).toBe(sample.resources.league.document.sourceObservedAt);
+      expect(context.observedConfiguration.provenance.sourceObservedAt).not.toBe(values.provenance.sourceObservedAt);
+      expect(context.observedConfiguration.applicability).toBe('observation-only');
+      expect(context.configuration.competition.status).toBe('unknown');
+      expect(context.phase.status).toBe('unknown');
+      expect(values.value.teams).toHaveLength(document.payload.length);
+      for (const [sourceOrdinal, native] of document.payload.entries()) {
+        expect(Object.keys(native)).toEqual(['roster_id', 'matchup_id', 'points', 'custom_points']);
+        expect(native.custom_points).toBeNull();
+        expect(values.value.teams[sourceOrdinal]).toMatchObject({ externalRosterId: String(native.roster_id), sourceOrdinal,
+          nativeMatchupId: { state: 'supplied', value: String(native.matchup_id) },
+          rawPoints: { state: 'supplied', value: String(native.points) }, customPoints: { state: 'null' },
+          effectivePoints: { value: String(native.points), source: 'raw' } });
+      }
+      expect(period.officialOutcome).toEqual({ status: 'unknown', reason: 'weekly_result_evidence_unproved' });
+      expect(period.finality).toEqual({ status: 'unknown', reason: 'provider_finality_evidence_unproved' });
+      expect(period.series).toEqual({ status: 'unknown', reason: 'series_membership_unproved' });
+      for (const field of ['winner', 'tie', 'bye', 'rank', 'aggregateScore']) expect(period).not.toHaveProperty(field);
+      receiptIds.push(values.matchupsReceiptId);
+      observedAt.push(values.provenance.sourceObservedAt);
+    }
+    expect(new Set(receiptIds).size).toBe(4);
+    expect(new Set(observedAt).size).toBe(4);
+    expect(JSON.stringify(source)).toBe(before);
+  });
+
+  it('retains the observed 110.2 equality for keeper week one without declaring an official tie or final result', () => {
+    const sample = priorPeriods.samples.find(sample => sample.key === 'keeper-sample')!;
+    const native = sample.resources.matchups[0].document.payload.filter(row => row.matchup_id === 1);
+    expect(native).toEqual([{ roster_id: 10, matchup_id: 1, points: 110.2, custom_points: null },
+      { roster_id: 12, matchup_id: 1, points: 110.2, custom_points: null }]);
+    const period = available(sourceInput(sample)).periods[0];
+    if (period.values.status !== 'available') throw new Error('Missing observed scores.');
+    expect(period.values.value.teams.filter(team => team.nativeMatchupId.state === 'supplied' && team.nativeMatchupId.value === '1')
+      .map(team => [team.externalRosterId, team.effectivePoints])).toEqual([
+      ['10', { value: '110.2', source: 'raw' }], ['12', { value: '110.2', source: 'raw' }],
+    ]);
+    expect(period).toMatchObject({ identity: { season: 2026, nativeWeek: 1 }, officialOutcome: { status: 'unknown' },
+      finality: { status: 'unknown' }, series: { status: 'unknown' } });
+    expect(period).not.toHaveProperty('tie');
   });
 });

@@ -1200,11 +1200,19 @@
       "reviewReference": "DATA-CP13-2026-10-12-SOURCE-EVIDENCE"
     },
     {
+      "path": "apps/site/test-support/fixtures/cp13-live-source-2026/prior-periods.json",
+      "resource": "CP13 current-2026 earlier native-period official-result source evidence",
+      "purpose": "Retain minimized public metadata and native weeks 1-4 from five verified 2026 leagues through the existing capturePublicSleeperCore adapter. Preserve original field presence, values, order, independent endpoint clocks, original row-key inventory, full-document hashes and minimized-slice hashes. No player/manager lists, synthetic provider outcomes, score-derived official ties, inferred bye/finality/series or other-season traversal.",
+      "proof": "Verify all 25 original capture digests and minimization; pure exact-value/projector and stored-composition regressions cover 232 observed team rows across 20 periods. Canonical and receipt IDs in tests are synthetic; no database or ordinary ingestion qualification. Existing runtime, migrations, SQL profiles, deadlines and frozen contract remain unchanged.",
+      "reviewer": "Coordinating root independently reviewed the exact fixture path and purpose before registration; GPT-6 Astra ultra /root/cp13_period_evidence authored fixture/tests. Independent GPT-6 Astra ultra /root/cp13_result_source_research accepted exact scope, every retained original-to-minimized value and digest, and final fixture/test/documentation semantics.",
+      "reviewReference": "DATA-CP13-2026-10-12-PRIOR-PERIOD-EVIDENCE"
+    },
+    {
       "path": "apps/site/test-support/fixtures/cp13-live-source-2026/README.md",
       "resource": "CP13 current-2026 retained public official-result source evidence",
-      "purpose": "Document exact sample provenance, 25 public GET attempts, retained first response after a disposable-script selector error, minimization/hash rules and native field observations. Distinguish public source/offline parser proof from hosted stored-reader qualification, coverage limits and unresolved CP13 semantics.",
+      "purpose": "Document exact sample provenance, 25 public GET attempts, retained first response after a disposable-script selector error, minimization/hash rules and native field observations. Distinguish public source/offline parser proof from hosted stored-reader qualification, coverage limits and unresolved CP13 semantics. Also document the separate 25-GET native-weeks-1-4 inventory, its 232 matchup rows, minimization and source/composition-only limits without rewriting the original capture history.",
       "proof": "Source evidence and offline parity only; validate every retained slice and digest against original captures, independently review claims, run targeted/source checks. Existing runtime, SQL fixture/profile pins, guards, frozen contract and production remain unchanged. No new paid SQL, credentials, retained installation or release.",
-      "reviewer": "Independent GPT-6 Astra ultra /root/cp13_retained_source_inventory confirmed these exact fixture paths and purposes before registration; final content/provenance review remains required.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/cp13_retained_source_inventory confirmed these exact fixture paths and purposes before registration; final content/provenance review remains required. Coordinating root independently confirms the later prior-period fixture documentation scope.",
       "reviewReference": "DATA-CP13-2026-10-12-SOURCE-EVIDENCE"
     },
     {
