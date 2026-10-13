@@ -30,6 +30,8 @@ export type TransactionCapture = Readonly<{
 }>;
 export type AcceptedTransactionsRead = Readonly<{ status: 'available'; capture: TransactionCapture; accepted: AcceptedResource }>
   | Readonly<{ status: 'missing' | 'disabled' | 'unavailable'; reason?: string }>;
+/** Omit for the current head; a receipt selects immutable acceptance and source clocks. */
+export type TransactionReceiptSelection = Readonly<{ receiptId: string }>;
 export type RetainedTransactionSelection = Readonly<{
   leagueSeasonId: string; scope: AdministrationScope; nativeWeeks: readonly number[];
 }>;

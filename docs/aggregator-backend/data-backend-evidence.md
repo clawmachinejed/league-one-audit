@@ -1,5 +1,11 @@
 # DATA backend evidence and remaining qualification
 
+## CP14 implemented; isolated SQL qualification pending — October 13, 2026
+
+CP14 now owns one exact 2026 transaction period through ordinary DATA intake and its typed stored reader. The [bounded implementation and proof plan](data-backend-cp14-plan.md) records the separate worktree, verified main/production binding, approved shared-file purposes and qualification limits. Implementation/local verification and publication are authorized; no new paid SQL run, retained migration, merge, deployment or DATA activation is approved. CP13 remains complete for its accepted bounded scope. The dated CP13 closeout below and every historical run retain their original evidence bindings.
+
+Independent source review and local verification passed: 7,404 unit tests (one host-capability skip), 120 public Chromium tests (20 account-phase deferrals and one unavailable-manager-data skip), then all 20 account tests. The successful full run used four unit workers after two default-concurrency attempts timed out in an unchanged diagnostic; its isolated reproduction passed without changing the timeout. The [CP14 verification record](data-backend-cp14-plan.md#verification-state) preserves this deviation and the source-only three-case profile. No PostgreSQL qualification, elapsed lifecycle or cleanup result is claimed. CP14 remains unqualified pending a separately authorized source-bound isolated run; publication and preview evidence will be recorded on the draft PR.
+
 ## Current checkpoint summary
 
 As of **October 12, 2026**, this is the authoritative status overlay for the DATA backend. Read it with the frozen [CP1 completion contract](data-backend-readiness-contract.md), [CP2 source baseline and checklist](data-backend-acceptance-baseline.md), and the [CP13 scope and acceptance plan](data-backend-cp13-plan.md). The dated records below retain their original source, meaning and failures; their historical words such as “current,” “complete,” “missing” or “not started” do not override this summary.

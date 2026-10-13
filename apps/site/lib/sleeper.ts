@@ -328,14 +328,14 @@ export async function capturePublicSleeperLeagueList(userId: string, season: num
     ...(acquisition ? { acquisition } : {}) }, acquisition); }
 }
 
-export function capturePublicSleeperCore(leagueId: string, family: 'matchups', signal: AbortSignal,
+export function capturePublicSleeperCore(leagueId: string, family: 'matchups' | 'transactions', signal: AbortSignal,
   nativeWeek: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
 export function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'winners_bracket' | 'losers_bracket',
   signal: AbortSignal, nativeWeek?: undefined, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument>;
-export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket',
+export async function capturePublicSleeperCore(leagueId: string, family: 'league' | 'rosters' | 'users' | 'matchups' | 'transactions' | 'winners_bracket' | 'losers_bracket',
   signal: AbortSignal, nativeWeek?: number, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument> {
   if (!/^[1-9]\d{0,31}$/u.test(leagueId)) throw new Error('Invalid Sleeper league identity.');
-  if (family === 'matchups' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < 1 || Number(nativeWeek) > 18
+  if (family === 'matchups' || family === 'transactions' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < (family === 'transactions' ? 0 : 1) || Number(nativeWeek) > 18
     : !['league', 'rosters', 'users', 'winners_bracket', 'losers_bracket'].includes(family) || nativeWeek !== undefined) throw new Error('Invalid public capture period.');
   signal.throwIfAborted();
   const acquisition = publicCaptureForRequest(witness, family, leagueId, nativeWeek ?? null);
