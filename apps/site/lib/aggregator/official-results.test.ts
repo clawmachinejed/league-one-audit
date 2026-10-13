@@ -4,16 +4,17 @@ import weeklyReportSource from '../../test-support/fixtures/cp13-live-source-202
 import { WEEKLY_REPORT_VERSION, projectWeeklyReport, type AcceptedWeeklyReportRead } from './weekly-reports';
 import priorPeriods from '../../test-support/fixtures/cp13-live-source-2026/prior-periods.json';
 import liveSource from '../../test-support/fixtures/cp13-live-source-2026/source.json';
+import completed2025Source from '../../test-support/fixtures/cp13-live-source-2025/source.json';
 import type { AdministrationFamily, JsonValue } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import type { AdministrationSourceMapping } from '../league-administration/source-mapping';
 import { EXACT_MATCHUP_VALUES_VERSION, projectExactMatchupValues, type ExactMatchupValuesRead } from './exact-matchup-values';
 import { deriveExactPeriodPhase, EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead,
   type PeriodConfigurationContext } from './exact-period-context';
-import type { ExactPeriodMappingQualification } from './exact-matchups';
-import { BRACKET_VALUE_VERSION, projectPlayoffBracket, type AcceptedBracketRead, type BracketFamily } from './playoff-brackets';
+import { projectExactMatchups, type ExactPeriodMappingQualification } from './exact-matchups';
+import { BRACKET_VALUE_VERSION, bracketScope, projectPlayoffBracket, type AcceptedBracketRead, type BracketFamily } from './playoff-brackets';
 import { OFFICIAL_STANDINGS_VERSION, projectOfficialStandings, type OfficialStandingsRead } from './official-standings';
-import { composeOfficialResults, OFFICIAL_RESULTS_VERSION, type OfficialResultsInput } from './official-results';
+import { composeOfficialResults, interpretBracketPlayedResult, OFFICIAL_RESULTS_VERSION, type OfficialResultsInput } from './official-results';
 
 const id = (number: number) => `00000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
 const mapping: AdministrationSourceMapping = { connectionId: id(1), leagueSeasonId: id(2), revisionId: id(3), generation: 1,
@@ -331,6 +332,147 @@ describe('stored official result composition', () => {
   it.each([0, 19, 1.5, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid selected native week %s even without stored values', nativeWeek => {
     expect(composeOfficialResults({ ...input(), periods: [{ nativeWeek, values: { status: 'missing' } }] }))
       .toEqual({ status: 'unavailable', reason: 'official_results_scope_mismatch' });
+  });
+});
+
+describe('retained public 2025 bracket facts for test-only interpretation', () => {
+  const observed = {
+    winners_bracket: [['1', '1', '5', '5', '1'], ['2', '4', '7', '4', '7'],
+      ['3', '5', '4', '5', '4'], ['4', '1', '7', '1', '7']],
+    losers_bracket: [['1', '8', '9', '8', '9'], ['2', '3', '6', '3', '6'],
+      ['3', '8', '3', '8', '3'], ['4', '9', '6', '9', '6']],
+  };
+  function retained(family: BracketFamily) {
+    const sample = completed2025Source.samples.find(value => value.key === 'dynasty');
+    const resource = sample?.resources.find(value => value.family === family);
+    if (!sample || !resource) throw new Error('Missing retained 2025 bracket evidence.');
+    const document = resource.document;
+    if (document.origin !== 'network' || document.family !== family || document.week !== null) {
+      throw new Error('Unexpected retained 2025 bracket capture.');
+    }
+    const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+      normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
+      scope: { provider: 'sleeper', leagueKey: sample.key, externalLeagueId: sample.externalLeagueId, season: sample.season },
+      family, week: null, completeness: 'complete', payload: document.payload as JsonValue,
+      provenance: { origin: document.origin, requestStartedAt: document.requestStartedAt,
+        requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt,
+        checkedAt: document.requestCompletedAt } });
+    if (normalized.status !== 'accepted'
+      || normalized.value?.family !== 'winners_bracket' && normalized.value?.family !== 'losers_bracket'
+      || normalized.value.family !== family) {
+      throw new Error('Retained bracket facts were rejected by the existing normalizer.');
+    }
+    return { sample, resource, normalized, matches: normalized.value.matches };
+  }
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)(
+    'interprets four genuine 2025 %s outcomes without changing native identity payload or clocks', family => {
+      const before = JSON.stringify(completed2025Source), { sample, resource, normalized, matches } = retained(family);
+      expect(sample.season).toBe(2025);
+      const league = sample.resources.find(value => value.family === 'league');
+      expect(league?.document.payload).toMatchObject({ league_id: sample.externalLeagueId, season: '2025', sport: 'nfl' });
+      expect(normalized.envelope.scope).toEqual({ provider: 'sleeper', leagueKey: sample.key,
+        externalLeagueId: sample.externalLeagueId, season: 2025 });
+      expect(normalized.envelope.payload).toEqual(resource.document.payload);
+      expect(normalized.envelope.provenance).toEqual({ origin: 'network',
+        requestStartedAt: resource.document.requestStartedAt, requestCompletedAt: resource.document.requestCompletedAt,
+        sourceObservedAt: resource.document.sourceObservedAt, checkedAt: resource.document.requestCompletedAt });
+      expect(matches.map(match => [match.externalMatchupId, match.teamOneExternalRosterId, match.teamTwoExternalRosterId,
+        match.winnerExternalRosterId, match.loserExternalRosterId])).toEqual(observed[family]);
+      for (const match of matches) {
+        expect(interpretBracketPlayedResult(match)).toEqual({ status: 'provider-reported-played',
+          reason: 'bracket_outcomes_match_resolved_entrants' });
+      }
+      expect(JSON.stringify(completed2025Source)).toBe(before);
+    });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)(
+    'keeps genuine 2025 %s evidence outside runtime bracket scopes projection and composition', family => {
+      const { normalized } = retained(family);
+      // Canonical mapping IDs here are synthetic guard inputs, never enrollment or stored-2025 proof.
+      const priorMapping = { ...mapping, scope: normalized.envelope.scope };
+      expect(() => bracketScope(priorMapping, family)).toThrow('current-season');
+      expect(projectPlayoffBracket(normalized)).toMatchObject({ status: 'rejected', value: null,
+        diagnostics: [{ code: 'invalid_bracket_scope', path: 'envelope' }] });
+      expect(composeOfficialResults({ mapping: priorMapping, standings: { status: 'missing' }, periods: [], brackets: [] }))
+        .toEqual({ status: 'unavailable', reason: 'official_results_scope_mismatch' });
+    });
+
+  it.each(['winners_bracket', 'losers_bracket'] as const)(
+    'interprets explicitly synthetic %s correction and removal variants without altering the observed 2025 fixture', family => {
+      const before = JSON.stringify(completed2025Source), { matches } = retained(family), original = matches[0];
+      // These changed facts are unit-test inventions, not another provider observation or correction chain.
+      const syntheticCorrection = { ...original, winnerExternalRosterId: original.loserExternalRosterId,
+        loserExternalRosterId: original.winnerExternalRosterId };
+      const syntheticRemoval = { ...original, winnerExternalRosterId: null, loserExternalRosterId: null };
+      expect(interpretBracketPlayedResult(syntheticCorrection).status).toBe('provider-reported-played');
+      expect(interpretBracketPlayedResult(syntheticRemoval)).toEqual({ status: 'unknown', reason: 'provider_finality_evidence_unproved' });
+      expect(interpretBracketPlayedResult(original).status).toBe('provider-reported-played');
+      expect(JSON.stringify(completed2025Source)).toBe(before);
+    });
+
+  it('preserves genuine 2025 weeks 16 and 17 separately while the reported bracket winner differs from the higher last-leg score', () => {
+    const before = JSON.stringify(completed2025Source), { sample, matches } = retained('winners_bracket');
+    const sourceLeague = sample.resources.find(resource => resource.family === 'league');
+    expect(sourceLeague?.document.payload).toMatchObject({ season: '2025', status: 'complete',
+      settings: { playoff_week_start: 15, playoff_teams: 4, playoff_round_type: 1, leg: 17, last_scored_leg: 17 },
+      metadata: { latest_league_winner_roster_id: '5' } });
+    const periods = [16, 17].map(nativeWeek => {
+      const resource = sample.resources.find(value => value.family === 'matchups' && value.nativeWeek === nativeWeek);
+      if (!resource || resource.document.origin !== 'network' || resource.document.family !== 'matchups'
+        || resource.document.week !== nativeWeek || !Array.isArray(resource.document.payload)) {
+        throw new Error('Missing exact retained 2025 period.');
+      }
+      const document = resource.document;
+      const normalized = normalizeAdministrationObservation({ schemaVersion: 'league-administration-v1',
+        normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
+        scope: { provider: 'sleeper', leagueKey: sample.key, externalLeagueId: sample.externalLeagueId, season: sample.season },
+        family: 'matchups', week: nativeWeek, completeness: 'complete', payload: document.payload as JsonValue,
+        provenance: { origin: 'network', requestStartedAt: document.requestStartedAt,
+          requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt,
+          checkedAt: document.requestCompletedAt } });
+      if (normalized.status !== 'accepted' || normalized.value?.family !== 'matchups') {
+        throw new Error('Retained period rejected by the existing normalizer.');
+      }
+      // Canonical IDs are synthetic pure-projector inputs; no historical enrollment or SQL write is claimed.
+      const teams = normalized.value.matchups.map((team, index) => ({ seasonTeamId: id(500 + index), externalRosterId: team.externalRosterId }));
+      const values = projectExactMatchupValues(normalized, teams), exact = projectExactMatchups(normalized, teams);
+      expect(normalized.envelope.payload).toEqual(document.payload);
+      expect(normalized.envelope.provenance).toEqual({ origin: 'network', requestStartedAt: document.requestStartedAt,
+        requestCompletedAt: document.requestCompletedAt, sourceObservedAt: document.sourceObservedAt, checkedAt: document.requestCompletedAt });
+      expect(values).toMatchObject({ season: 2025, nativeWeek }); expect(values.teams).toHaveLength(10);
+      expect(exact.state).toEqual({ provider: 'unknown', local: 'unknown', reason: 'no_matchup_finality_evidence' });
+      for (const field of ['series', 'bracketMatchId', 'aggregateScore', 'winner']) {
+        expect(values).not.toHaveProperty(field); expect(exact).not.toHaveProperty(field);
+      }
+      return values;
+    });
+    expect(periods.map(period => ({ nativeWeek: period.nativeWeek, teams: period.teams
+      .filter(team => team.externalRosterId === '4' || team.externalRosterId === '5')
+      .map(team => ({ roster: team.externalRosterId, matchup: team.nativeMatchupId,
+        points: team.rawPoints, custom: team.customPoints, effective: team.effectivePoints })) }))).toEqual([
+      { nativeWeek: 16, teams: [
+        { roster: '4', matchup: { state: 'supplied', value: '1' }, points: { state: 'supplied', value: '136.2' },
+          custom: { state: 'null' }, effective: { value: '136.2', source: 'raw' } },
+        { roster: '5', matchup: { state: 'supplied', value: '1' }, points: { state: 'supplied', value: '159.38' },
+          custom: { state: 'null' }, effective: { value: '159.38', source: 'raw' } },
+      ] },
+      { nativeWeek: 17, teams: [
+        { roster: '4', matchup: { state: 'supplied', value: '1' }, points: { state: 'supplied', value: '158.2' },
+          custom: { state: 'null' }, effective: { value: '158.2', source: 'raw' } },
+        { roster: '5', matchup: { state: 'supplied', value: '1' }, points: { state: 'supplied', value: '136.42' },
+          custom: { state: 'null' }, effective: { value: '136.42', source: 'raw' } },
+      ] },
+    ]);
+    const reported = matches.find(match => match.externalMatchupId === '3');
+    if (!reported) throw new Error('Missing retained championship bracket match.');
+    expect(reported).toMatchObject({ round: 2, teamOneExternalRosterId: '5', teamTwoExternalRosterId: '4',
+      winnerExternalRosterId: '5', loserExternalRosterId: '4' });
+    expect(interpretBracketPlayedResult(reported).status).toBe('provider-reported-played');
+    expect(reported.externalMatchupId).not.toBe('1'); // Native bracket and weekly IDs are separate namespaces.
+    // Derived corroboration of the asserted source decimals only. These sums are not provider aggregate fields or runtime output.
+    expect({ roster5Cents: 15938 + 13642, roster4Cents: 13620 + 15820 }).toEqual({ roster5Cents: 29580, roster4Cents: 29440 });
+    expect(JSON.stringify(completed2025Source)).toBe(before);
   });
 });
 

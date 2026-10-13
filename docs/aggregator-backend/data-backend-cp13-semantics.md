@@ -10,6 +10,68 @@ The runs retain their separate source and proof boundaries. The later
 [documented bracket interpretation](#documented-bracket-played-interpretation--october-12-2026)
 is a new source candidate, outside those hosted proof bindings. CP13 remains open.
 
+## Current CP13 closeout — selected 2025 evidence
+
+The approved testing exception has now supplied the missing positive played and
+representative multiweek source example. Ten bounded public GETs through the
+unchanged adapter retained eight played bracket rows and 30 weekly rows, with
+all original/minimized hashes and values independently checked. The fixture and
+precise source limitations are in [selected 2025 evidence](../../apps/site/test-support/fixtures/cp13-live-source-2025/README.md).
+
+The completed Dynasty example supplies first-round results and a round-two final
+between rosters 5 and 4, with native winner 5. Observed settings identify a
+four-team playoff starting in week 15 with a two-week championship; separate
+weeks 16 and 17 retain that pairing. Week 17 alone favors roster 4. The bracket's
+winner is therefore preserved independently of either weekly comparison. The
+295.80 / 294.40 two-week sums are derived corroboration, not new official fields.
+Archived settings remain retrieval-time observations, not an invented history of
+when settings took effect. No generic bracket-ID/week-ID join is introduced.
+
+Only the existing four-ID played-result comparison was extracted into a shared
+pure helper. Genuine 2025 normalized rows exercise that same production predicate;
+the production wrapper and every existing 2026 intake/bracket/composition guard
+remain intact. Retained-source tests preserve both score legs independently and add explicitly
+simulated removal/correction variants. Existing synthetic tests retain coverage
+for missing and contradictory outcomes.
+No observed before/after provider correction or true-2025 typed SQL is claimed.
+
+| Acceptance scope | Current disposition |
+| --- | --- |
+| CP13-01/02, 06-11: standings, reports, clocks, history, permissions, recovery and limits | Keep the recorded successful source-bound qualifications. This increment does not reopen their unchanged behavior or claim a complete current-source rerun. |
+| CP13-03: unknown weekly winner/tie/bye/finality when source evidence is insufficient | Existing negative behavior remains intentional and tested; no new calculator or positive bye inference is required. Report W/L/T remains separately qualified. |
+| CP13-04: source-supplied played bracket result | Eight genuine 2025 played rows now exercise the shared interpretation offline. Current-source stored interpretation still awaits the focused profile below. |
+| CP13-05: representative multiweek completion/correction | Genuine configured multiweek source example and separate native legs are retained. Simulated correction plus immutable stored history is the remaining targeted SQL check. A populated aggregate or generic series-link field is not required by this criterion; unproved joins remain unknown. |
+
+**Remaining execution:** one closed `data-official-results-played-v1` profile,
+selecting the last two existing official-results cases. It verifies independent
+stored periods plus played bracket meaning, then ordinary initial/corrected
+composition and unchanged historical receipts. It collects eight names, executes
+two and reports six filtered. The existing module, fixtures, source digest,
+shared hooks and deadlines are unchanged; authored case/hook allowance is
+23 minutes within the existing 30-minute work phase. No paid run has started.
+
+This is targeted qualification of the changed interpretation. The separate
+retained-evidence module's duplicated played assertion is not rerun; its unchanged
+recovery mechanisms retain their original accepted binding at `e7977776`.
+Independent scope/code review confirmed the two selected cases cover the distinct
+changed stored paths. A passing, independently accepted run would complete the
+remaining bounded CP13 acceptance; full-season, fleet, installation and release
+remain with their existing later checkpoint owners. A failed run would identify
+the specific failed assertion rather than reopen all passed CP13 work.
+
+Local verification passed 420 targeted tests (148 result/bracket/exact-value and
+272 profile/supervisor tests), with zero failures or selected test skips. Generated
+route types, TypeScript, changed-file ESLint, dependency, scope and diff checks
+passed. Independent source/contract reviews accepted the predicate, retained
+evidence and exact two-case selector. An initial offline selector test expected
+zero skipped cases; the maintained validator includes all six deliberately
+filtered cases in its skipped count. The test expectation was corrected and all
+272 profile/supervisor tests then passed; no harness behavior or SQL was changed.
+Hosted CI, preview and paid qualification remain separate source-bound evidence.
+
+The older dated sections below retain their original evidence state. References
+to missing positive played or multiweek examples there predate this supplement.
+
 ## Selected 2025 test evidence exception — October 12, 2026
 
 The user approved selected 2025 leagues **for testing only**. The [readiness

@@ -10,6 +10,7 @@ on:
         options:
           - full
           - data-official-results-v1
+          - data-official-results-played-v1
           - data-weekly-reports-v1
           - data-official-results-evidence-v1
           - data-bracket-intake-v1
@@ -85,6 +86,9 @@ jobs:
               ;;
             workflow_dispatch:data-official-results-evidence-v1)
               pnpm test:integration --profile=data-official-results-evidence-v1
+              ;;
+            workflow_dispatch:data-official-results-played-v1)
+              pnpm test:integration --profile=data-official-results-played-v1
               ;;
             workflow_dispatch:data-official-results-v1)
               pnpm test:integration --profile=data-official-results-v1

@@ -1,4 +1,5 @@
 import { isAdministrationSourceMapping, type AdministrationSourceMapping } from '../league-administration/source-mapping';
+import type { SourceBracketMatch } from '../league-administration/contracts';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
 import { EXACT_MATCHUP_VALUES_VERSION, type ExactMatchupValuesRead } from './exact-matchup-values';
 import { EXACT_PERIOD_CONTEXT_VERSION, type ExactPeriodContextRead } from './exact-period-context';
@@ -47,19 +48,30 @@ export type OfficialResultsRead = Readonly<{
 
 /** Sleeper defines w/l as winning/losing roster IDs if a bracket match has been played:
  * https://docs.sleeper.com/#getting-the-playoff-bracket. Require both outcomes to match
- * two distinct, natively resolved entrants; do not resolve advancement references here.
+ * two distinct, natively resolved entrants. This comparison accepts already-normalized
+ * facts; it does not parse payloads, resolve advancement, or qualify a runtime season.
  */
+export function interpretBracketPlayedResult(match: Pick<SourceBracketMatch,
+  'teamOneExternalRosterId' | 'teamTwoExternalRosterId' | 'winnerExternalRosterId' | 'loserExternalRosterId'>): OfficialBracketResultFinality {
+  const unknown: OfficialResultFinality = { status: 'unknown', reason: 'provider_finality_evidence_unproved' };
+  const firstId = match.teamOneExternalRosterId, secondId = match.teamTwoExternalRosterId;
+  const winner = match.winnerExternalRosterId, loser = match.loserExternalRosterId;
+  if (firstId === null || secondId === null || winner === null || loser === null
+    || firstId === secondId || winner === loser
+    || ![firstId, secondId].includes(winner) || ![firstId, secondId].includes(loser)) return unknown;
+  return { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' };
+}
+
 function bracketFinality(match: BracketMatch): OfficialBracketResultFinality {
   const unknown: OfficialResultFinality = { status: 'unknown', reason: 'provider_finality_evidence_unproved' };
   const first = match.entrants.find(entrant => entrant.slot === 1)?.native;
   const second = match.entrants.find(entrant => entrant.slot === 2)?.native;
   if (match.entrants.length !== 2 || first?.state !== 'supplied' || first.value.kind !== 'roster'
-    || second?.state !== 'supplied' || second.value.kind !== 'roster') return unknown;
-  const firstId = first.value.externalRosterId, secondId = second.value.externalRosterId;
-  if (firstId === secondId || match.winner.state !== 'supplied' || match.loser.state !== 'supplied'
-    || match.winner.value === match.loser.value
-    || ![firstId, secondId].includes(match.winner.value) || ![firstId, secondId].includes(match.loser.value)) return unknown;
-  return { status: 'provider-reported-played', reason: 'bracket_outcomes_match_resolved_entrants' };
+    || second?.state !== 'supplied' || second.value.kind !== 'roster'
+    || match.winner.state !== 'supplied' || match.loser.state !== 'supplied') return unknown;
+  return interpretBracketPlayedResult({ teamOneExternalRosterId: first.value.externalRosterId,
+    teamTwoExternalRosterId: second.value.externalRosterId, winnerExternalRosterId: match.winner.value,
+    loserExternalRosterId: match.loser.value });
 }
 
 /** Compose stored native facts without acquiring data, sorting standings, comparing scores,

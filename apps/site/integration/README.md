@@ -865,3 +865,30 @@ positive provider finality, weekly ties/byes, multiweek completion/correction,
 natural cadence, full-suite timing or fleet freshness follows. Full report,
 cleanup, source-CI and release state are in the
 [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md#cp13-retained-source-and-ordinary-recovery-hosted-qualification--october-12-2026).
+
+## Focused played-result qualification
+
+The closed `data-official-results-played-v1` profile selects only the last two
+existing cases in `official-results.integration-case.ts`: stored native-score
+and bracket composition, then ordinary failed-core recovery and corrected
+refresh. It retains the module's existing LF digest, all eight collected names,
+source order and one beforeAll/afterAll pair. Exactly two cases must execute and
+pass; the other six are reported as filtered (and included in the validator's
+skipped total), never as passed. Default discovery and all older profiles are
+unchanged.
+
+The first case reads independent stored periods and supplied bracket outcomes;
+the second reads initial/corrected bracket results and immutable prior receipts
+through the ordinary intake/refresh readers, with stored reads making no provider
+calls. Its existing synthetic 2026 fixtures remain synthetic. Separately retained
+genuine 2025 source fixtures exercise the same played-result predicate offline;
+this profile does not relabel those captures or claim 2025 SQL support.
+
+One 60-second case, one 1,080-second case and two 120-second hooks give a
+23-minute authored allowance. The ordinary case retains 15 admissions, 22
+intercepted GET attempts plus its separately asserted directory prerequisite,
+real admission spacing and original settlement behavior. All existing identity,
+restricted LOGIN, source, cleanup and 20-second worker / 30-minute work /
+40-minute lifecycle / 50-minute CI guards remain unchanged. No paid execution
+is authorized by authoring this selector. The separate retained-evidence module
+is not selected; its recovery proof keeps its original source binding.

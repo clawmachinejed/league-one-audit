@@ -18,6 +18,7 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
   OFFICIAL_RESULTS_PROFILE, OFFICIAL_RESULTS_MODULE, OFFICIAL_RESULTS_SOURCE_DIGEST, OFFICIAL_RESULTS_SUITE,
   OFFICIAL_RESULTS_TESTS, OFFICIAL_RESULTS_FULL_NAMES, OFFICIAL_RESULTS_PATTERN,
+  OFFICIAL_RESULTS_PLAYED_PROFILE, OFFICIAL_RESULTS_PLAYED_FULL_NAMES, OFFICIAL_RESULTS_PLAYED_PATTERN,
   WEEKLY_REPORTS_PROFILE, WEEKLY_REPORTS_MODULE, WEEKLY_REPORTS_SOURCE_DIGEST, WEEKLY_REPORTS_SUITE,
   WEEKLY_REPORTS_TESTS, WEEKLY_REPORTS_FULL_NAMES, WEEKLY_REPORTS_PATTERN,
   OFFICIAL_RESULTS_EVIDENCE_PROFILE, OFFICIAL_RESULTS_EVIDENCE_MODULE, OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST,
@@ -2102,4 +2103,81 @@ it('independently inventories report candidate source hooks budgets and manual w
   expect(workflow.match(/^\s+- data-weekly-reports-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-weekly-reports-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-weekly-reports-v1$/gmu)).toHaveLength(1);
+});
+
+
+async function officialResultsPlayedFixture() {
+  const { binding, evidence } = await officialResultsFixture();
+  binding.context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_PLAYED_PROFILE);
+  evidence.contextDigest = qualificationDigest(binding.context);
+  evidence.specifications[0].pattern = OFFICIAL_RESULTS_PLAYED_PATTERN;
+  for (const test of evidence.modules[0].cases.slice(0, 6)) {
+    test.state = 'skipped'; test.mode = 'skip'; test.diagnostic = null;
+  }
+  return { binding, evidence };
+}
+it('qualifies only the two existing stored played-result cases with six honestly filtered cases', async () => {
+  expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE])).toBe(OFFICIAL_RESULTS_PLAYED_PROFILE);
+  expect(qualificationArguments(OFFICIAL_RESULTS_PLAYED_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PLAYED_PATTERN]);
+  const { binding, evidence } = await officialResultsPlayedFixture();
+  expect(binding.context.modules).toEqual([{ path: OFFICIAL_RESULTS_MODULE, sourceDigest: OFFICIAL_RESULTS_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([OFFICIAL_RESULTS_MODULE]);
+  expect(OFFICIAL_RESULTS_PLAYED_FULL_NAMES).toEqual(OFFICIAL_RESULTS_FULL_NAMES.slice(6));
+  const pattern = new RegExp(OFFICIAL_RESULTS_PLAYED_PATTERN);
+  for (const [index, name] of OFFICIAL_RESULTS_FULL_NAMES.entries()) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(index >= 6);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_PLAYED_PROFILE,
+    collected: 8, executed: 2, passed: 2, skipped: 6, filtered: 6 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects missing played-result executions, extra execution, altered inventory, hooks and source binding', async () => {
+  const { binding, evidence } = await officialResultsPlayedFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.reverse(); },
+    r => { r.modules[0].cases[7].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[6].state = 'skipped'; }, r => { r.modules[0].cases[7].diagnostic = null; },
+    r => { r.modules[0].cases[6].configuredRetries = true; },
+    r => { r.modules[0].cases[7].configuredRepeats = 1; },
+    r => { r.modules[0].cases[6].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[7].diagnostic!.flaky = true; },
+    r => { r.modules[0].cases[0].diagnostic = { ...r.modules[0].cases[6].diagnostic! }; },
+    r => { r.modules[0].cases[0].state = 'passed'; r.modules[0].cases[0].mode = 'run'; },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.modules[0].suites[0].mode = 'skip'; },
+    r => { r.specifications[0].pattern = OFFICIAL_RESULTS_PATTERN; },
+    r => { r.specifications[0].otherFilters = true; }, r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const changedContext = structuredClone(binding.context); changedContext.modules[0].sourceDigest = 'f'.repeat(64);
+  expect(() => validateQualificationReport(changedContext, { ...evidence, contextDigest: qualificationDigest(changedContext) })).toThrow();
+  const fullProfile = await officialResultsFixture();
+  expect(() => validateQualificationReport(fullProfile.binding.context,
+    { ...evidence, contextDigest: qualificationDigest(fullProfile.binding.context) })).toThrow();
+  for (const args of [['--profile=data-official-results-played-v2'], ['--profile', OFFICIAL_RESULTS_PLAYED_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other',
+      '--profile=' + OFFICIAL_RESULTS_PROFILE].map(extra => ['--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE, extra])]) {
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+  }
+});
+it('keeps the played-result selection on the unchanged SQL fixture and fixed manual workflow arm', async () => {
+  const source = await readFile(new URL('../' + OFFICIAL_RESULTS_MODULE, import.meta.url), 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(OFFICIAL_RESULTS_SOURCE_DIGEST);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.split('          - data-official-results-played-v1')).toHaveLength(2);
+  expect(workflow.split('workflow_dispatch:data-official-results-played-v1)')).toHaveLength(2);
+  expect(workflow.split('pnpm test:integration --profile=data-official-results-played-v1')).toHaveLength(2);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
 });
