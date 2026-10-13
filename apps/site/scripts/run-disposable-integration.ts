@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
+import { assertIntegrationPostgresqlVersionEvidence, runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
 import { IntegrationLifecycleBudget } from '../integration/integration-lifecycle-budget';
 import { createIntegrationReceiptJournal } from '../integration/integration-receipt-journal';
 
@@ -59,7 +59,10 @@ try {
   const cancelled = controller.signal.aborted || Boolean(receipt.cancellationReason);
   if (!sourceUnchanged) receipt.failures.push('source-changed');
   if (cancelled && receipt.tests === 'passed' && !receipt.failures.includes('cancelled')) receipt.failures.push('cancelled');
-  let qualificationPassed = passed && sourceUnchanged && !cancelled;
+  let versionEvidenceValid = false;
+  try { assertIntegrationPostgresqlVersionEvidence(receipt, { gitSha, profile }); versionEvidenceValid = true; }
+  catch { if (passed) receipt.failures.push('postgresql-version-evidence'); }
+  let qualificationPassed = passed && sourceUnchanged && !cancelled && versionEvidenceValid;
   receipt.qualification = qualificationPassed ? 'passed' : 'failed';
   receipt.stage = qualificationPassed ? 'complete' : 'failed';
   finalizationStarted = true;

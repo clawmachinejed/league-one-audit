@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntegrationRunReceipt, runDisposableIntegration } from '../integration/disposable-integration';
+import { parseQualificationArguments, qualificationDigest, type QualificationContext } from '../integration/qualification-profile';
 
 const mocked = vi.hoisted(() => ({ git: vi.fn(), uuid: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), run: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFileSync: mocked.git }));
 vi.mock('node:crypto', async original => ({ ...await original<typeof import('node:crypto')>(), randomUUID: mocked.uuid }));
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>(), mkdir: mocked.mkdir, writeFile: mocked.writeFile }));
-vi.mock('../integration/disposable-integration', () => ({ runDisposableIntegration: mocked.run }));
+vi.mock('../integration/disposable-integration', async original => ({
+  ...await original<typeof import('../integration/disposable-integration')>(), runDisposableIntegration: mocked.run }));
 
 type RunOptions = Parameters<typeof runDisposableIntegration>[0];
 const originalArguments = process.argv;
@@ -18,8 +20,19 @@ const firstUuid = '00000000-0000-4000-8000-000000000001';
 const secondUuid = '00000000-0000-4000-8000-000000000002';
 
 function receipt(cancellationReason?: IntegrationRunReceipt['cancellationReason']): IntegrationRunReceipt {
-  return { kind: 'disposable-integration-v1', runId: 'fixture', gitSha: sha,
+  const profile = parseQualificationArguments(process.argv.slice(2));
+  const context: QualificationContext = { kind: 'integration-qualification-context-v1', runId: firstUuid,
+    nonce: secondUuid, gitSha: sha, profile, profileDigest: 'b'.repeat(64),
+    modules: [{ path: 'integration/example.integration-case.ts', sourceDigest: 'c'.repeat(64) }] };
+  const contextDigest = qualificationDigest(context);
+  return { kind: 'disposable-integration-v1', runId: firstUuid, gitSha: sha,
     projectId: 'test-project', parentBranchId: 'test-parent', startedAt: '2026-09-28T00:00:00Z',
+    databaseName: 'integration_test', branchId: 'br-child', testContext: context,
+    postgresqlVersion: { kind: 'integration-postgresql-version-v1', runId: firstUuid, gitSha: sha, profile,
+      contextDigest, databaseName: 'integration_test', branchId: 'br-child',
+      serverVersion: '18.6', serverVersionNum: '180006', observedAt: '2026-09-28T00:00:00.000Z' },
+    testEvidence: { profile, contextDigest, collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0,
+      reportDigest: 'd'.repeat(64) },
     stage: cancellationReason ? 'failed' : 'complete', tests: cancellationReason ? 'failed' : 'passed',
     childClosed: true, schemaCleanupVerified: true, credentialsRevoked: true,
     branchDeletionVerified: true, productionWrites: false,
@@ -46,7 +59,7 @@ beforeEach(() => {
   mocked.git.mockImplementation((_command: string, arguments_: string[]) => arguments_[0] === 'status' ? '' : sha);
   mocked.uuid.mockReturnValue(firstUuid);
   mocked.mkdir.mockResolvedValue(undefined); mocked.writeFile.mockResolvedValue(undefined);
-  mocked.run.mockResolvedValue({ passed: true, receipt: receipt() });
+  mocked.run.mockImplementation(async () => ({ passed: true, receipt: receipt() }));
   vi.spyOn(process.stdout, 'write').mockImplementation(value => { messages.push(String(value)); return true; });
   vi.spyOn(process.stderr, 'write').mockImplementation(value => { messages.push(String(value)); return true; });
   vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
@@ -64,6 +77,30 @@ afterEach(() => {
 });
 
 describe('disposable integration command cancellation and source evidence', () => {
+  it.each(['missing', 'version-pair', 'source', 'run', 'profile', 'context', 'branch', 'database', 'test-evidence'])(
+    'denies final command success for %s PostgreSQL evidence despite passed tests and cleanup', async fault => {
+      const result = receipt();
+      if (fault === 'missing') delete result.postgresqlVersion;
+      else if (fault === 'test-evidence') delete result.testEvidence;
+      else {
+        const evidence = { ...result.postgresqlVersion! };
+        if (fault === 'version-pair') evidence.serverVersionNum = '170006';
+        if (fault === 'source') evidence.gitSha = 'b'.repeat(40);
+        if (fault === 'run') evidence.runId = secondUuid;
+        if (fault === 'profile') evidence.profile = 'data-transaction-history-intake-v1';
+        if (fault === 'context') evidence.contextDigest = 'e'.repeat(64);
+        if (fault === 'branch') evidence.branchId = 'br-other';
+        if (fault === 'database') evidence.databaseName = 'other_test';
+        result.postgresqlVersion = evidence;
+      }
+      mocked.run.mockResolvedValue({ passed: true, receipt: result });
+      await import('./run-disposable-integration');
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: 'failed', failures: ['postgresql-version-evidence'] });
+      expect(JSON.parse(mocked.writeFile.mock.calls.at(-1)![1])).toMatchObject({ qualification: 'failed', stage: 'failed',
+        childClosed: true, schemaCleanupVerified: true, credentialsRevoked: true, branchDeletionVerified: true });
+    });
+
   it('stops work at minute30, leaving the final ten minutes for cleanup', async () => {
     const { ready, finishCleanup } = waitForCancellation();
     const executing = import('./run-disposable-integration');

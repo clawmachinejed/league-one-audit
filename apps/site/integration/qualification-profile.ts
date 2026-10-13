@@ -32,6 +32,30 @@ export const OFFICIAL_RESULTS_PATTERN = closedPattern(OFFICIAL_RESULTS_FULL_NAME
 export const OFFICIAL_RESULTS_PLAYED_PROFILE = 'data-official-results-played-v1';
 export const OFFICIAL_RESULTS_PLAYED_FULL_NAMES = [OFFICIAL_RESULTS_FULL_NAMES[6], OFFICIAL_RESULTS_FULL_NAMES[7]];
 export const OFFICIAL_RESULTS_PLAYED_PATTERN = closedPattern(OFFICIAL_RESULTS_PLAYED_FULL_NAMES);
+export const TRANSACTION_HISTORY_INTAKE_PROFILE = 'data-transaction-history-intake-v1';
+export const TRANSACTION_HISTORY_INTAKE_MODULE = 'integration/transaction-history-intake.integration-case.ts';
+// Authored source binding; independent review and actual SQL qualification remain separate.
+export const TRANSACTION_HISTORY_INTAKE_SOURCE_DIGEST = 'cc41ea92ce0da8ac3622919e3858c665622a5ec9bbd6ff9348b7c235a83512c7';
+export const TRANSACTION_HISTORY_INTAKE_SUITE = 'ordinary full transaction history intake through restricted PostgreSQL';
+export const TRANSACTION_HISTORY_INTAKE_TESTS = ['acquires every native period with real admission spacing immutable receipts replay and source free historical pages'] as const;
+export const TRANSACTION_HISTORY_INTAKE_FULL_NAMES = TRANSACTION_HISTORY_INTAKE_TESTS.map(name => TRANSACTION_HISTORY_INTAKE_SUITE + ' > ' + name);
+export const TRANSACTION_HISTORY_INTAKE_PATTERN = closedPattern(TRANSACTION_HISTORY_INTAKE_FULL_NAMES);
+export const TRANSACTION_HISTORY_REFRESH_PROFILE = 'data-transaction-history-refresh-v1';
+export const TRANSACTION_HISTORY_REFRESH_MODULE = 'integration/transaction-history-refresh.integration-case.ts';
+// Authored source binding; independent review and actual SQL qualification remain separate.
+export const TRANSACTION_HISTORY_REFRESH_SOURCE_DIGEST = '3e886156d752fa1a05162dd621a745b8b2b6acdb7572a848f97b0d1de39f6ca3';
+export const TRANSACTION_HISTORY_REFRESH_SUITE = 'full transaction history refresh from disclosed accepted baseline through restricted PostgreSQL';
+export const TRANSACTION_HISTORY_REFRESH_TESTS = ['refreshes all nineteen periods with corrections removals equal content fresh clocks and immutable prior receipts'] as const;
+export const TRANSACTION_HISTORY_REFRESH_FULL_NAMES = TRANSACTION_HISTORY_REFRESH_TESTS.map(name => TRANSACTION_HISTORY_REFRESH_SUITE + ' > ' + name);
+export const TRANSACTION_HISTORY_REFRESH_PATTERN = closedPattern(TRANSACTION_HISTORY_REFRESH_FULL_NAMES);
+export const TRANSACTION_HISTORY_RECOVERY_PROFILE = 'data-transaction-history-recovery-v1';
+export const TRANSACTION_HISTORY_RECOVERY_MODULE = 'integration/transaction-history-recovery.integration-case.ts';
+// Authored source binding; independent review and actual SQL qualification remain separate.
+export const TRANSACTION_HISTORY_RECOVERY_SOURCE_DIGEST = 'df2ced24e2742aea93434ef48767aa8675f5bac8d42672d0de030972f90757f7';
+export const TRANSACTION_HISTORY_RECOVERY_SUITE = 'bounded transaction history recovery through restricted PostgreSQL';
+export const TRANSACTION_HISTORY_RECOVERY_TESTS = ['preserves nineteen period coverage through lost acknowledgment retry exhaustion and next period recovery'] as const;
+export const TRANSACTION_HISTORY_RECOVERY_FULL_NAMES = TRANSACTION_HISTORY_RECOVERY_TESTS.map(name => TRANSACTION_HISTORY_RECOVERY_SUITE + ' > ' + name);
+export const TRANSACTION_HISTORY_RECOVERY_PATTERN = closedPattern(TRANSACTION_HISTORY_RECOVERY_FULL_NAMES);
 export const TRANSACTION_PERIOD_INTAKE_PROFILE = 'data-transaction-period-intake-v1';
 export const TRANSACTION_PERIOD_INTAKE_MODULE = 'integration/transaction-period-intake.integration-case.ts';
 // Authored CP14 fixture source pin; exact-source independent review and SQL execution are separate.
@@ -223,7 +247,7 @@ export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated l
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
-  | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
+  | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
@@ -320,6 +344,9 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === TRANSACTION_HISTORY_INTAKE_PROFILE) return { names: TRANSACTION_HISTORY_INTAKE_FULL_NAMES, pattern: TRANSACTION_HISTORY_INTAKE_PATTERN };
+  if (profile === TRANSACTION_HISTORY_REFRESH_PROFILE) return { names: TRANSACTION_HISTORY_REFRESH_FULL_NAMES, pattern: TRANSACTION_HISTORY_REFRESH_PATTERN };
+  if (profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) return { names: TRANSACTION_HISTORY_RECOVERY_FULL_NAMES, pattern: TRANSACTION_HISTORY_RECOVERY_PATTERN };
   if (profile === TRANSACTION_PERIOD_INTAKE_PROFILE) return { names: TRANSACTION_PERIOD_INTAKE_FULL_NAMES, pattern: TRANSACTION_PERIOD_INTAKE_PATTERN };
   if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return { names: OFFICIAL_RESULTS_PLAYED_FULL_NAMES, pattern: OFFICIAL_RESULTS_PLAYED_PATTERN };
   if (profile === WEEKLY_REPORTS_PROFILE) return { names: WEEKLY_REPORTS_FULL_NAMES, pattern: WEEKLY_REPORTS_PATTERN };
@@ -501,11 +528,17 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
+  if (profile === TRANSACTION_HISTORY_INTAKE_PROFILE) return TRANSACTION_HISTORY_INTAKE_MODULE;
+  if (profile === TRANSACTION_HISTORY_REFRESH_PROFILE) return TRANSACTION_HISTORY_REFRESH_MODULE;
+  if (profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) return TRANSACTION_HISTORY_RECOVERY_MODULE;
   if (profile === TRANSACTION_PERIOD_INTAKE_PROFILE) return TRANSACTION_PERIOD_INTAKE_MODULE;
   if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_MODULE;
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_MODULE : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_MODULE : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_MODULE : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
+  if (profile === TRANSACTION_HISTORY_INTAKE_PROFILE) return TRANSACTION_HISTORY_INTAKE_SOURCE_DIGEST;
+  if (profile === TRANSACTION_HISTORY_REFRESH_PROFILE) return TRANSACTION_HISTORY_REFRESH_SOURCE_DIGEST;
+  if (profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) return TRANSACTION_HISTORY_RECOVERY_SOURCE_DIGEST;
   if (profile === TRANSACTION_PERIOD_INTAKE_PROFILE) return TRANSACTION_PERIOD_INTAKE_SOURCE_DIGEST;
   if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_SOURCE_DIGEST;
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_SOURCE_DIGEST : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_SOURCE_DIGEST : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_SOURCE_DIGEST : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_SOURCE_DIGEST : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_SOURCE_DIGEST : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_SOURCE_DIGEST : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_SOURCE_DIGEST : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_SOURCE_DIGEST : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_SOURCE_DIGEST : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_SOURCE_DIGEST : profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
@@ -515,6 +548,9 @@ function selectedModules(profile: QualificationProfile) {
     : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
 }
 function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === TRANSACTION_HISTORY_INTAKE_PROFILE) return TRANSACTION_HISTORY_INTAKE_FULL_NAMES;
+  if (profile === TRANSACTION_HISTORY_REFRESH_PROFILE) return TRANSACTION_HISTORY_REFRESH_FULL_NAMES;
+  if (profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) return TRANSACTION_HISTORY_RECOVERY_FULL_NAMES;
   if (profile === TRANSACTION_PERIOD_INTAKE_PROFILE) return TRANSACTION_PERIOD_INTAKE_FULL_NAMES;
   if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_FULL_NAMES;
   if (profile === CORE_COMPATIBILITY_PROFILE) {
@@ -532,6 +568,9 @@ function profileDigest(profile: QualificationProfile) {
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
   if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_PLAYED_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + TRANSACTION_HISTORY_INTAKE_PROFILE) return TRANSACTION_HISTORY_INTAKE_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + TRANSACTION_HISTORY_REFRESH_PROFILE) return TRANSACTION_HISTORY_REFRESH_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + TRANSACTION_HISTORY_RECOVERY_PROFILE) return TRANSACTION_HISTORY_RECOVERY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + TRANSACTION_PERIOD_INTAKE_PROFILE) return TRANSACTION_PERIOD_INTAKE_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + WEEKLY_REPORTS_PROFILE) return WEEKLY_REPORTS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_RESULTS_EVIDENCE_PROFILE) return OFFICIAL_RESULTS_EVIDENCE_PROFILE;
@@ -556,10 +595,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-transaction-history-intake-v1, data-transaction-history-refresh-v1, data-transaction-history-recovery-v1, data-transaction-period-intake-v1, data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -572,7 +611,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -582,6 +621,12 @@ function validateContext(value: QualificationContext): QualificationContext {
   }
   unique(value.modules.map(module => module.path));
   if (value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE) assert.equal(value.modules[0].sourceDigest, OFFICIAL_RESULTS_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
+  if (value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE) assert.equal(value.modules[0].sourceDigest, TRANSACTION_HISTORY_INTAKE_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
+  if (value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE) assert.equal(value.modules[0].sourceDigest, TRANSACTION_HISTORY_REFRESH_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
+  if (value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) assert.equal(value.modules[0].sourceDigest, TRANSACTION_HISTORY_RECOVERY_SOURCE_DIGEST,
     'Selected qualification source differs from the reviewed LF digest.');
   if (value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE) assert.equal(value.modules[0].sourceDigest, TRANSACTION_PERIOD_INTAKE_SOURCE_DIGEST,
     'Selected qualification source differs from the reviewed LF digest.');
@@ -736,6 +781,48 @@ export function validateQualificationReport(context: QualificationContext, repor
         const previous = selected[index - 1].diagnostic, current = selected[index].diagnostic;
         assert(previous && current && current.startTime >= previous.startTime,
           'Official results cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === TRANSACTION_HISTORY_INTAKE_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), TRANSACTION_HISTORY_INTAKE_FULL_NAMES,
+        'Transaction history cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Transaction history requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, TRANSACTION_HISTORY_INTAKE_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Transaction history hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Transaction history cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === TRANSACTION_HISTORY_REFRESH_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), TRANSACTION_HISTORY_REFRESH_FULL_NAMES,
+        'Transaction history cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Transaction history requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, TRANSACTION_HISTORY_REFRESH_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Transaction history hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Transaction history cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), TRANSACTION_HISTORY_RECOVERY_FULL_NAMES,
+        'Transaction history cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Transaction history requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, TRANSACTION_HISTORY_RECOVERY_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Transaction history hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Transaction history cases must execute in chronological source order.');
       }
     }
     if (context.profile === TRANSACTION_PERIOD_INTAKE_PROFILE) {
@@ -977,6 +1064,9 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
+  if (profile === TRANSACTION_HISTORY_INTAKE_PROFILE) return [TRANSACTION_HISTORY_INTAKE_MODULE];
+  if (profile === TRANSACTION_HISTORY_REFRESH_PROFILE) return [TRANSACTION_HISTORY_REFRESH_MODULE];
+  if (profile === TRANSACTION_HISTORY_RECOVERY_PROFILE) return [TRANSACTION_HISTORY_RECOVERY_MODULE];
   if (profile === TRANSACTION_PERIOD_INTAKE_PROFILE) return [TRANSACTION_PERIOD_INTAKE_MODULE];
   if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return [OFFICIAL_RESULTS_MODULE];
   return profile === WEEKLY_REPORTS_PROFILE ? [WEEKLY_REPORTS_MODULE] : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? [OFFICIAL_RESULTS_EVIDENCE_MODULE] : profile === OFFICIAL_RESULTS_PROFILE ? [OFFICIAL_RESULTS_MODULE] : profile === BRACKET_INTAKE_PROFILE ? [BRACKET_INTAKE_MODULE] : profile === TYPED_BRACKETS_PROFILE ? [TYPED_BRACKETS_MODULE] : profile === EXACT_MATCHUP_VALUES_PROFILE ? [EXACT_MATCHUP_VALUES_MODULE] : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? [PERIOD_SETTINGS_CONTEXT_MODULE] : profile === PERIOD_INVENTORY_PROFILE ? [PERIOD_INVENTORY_MODULE] : profile === TEAM_MANAGER_FACTS_PROFILE ? [TEAM_MANAGER_FACTS_MODULE] : profile === ROSTER_PLAYER_LINKS_PROFILE ? [ROSTER_PLAYER_LINKS_MODULE] : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_MODULE] : profile === PLAYER_DIRECTORY_PROFILE ? [PLAYER_DIRECTORY_MODULE]

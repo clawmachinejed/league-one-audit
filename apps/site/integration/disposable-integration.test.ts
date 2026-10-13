@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { DisposableNeonApi } from './disposable-neon-api';
 import { assertEmptyDisposableDatabase, disposableConfiguration, DISPOSABLE_AUTHORIZATION,
+  assertIntegrationPostgresqlVersionEvidence, captureIntegrationPostgresqlVersion,
   integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
+import { qualificationDigest, type QualificationContext } from './qualification-profile';
 
 const valid = {
   NEON_TEST_AUTHORIZATION: DISPOSABLE_AUTHORIZATION, NEON_TEST_API_KEY: 'secret',
@@ -68,6 +70,74 @@ describe('bootstrap identity and emptiness', () => {
     const value = typeof row[key as keyof typeof row] === 'number' ? 1 : 'wrong';
     await expect(assertEmptyDisposableDatabase(vi.fn().mockResolvedValue({ rows: [{ ...row, [key]: value }] }), target)).rejects.toThrow();
   });
+});
+
+describe('run-bound PostgreSQL version evidence', () => {
+  const context: QualificationContext = { kind: 'integration-qualification-context-v1',
+    runId: '00000000-0000-4000-8000-000000000001', nonce: '00000000-0000-4000-8000-000000000002',
+    gitSha: 'a'.repeat(40), profile: 'full', profileDigest: 'b'.repeat(64),
+    modules: [{ path: 'integration/example.integration-case.ts', sourceDigest: 'c'.repeat(64) }] };
+  const target = { database: 'integration_test', branch: 'br-child', owner: 'neondb_owner' };
+  const row = { ...target, session: target.owner, server_version: '18.6', server_version_num: '180006' };
+  const receipt = (): IntegrationRunReceipt => ({ kind: 'disposable-integration-v1', runId: context.runId,
+    gitSha: context.gitSha, startedAt: '2026-01-01T00:00:00.000Z', databaseName: target.database,
+    branchId: target.branch, projectId: 'test-project', parentBranchId: 'br-parent', stage: 'tests',
+    tests: 'passed', childClosed: true, schemaCleanupVerified: true, credentialsRevoked: true,
+    branchDeletionVerified: true, failures: [], productionWrites: false, testContext: structuredClone(context),
+    testEvidence: { profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0,
+      reportDigest: 'd'.repeat(64), contextDigest: qualificationDigest(context) } });
+  it.each([['18.6', '180006'], ['17.0', '170000'], ['18.6 (Debian 18.6-1)', '180006'], ['9.6.24', '90624']])(
+    'preserves the actual coherent server values %s / %s', async (version, numeric) => {
+      const query = vi.fn().mockResolvedValue({ rows: [{ ...row, server_version: version, server_version_num: numeric }] });
+      const result = receipt();
+      result.postgresqlVersion = await captureIntegrationPostgresqlVersion(query, result, target);
+      expect(result.postgresqlVersion).toMatchObject({ serverVersion: version, serverVersionNum: numeric,
+        contextDigest: qualificationDigest(context), databaseName: target.database, branchId: target.branch });
+      expect(Object.isFrozen(result.postgresqlVersion)).toBe(true);
+      expect(() => assertIntegrationPostgresqlVersionEvidence(result, context)).not.toThrow();
+      expect(query).toHaveBeenCalledOnce();
+      expect(query.mock.calls[0][0]).toContain("current_setting('server_version_num')");
+    });
+  it.each([
+    [], [row, row], [{ ...row, owner: 'another_owner' }], [{ ...row, session: 'another_owner' }],
+    [{ ...row, database: 'another_test' }], [{ ...row, branch: 'br-parent' }], [{ ...row, extra: 'secret' }],
+    [{ ...row, server_version: undefined }], [{ ...row, server_version_num: undefined }],
+    [{ ...row, server_version: '18.6', server_version_num: '180005' }],
+    [{ ...row, server_version: 'postgresql://private:secret@host/test' }],
+    [{ ...row, server_version: '18.6\nprivate' }], [{ ...row, server_version: '18.6' + 'x'.repeat(97) }],
+    [{ ...row, server_version_num: 180006 }], [{ ...row, server_version_num: '0180006' }],
+  ].map(rows => ({ rows })))('rejects unsafe or inconsistent returned rows %# without retaining their values', async ({ rows }) => {
+    const original = receipt();
+    await expect(captureIntegrationPostgresqlVersion(vi.fn().mockResolvedValue({ rows }), original, target))
+      .rejects.toMatchObject({ code: 'POSTGRESQL_VERSION_EVIDENCE_INVALID',
+        message: 'Run-bound PostgreSQL version evidence is missing or invalid.' });
+    expect(original.postgresqlVersion).toBeUndefined();
+  });
+  it('sanitizes failed reads without exposing driver text', async () => {
+    await expect(captureIntegrationPostgresqlVersion(vi.fn().mockRejectedValue(new Error('private password')), receipt(), target))
+      .rejects.toMatchObject({ message: 'Run-bound PostgreSQL version evidence is missing or invalid.' });
+  });
+  it.each(['missing', 'run', 'source', 'profile', 'context', 'database', 'branch', 'clock', 'finish',
+    'test-evidence', 'test-context', 'test-profile', 'test-digest'])(
+    'rejects %s evidence even when all cleanup flags and case counts pass', async fault => {
+      const result = receipt();
+      result.postgresqlVersion = { ...await captureIntegrationPostgresqlVersion(vi.fn().mockResolvedValue({ rows: [row] }), result, target) };
+      const evidence = result.postgresqlVersion as { -readonly [Key in keyof NonNullable<IntegrationRunReceipt['postgresqlVersion']>]: NonNullable<IntegrationRunReceipt['postgresqlVersion']>[Key] };
+      if (fault === 'missing') delete result.postgresqlVersion;
+      if (fault === 'run') evidence.runId = 'another-run';
+      if (fault === 'source') evidence.gitSha = 'b'.repeat(40);
+      if (fault === 'profile') evidence.profile = 'data-transaction-history-intake-v1';
+      if (fault === 'context') result.testContext!.nonce = '00000000-0000-4000-8000-000000000003';
+      if (fault === 'database') evidence.databaseName = 'other_test';
+      if (fault === 'branch') evidence.branchId = 'br-parent';
+      if (fault === 'clock') evidence.observedAt = '2025-12-31T00:00:00.000Z';
+      if (fault === 'finish') result.finishedAt = result.startedAt;
+      if (fault === 'test-evidence') delete result.testEvidence;
+      if (fault === 'test-context') result.testEvidence!.contextDigest = 'e'.repeat(64);
+      if (fault === 'test-profile') result.testEvidence!.profile = 'data-transaction-history-refresh-v1';
+      if (fault === 'test-digest') result.testEvidence!.reportDigest = '';
+      expect(() => assertIntegrationPostgresqlVersionEvidence(result, context)).toThrow('version evidence');
+    });
 });
 
 describe('disposable lifecycle failure boundaries', () => {

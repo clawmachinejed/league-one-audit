@@ -4,6 +4,7 @@ import type { LeagueAdministrationStore } from './store-contracts';
 import { refreshOrdinal, refreshUuid } from './public-refresh-contracts';
 import { readPublicSleeperIntake } from './public-intake-reader';
 import { normalizePublicWeeklyReports, normalizePublicPlayoffBrackets, normalizeStoredPublicPeriods, type PublicIntakeReadOptions } from './public-intake-contracts';
+import { normalizePublicTransactionHistory } from './public-intake-contracts';
 
 function timestamp(value: unknown): string {
   const time = value instanceof Date ? value.getTime() : typeof value === 'string' ? Date.parse(value) : NaN;
@@ -31,6 +32,8 @@ export async function readPublicDataRefresh(client: Database, administration: Le
       to_jsonb(configuration)->'period_inventory' AS selected_period_inventory,
       to_jsonb(configuration)->'playoff_brackets' AS selected_playoff_brackets,
       to_jsonb(configuration)->'weekly_reports' AS selected_weekly_reports,
+      to_jsonb(configuration)->'transaction_history' AS selected_transaction_history,
+      to_jsonb(cycle_configuration)->'transaction_history' AS cycle_transaction_history,
       to_jsonb(cycle_configuration)->'weekly_reports' AS cycle_weekly_reports,
       to_jsonb(cycle_configuration)->'playoff_brackets' AS cycle_playoff_brackets,
       to_jsonb(cycle_configuration)->'period_inventory' AS cycle_period_inventory,
@@ -57,6 +60,7 @@ export async function readPublicDataRefresh(client: Database, administration: Le
   const { exactPeriods, periodInventory } = normalizeStoredPublicPeriods(row.selected_exact_periods, row.seasons as number[], row.selected_period_inventory);
   const playoffBrackets = normalizePublicPlayoffBrackets(row.selected_playoff_brackets ?? undefined, row.seasons as number[]);
   const weeklyReports = normalizePublicWeeklyReports(row.selected_weekly_reports ?? undefined, row.seasons as number[]);
+  const transactionHistory = normalizePublicTransactionHistory(row.selected_transaction_history ?? undefined, row.seasons as number[]);
   const revision = ordinal(row.configuration_revision);
   const cadence = ordinal(row.cadence_seconds);
   const failureCount = ordinal(row.selection_failure_count, 0);
@@ -75,12 +79,13 @@ export async function readPublicDataRefresh(client: Database, administration: Le
       Array.isArray(row.cycle_seasons) ? row.cycle_seasons : [], row.cycle_period_inventory);
     const cycleBrackets = normalizePublicPlayoffBrackets(row.cycle_playoff_brackets ?? undefined, Array.isArray(row.cycle_seasons) ? row.cycle_seasons : []);
     const cycleReports = normalizePublicWeeklyReports(row.cycle_weekly_reports ?? undefined, Array.isArray(row.cycle_seasons) ? row.cycle_seasons : []);
-    cycle = { ...(cycleReports.length ? { weeklyReports: cycleReports } : {}), ...(cycleBrackets ? { playoffBrackets: cycleBrackets } : {}), ...(cycleInventory ? { periodInventory: cycleInventory } : {}), ...(cyclePeriods.length ? { exactPeriods: cyclePeriods } : {}), number: ordinal(row.current_cycle), configurationRevision: cycleRevision, requestId: row.intake_id,
+    const cycleTransactions = normalizePublicTransactionHistory(row.cycle_transaction_history ?? undefined, Array.isArray(row.cycle_seasons) ? row.cycle_seasons : []);
+    cycle = { ...(cycleTransactions ? { transactionHistory: cycleTransactions } : {}), ...(cycleReports.length ? { weeklyReports: cycleReports } : {}), ...(cycleBrackets ? { playoffBrackets: cycleBrackets } : {}), ...(cycleInventory ? { periodInventory: cycleInventory } : {}), ...(cyclePeriods.length ? { exactPeriods: cyclePeriods } : {}), number: ordinal(row.current_cycle), configurationRevision: cycleRevision, requestId: row.intake_id,
       createdAt: timestamp(row.cycle_created_at), dueAt: timestamp(row.due_at), outcome };
   }
   const target = { id: row.id, provider: 'sleeper' as const, sourceManagerAccountId: row.source_manager_account_id,
     externalManagerId: row.external_manager_id, identityRequestId: row.identity_request_id, configurationRevision: revision,
-    seasons: row.seasons as number[], ...(weeklyReports.length ? { weeklyReports } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(periodInventory ? { periodInventory } : {}), ...(exactPeriods.length ? { exactPeriods } : {}), cadenceSeconds: cadence, expiresAt: timestamp(row.expires_at),
+    seasons: row.seasons as number[], ...(transactionHistory ? { transactionHistory } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(periodInventory ? { periodInventory } : {}), ...(exactPeriods.length ? { exactPeriods } : {}), cadenceSeconds: cadence, expiresAt: timestamp(row.expires_at),
     paused: row.paused, configuredAt: timestamp(row.configured_at) };
   const schedule = { nextDueAt: timestamp(row.next_due_at), lastServedAt: row.last_served_at === null ? null : timestamp(row.last_served_at),
     selectionFailureCount: failureCount, selectionFailedAt: row.selection_failed_at === null ? null : timestamp(row.selection_failed_at),
@@ -91,6 +96,7 @@ export async function readPublicDataRefresh(client: Database, administration: Le
   if (cycle && intake && intake.status !== 'missing'
     && (JSON.stringify(cycle.exactPeriods ?? []) !== JSON.stringify(intake.request.exactPeriods ?? [])
       || JSON.stringify(cycle.weeklyReports ?? []) !== JSON.stringify(intake.request.weeklyReports ?? [])
+      || cycle.transactionHistory !== intake.request.transactionHistory
       || cycle.periodInventory !== intake.request.periodInventory || cycle.playoffBrackets !== intake.request.playoffBrackets)) {
     throw new Error('Stored refresh cycle period scope differs from its request.');
   }

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient } from '../database';
 import { createPublicDataRefreshStore } from './neon/public-intake';
 import { validatePublicDataRefresh } from './public-refresh-contracts';
+import { PUBLIC_TRANSACTION_HISTORY } from './public-intake-contracts';
 import { readPublicDataRefresh } from './public-refresh-reader';
 import { createLeagueAdministrationStore } from './store';
 vi.mock('server-only', () => ({}));
@@ -19,6 +20,27 @@ function database(result: unknown) {
   return { query, client: { enabled: true, query } as unknown as DatabaseClient };
 }
 afterEach(() => vi.useRealTimers());
+
+describe('immutable full transaction refresh scope', () => {
+  it.each([false, true])('retains the cycle selector independently of current configuration and rejects mismatch=%s', async mismatch => {
+    const row = { ...targetRow(), seasons: [2026], current_cycle: '4', cycle_configuration_revision: '2', intake_id: requestId,
+      cycle_created_at: time, due_at: time, selected_transaction_history: null,
+      cycle_transaction_history: PUBLIC_TRANSACTION_HISTORY, cycle_seasons: [2026] };
+    const query = vi.fn(async (sql: string) => sql.includes('public-data-refresh:read') ? [row]
+      : sql.includes('read-request') ? [{ id: requestId, seasons: [2026], terminal: true,
+        selected_transaction_history: mismatch ? null : PUBLIC_TRANSACTION_HISTORY }] : []);
+    const read = readPublicDataRefresh({ enabled: true, query } as unknown as DatabaseClient,
+      createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }), targetId);
+    if (mismatch) await expect(read).rejects.toThrow('period scope differs');
+    else {
+      const value = await read;
+      expect(value).toMatchObject({ cycle: { transactionHistory: PUBLIC_TRANSACTION_HISTORY },
+        intake: { request: { transactionHistory: PUBLIC_TRANSACTION_HISTORY } } });
+      if (value.status !== 'available') throw new Error('Expected stored refresh');
+      expect(value.target).not.toHaveProperty('transactionHistory');
+    }
+  });
+});
 
 describe('explicit recurring DATA configuration and SQL transport', () => {
   it('normalizes only explicit scope and keeps stable identities as exact strings', () => {
