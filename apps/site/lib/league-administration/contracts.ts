@@ -35,6 +35,7 @@ export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }>
   | Readonly<{ kind: 'bootstrap' | 'core' | 'users'; externalLeagueId: string; season: number }>
   | Readonly<{ kind: 'playoff-brackets'; externalLeagueId: string; season: 2026 }>
   | Readonly<{ kind: 'weekly-report'; externalLeagueId: string; season: 2026; nativeWeek: number }>
+  | Readonly<{ kind: 'transactions'; externalLeagueId: string; season: 2026; nativeWeek: number }>
   | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
 );
 /** DB-issued causality evidence, separate from the provider document and its clocks.

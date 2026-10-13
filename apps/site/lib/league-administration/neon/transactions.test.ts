@@ -3,7 +3,7 @@ import type { DatabaseClient, DatabaseRow } from '../../database';
 import { normalizeAdministrationObservation } from '../normalize';
 import { createLeagueAdministrationStore } from '../store';
 import { TRANSACTIONS_POLICY, transactionsScope, type TransactionCapture, type RetainedTransactionSelection } from '../transaction-capture-contracts';
-import { ACCEPTED_TRANSACTIONS_SQL, RETAINED_TRANSACTION_READ_SQL, RETAINED_TRANSACTION_SCAN_SQL, transactionMethods } from './transactions';
+import { ACCEPTED_TRANSACTIONS_SQL, RECEIPT_TRANSACTIONS_SQL, RETAINED_TRANSACTION_READ_SQL, RETAINED_TRANSACTION_SCAN_SQL, transactionMethods } from './transactions';
 import { projectTransactionCapture } from '../../aggregator/transaction-activity';
 
 vi.mock('server-only', () => ({}));
@@ -32,6 +32,28 @@ const acceptedRow = (capture: TransactionCapture) => [{ capture, identity: { sco
   source_mapping_revision_id: mapping.revisionId }];
 
 describe('transaction storage boundary', () => {
+  it('selects one immutable accepted receipt without a later head or original-observation clock substituting for it', async () => {
+    const source = fixture(); const query = vi.fn(() => acceptedRow(source));
+    const read = await transactionMethods(database(query)).readAcceptedTransactions(mapping, 0, { receiptId: source.captureId });
+    expect(read).toMatchObject({ status: 'available', capture: source, accepted: { observationIds: [source.captureId] } });
+    expect(query).toHaveBeenCalledExactlyOnceWith(RECEIPT_TRANSACTIONS_SQL,
+      [JSON.stringify({ scope: transactionsScope(mapping, 0), policy: TRANSACTIONS_POLICY }), mapping.revisionId, 1, 0, source.captureId]);
+    expect(RECEIPT_TRANSACTIONS_SQL).toContain('accepted.receipt_id=$5::uuid');
+    expect(RECEIPT_TRANSACTIONS_SQL).not.toContain('league_roster_resource_heads');
+    expect(RECEIPT_TRANSACTIONS_SQL).not.toContain('league_administration_heads');
+    expect(RECEIPT_TRANSACTIONS_SQL).toContain('connection.current_mapping_revision_id=accepted.source_mapping_revision_id');
+    expect(RECEIPT_TRANSACTIONS_SQL).toContain("'provenance',receipt.provenance");
+    expect(await transactionMethods(database(query)).readAcceptedTransactions(mapping, 0, { receiptId: id(99) }))
+      .toEqual({ status: 'unavailable', reason: 'transaction_evidence_unavailable' });
+  });
+  it.each([null, {}, { receiptId: 'invalid' }, { receiptId: id(4), extra: true }, []])(
+    'rejects malformed receipt selection before querying: %j', receiptSelection => {
+      const query = vi.fn(() => []);
+      return transactionMethods(database(query)).readAcceptedTransactions(mapping, 0, receiptSelection as never).then(value => {
+        expect(value).toEqual({ status: 'unavailable', reason: 'invalid_transaction_receipt_selection' });
+        expect(query).not.toHaveBeenCalled();
+      });
+    });
   it('accepts a mapped complete empty Week 0 without inventing a roster population requirement', async () => {
     const source = fixture(); const query = vi.fn(() => acceptedRow(source));
     const read = await transactionMethods(database(query)).readAcceptedTransactions(mapping, 0);

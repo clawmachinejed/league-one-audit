@@ -20,7 +20,7 @@ import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceIn
   RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
 import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
 import type { RetainedMatchupRead, RetainedMatchupSelection } from './retained-matchups-contracts';
-import type { AcceptedTransactionsRead, RetainedTransactionRead, RetainedTransactionSelection } from './transaction-capture-contracts';
+import type { AcceptedTransactionsRead, RetainedTransactionRead, RetainedTransactionSelection, TransactionReceiptSelection } from './transaction-capture-contracts';
 
 export type AdministrationReadInput = AdministrationScope & Readonly<{
   family: AdministrationFamily; week: number | null;
@@ -86,7 +86,7 @@ export type LeagueAdministrationStore = Readonly<{
   readAcceptedBracket?: (mapping: AdministrationSourceMapping, selection: BracketSelection) => Promise<AcceptedBracketRead>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
-  readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number) => Promise<AcceptedTransactionsRead>;
+  readAcceptedTransactions: (mapping: AdministrationSourceMapping, week: number, selection?: TransactionReceiptSelection) => Promise<AcceptedTransactionsRead>;
   /** Original immutable observations only; later receipt times never rewrite their mapping proof. */
   scanRetainedTransactions: (selection: RetainedTransactionSelection) => Promise<RetainedTransactionRead>;
   readRetainedTransactions: (selection: RetainedTransactionSelection, observationIds: readonly string[]) => Promise<RetainedTransactionRead>;

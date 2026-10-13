@@ -780,3 +780,37 @@ DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPD
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC REPORT INTAKE GRANTS
+
+-- BEGIN OPTIONAL PUBLIC TRANSACTION INTAKE GRANTS
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.public_data_transaction_tasks') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['public_data_transaction_tasks','public_data_transaction_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public transaction intake privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.canonical_public_data_transaction_period(jsonb,integer[])',
+      'public.validate_public_data_transaction_task()',
+      'public.validate_public_data_transaction_task_fence()',
+      'public.fail_public_data_transaction_work(jsonb,jsonb)',
+      'public.validate_public_data_transaction_checkpoint()',
+      'public.validate_public_data_transaction_checkpoint_fence()',
+      'public.checkpoint_public_data_intake_v50(jsonb,jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public transaction intake helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_transaction_attempt(jsonb,uuid,integer,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_transaction_attempt(jsonb,uuid,integer,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot reserve transaction capture'; END IF;
+    GRANT EXECUTE ON FUNCTION public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot execute public transaction intake entry point'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC TRANSACTION INTAKE GRANTS

@@ -11,6 +11,7 @@ on:
           - full
           - data-official-results-v1
           - data-official-results-played-v1
+          - data-transaction-period-intake-v1
           - data-weekly-reports-v1
           - data-official-results-evidence-v1
           - data-bracket-intake-v1
@@ -80,6 +81,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-transaction-period-intake-v1)
+              pnpm test:integration --profile=data-transaction-period-intake-v1
               ;;
             workflow_dispatch:data-weekly-reports-v1)
               pnpm test:integration --profile=data-weekly-reports-v1

@@ -22,6 +22,7 @@ export type PublicIntakeDependencies = Readonly<{
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     weeklyReport?: typeof capturePublicSleeperWeeklyReport;
+    transactions?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     bracket?: (leagueId: string, family: BracketFamily, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument> }>;
   now?: () => Date;
@@ -65,6 +66,8 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const now = dependencies.now ?? (() => new Date());
   const source: NonNullable<PublicIntakeDependencies['source']> = dependencies.source ?? { identity: capturePublicSleeperIdentity,
     leagues: capturePublicSleeperLeagueList, weeklyReport: capturePublicSleeperWeeklyReport,
+    transactions: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal, witness: PublicCaptureWitness) =>
+      capturePublicSleeperCore(leagueId, 'transactions', captureSignal, nativeWeek, witness),
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
       capturePublicSleeperCore(leagueId, family, captureSignal, undefined, witness),
     bracket: (leagueId: string, family: BracketFamily, captureSignal: AbortSignal, witness: PublicCaptureWitness) =>
@@ -177,7 +180,26 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         throw new Error('Intake mapping unavailable.');
       }
       const observations: { league?: string; rosters?: string; users?: string } = {};
-      if (work.kind === 'weekly-report') {
+      if (work.kind === 'transactions') {
+        if (work.season !== 2026 || !source.transactions || !administration.beginTransactionAttempt
+          || !intake.completeTransactions || !intake.captureWitness) throw new Error('Witnessed transaction intake is unsupported.');
+        const attempt = await administration.beginTransactionAttempt(mapping, work.nativeWeek, randomUUID(), fence);
+        const witness = await captureWitness(mapping, { transactions: attempt.id });
+        if (!witness) throw new Error('Transaction intake requires its database acquisition witness.');
+        signal.throwIfAborted();
+        requests++;
+        const document = await source.transactions(work.externalLeagueId, work.nativeWeek, signal, witness);
+        if (document.family !== 'transactions' || document.week !== work.nativeWeek || document.origin !== 'network'
+          || document.sourceObservedAt !== document.requestCompletedAt) throw new Error('Transaction source returned a different capture.');
+        const captured = await recordCapturedAdministration(mapping.scope, [document], { store: administration, signal, fence, mapping, now,
+          transactionAttempt: { week: work.nativeWeek, attempt }, expectedAcquisition: witness });
+        const result = captured.results.find(entry => entry.family === 'transactions')?.result;
+        if (!result?.observationId || result.transactionAcceptance?.status !== 'accepted') {
+          throw new Error('Transaction typed capture remains incomplete.');
+        }
+        await intake.completeTransactions(work, mapping, { observations: { transactions: result.observationId },
+          receipts: { transactions: result.transactionAcceptance.receiptId } }, fence);
+      } else if (work.kind === 'weekly-report') {
         if (work.season !== 2026 || !source.weeklyReport || !administration.beginWeeklyReportAttempt
           || !intake.completeWeeklyReport || !intake.captureWitness) throw new Error('Witnessed weekly-report intake is unsupported.');
         const report = await administration.beginWeeklyReportAttempt(mapping, work.nativeWeek, randomUUID(), fence);

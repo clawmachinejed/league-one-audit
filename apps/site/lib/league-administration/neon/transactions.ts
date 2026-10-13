@@ -8,7 +8,7 @@ import type { AdministrationWriteFence } from '../store-contracts';
 import { isRetainedTransactionSelection, isTransactionCaptureId, RETAINED_TRANSACTION_BATCH_LIMIT,
   RETAINED_TRANSACTION_INVENTORY_LIMIT, TRANSACTIONS_POLICY, transactionsScope,
   type AcceptedTransactionsRead, type RetainedTransactionRead, type RetainedTransactionSelection,
-  type TransactionCapture } from '../transaction-capture-contracts';
+  type TransactionCapture, type TransactionReceiptSelection } from '../transaction-capture-contracts';
 
 const time = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const originalProvenance = `jsonb_build_object('origin',observation.origin,
@@ -78,12 +78,14 @@ export const RETAINED_TRANSACTION_READ_SQL = `/* league-administration:read-reta
         AND observation.week=ANY($2::smallint[]) AND observation.id=ANY($3::uuid[])
         AND (content.id IS NULL OR (content.provider=$6 AND content.external_league_id=$7))
       ORDER BY observation.week,observation.recorded_at,observation.id LIMIT ${RETAINED_TRANSACTION_BATCH_LIMIT + 1}) item),'[]'::jsonb) AS captures`;
-export const ACCEPTED_TRANSACTIONS_SQL = `/* league-administration:read-accepted-transactions */
+function acceptedTransactionsSql(selectedReceipt: boolean): string {
+  return `/* league-administration:read-${selectedReceipt ? 'receipt' : 'accepted'}-transactions */
   SELECT ${captureValue(false)},scope.identity,accepted.source_mapping_revision_id
   FROM public.league_roster_resource_scopes scope
-  JOIN public.league_roster_resource_heads head ON head.scope_id=scope.id
+  ${selectedReceipt ? `JOIN public.league_roster_resource_acceptances accepted ON accepted.scope_id=scope.id
+    AND accepted.receipt_id=$5::uuid` : `JOIN public.league_roster_resource_heads head ON head.scope_id=scope.id
   JOIN public.league_roster_resource_acceptances accepted ON accepted.id=head.accepted_id
-    AND accepted.scope_id=scope.id AND accepted.generation=head.generation
+    AND accepted.scope_id=scope.id AND accepted.generation=head.generation`}
   JOIN public.league_roster_capture_receipts receipt ON receipt.id=accepted.receipt_id
   JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id AND attempt.scope_id=scope.id
   JOIN public.league_administration_contents content ON content.id=receipt.content_id
@@ -95,13 +97,16 @@ export const ACCEPTED_TRANSACTIONS_SQL = `/* league-administration:read-accepted
     AND connection.league_season_id=scope.league_season_id AND connection.current_mapping_revision_id=accepted.source_mapping_revision_id
   JOIN public.league_administration_enrollment_seasons enrollment ON enrollment.league_id=season.league_id
     AND enrollment.season=season.season AND enrollment.provider=connection.provider
-  JOIN public.league_administration_heads legacy ON legacy.league_season_id=content.league_season_id
+  ${selectedReceipt ? '' : `JOIN public.league_administration_heads legacy ON legacy.league_season_id=content.league_season_id
     AND legacy.family='transactions' AND legacy.week=content.week AND legacy.read_conflict IS NULL
   JOIN public.league_administration_observations current_observation ON current_observation.id=legacy.accepted_observation_id
-    AND current_observation.content_id=content.id
+    AND current_observation.content_id=content.id`}
   ${revisionJoin}
   WHERE scope.identity=$1::jsonb AND connection.current_mapping_revision_id=$2::uuid
     AND connection.mapping_generation=$3 AND content.family='transactions' AND content.week=$4`;
+}
+export const ACCEPTED_TRANSACTIONS_SQL = acceptedTransactionsSql(false);
+export const RECEIPT_TRANSACTIONS_SQL = acceptedTransactionsSql(true);
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid transaction evidence.');
@@ -153,12 +158,18 @@ export function transactionMethods(client: DatabaseClient) {
       if (row.id !== id || !isTransactionCaptureId(row.scopeId)) throw new Error('Invalid transaction reservation.');
       return { id, scopeId: row.scopeId, ordinal: ordinal(row.ordinal), expectedGeneration: ordinal(row.expectedGeneration, 0) };
     },
-    async readAcceptedTransactions(mapping: AdministrationSourceMapping, week: number): Promise<AcceptedTransactionsRead> {
+    async readAcceptedTransactions(mapping: AdministrationSourceMapping, week: number,
+      selection?: TransactionReceiptSelection): Promise<AcceptedTransactionsRead> {
       if (!isAdministrationSourceMapping(mapping)) return { status: 'unavailable', reason: 'invalid_mapping' };
+      if (selection !== undefined && (!selection || typeof selection !== 'object' || Array.isArray(selection)
+        || Object.keys(selection).length !== 1 || !isTransactionCaptureId(selection.receiptId))) {
+        return { status: 'unavailable', reason: 'invalid_transaction_receipt_selection' };
+      }
       try {
         const scope = transactionsScope(mapping, week);
-        const rows = await client.query(ACCEPTED_TRANSACTIONS_SQL,
-          [JSON.stringify({ scope, policy: TRANSACTIONS_POLICY }), mapping.revisionId, mapping.generation, week]);
+        const rows = await client.query(selection ? RECEIPT_TRANSACTIONS_SQL : ACCEPTED_TRANSACTIONS_SQL,
+          [JSON.stringify({ scope, policy: TRANSACTIONS_POLICY }), mapping.revisionId, mapping.generation, week,
+            ...(selection ? [selection.receiptId] : [])]);
         if (!rows.length) return { status: 'missing' };
         if (rows.length !== 1) throw new Error('Ambiguous transaction resource.');
         const source = capture(rows[0].capture);
@@ -166,6 +177,7 @@ export function transactionMethods(client: DatabaseClient) {
         const expectedCoverage = { periodIds: [scope.scoringPeriodId], interval: null, entitySet: 'full',
           fields: ['transaction_id'], pagination: 'complete', nextCursor: null, completeness: 'complete', reasons: [] };
         if (!source.receipt || source.captureKind !== 'receipt' || source.captureId !== source.receipt.id || !source.accepted
+          || selection !== undefined && source.receipt.id !== selection.receiptId
           || source.week !== week || source.leagueSeasonId !== mapping.leagueSeasonId
           || source.envelope.family !== 'transactions' || source.envelope.week !== week
           || source.envelope.completeness !== 'complete' || provenance.origin !== 'network'

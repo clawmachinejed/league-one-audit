@@ -892,3 +892,69 @@ restricted LOGIN, source, cleanup and 20-second worker / 30-minute work /
 40-minute lifecycle / 50-minute CI guards remain unchanged. No paid execution
 is authorized by authoring this selector. The separate retained-evidence module
 is not selected; its recovery proof keeps its original source binding.
+
+## CP14 ordinary exact transaction period qualification
+
+The closed `data-transaction-period-intake-v1` profile passed all three cases
+at `6213716253369b6c39de774681d406178c2c39fe` in the single authorized
+[run 38400157087](https://github.com/clawmachinejed/league-one-audit/actions/runs/38400157087).
+Independent audit accepted its evidence and automatic cleanup; fresh Neon
+inspection confirmed child absence. The [detailed closeout](../../../docs/aggregator-backend/data-backend-cp14-plan.md#accepted-hosted-qualification--october-13-2026)
+retains exact source, counts, timings and boundaries. The profile selects three
+ordered cases in `transaction-period-intake.integration-case.ts` with one shared
+`beforeAll`/`afterAll` pair, using
+`pnpm test:integration --profile=data-transaction-period-intake-v1` through
+the existing protected manual workflow. The profile binds the exact module LF
+digest, case names/order, hooks, immutable report and acknowledged cleanup;
+source drift, extra filters, skipped cases, repeats, retries and substituted
+evidence fail closed. Expected selected/collected/executed/passed inventory is
+**3/3/3/3**, with zero skipped, filtered or retried cases and two completed hooks.
+Default non-live discovery grows from 59 to 60 modules; older profile selections,
+module bytes and source pins remain unchanged.
+
+The first case checks the singular explicit `transactionPeriod` selector,
+native Week 0/18 boundaries, invalid and changed replay rejection before
+admission, omitted-selector compatibility and actual restricted-runtime denial
+of direct transaction task/checkpoint mutations. The second uses synthetic
+HTTP responses through ordinary identity, discovery, bootstrap, one failed
+malformed transaction capture, successful exact Week 0 recovery, core and
+directory acquisition. Its expected inventory is seven dispatch admissions
+and eight intercepted GET attempts, with genuine 60-second spacing and no
+provider-network traffic. It verifies wrong dispatch kind, league, period,
+mapping revision, observation and receipt cannot complete the checkpoint.
+The resulting receipt is tied to the original database dispatch nonce, work,
+write fence, mapping and reservation ordering.
+
+Native IDs (including a string beyond JavaScript's safe integer range), supplied
+status, bid zero, missing/null fields, native timestamps and raw contents are
+compared through the original normalizer, committed 033 acceptance and exact
+relational transaction-entry rows, typed projection and ordinary stored reader. Originating acquisition
+clocks remain distinct from native event times and each read's `readAt`.
+A subsequent equal-content acquisition through the existing 033 writer reuses
+the legacy observation but keeps its own receipt/time; explicit selection of
+both receipts and the older request's stored read stay bound to their captures.
+This direct equal-content acceptance is not a second witnessed DATA request or
+recurring refresh. The third case checks complete-empty Week 18, retained
+partial/malformed evidence with last-good preservation, and wrong-period,
+mapping and league receipt selection. Stored reads reject all attempted
+provider access.
+
+Case allowances are **60, 720 and 120 seconds**, with two existing 120-second
+hooks: **1,140 seconds (19 minutes)** in total. The accepted run measured
+**494.519 seconds** for the supervisor lifecycle and **519 seconds** for the
+GitHub job. It used fixed **0.25 CU** and a **$1 authorization limit**, with
+**no automatic retry**. Actual billing was not measured, and this consumed
+authorization permits no additional run. Original
+20-second worker, 60-second admission, 30-minute work, 40-minute lifecycle and
+50-minute CI deadlines, identity/role/TLS/sentinel/denylist guards and automatic
+disposable cleanup remain unchanged.
+
+Actual restricted PostgreSQL 18 execution, exact source binding and cleanup
+were accepted for these three synthetic cases. Repeated native IDs across
+unrelated leagues and deliberate stale/expired-fence injection were not
+exercised; original successful receipt/fence binding was checked. This profile
+does not qualify CP15 all-period history,
+recurring transaction refresh, corrections/removals, a second witnessed
+equal-content DATA intake, live provider parity, sustained freshness, capacity,
+process death or restore. DATA activation, retained migration installation,
+merge and production release remain separately unauthorized.
