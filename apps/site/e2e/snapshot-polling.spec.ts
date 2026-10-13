@@ -460,9 +460,14 @@ test('a previous week response cannot overwrite a newly selected week in the sam
   const held = deferred(); fixture.holdFull = held.promise;
   await page.clock.runFor(60_000);
   await expect.poll(() => fixture.fullCount).toBe(2);
-  await page.getByLabel('Matchup week').selectOption('6');
-  await expect(page).toHaveURL(/\/matchups\?week=6$/u);
-  await expect(page.getByLabel('Matchup week')).toHaveValue('6');
+  const weekPicker = page.getByLabel('Matchup week');
+  // The fixture preserves the server's Current week, whose canonical URL omits
+  // the numeric query. Keep this race valid when Week 6 becomes Current.
+  const destinationLabel = await weekPicker.locator('option[value="6"]').textContent();
+  expect(['Week 6', 'Week 6 · Current']).toContain(destinationLabel);
+  await weekPicker.selectOption('6');
+  await expect(page).toHaveURL(destinationLabel === 'Week 6 · Current' ? /\/matchups$/u : /\/matchups\?week=6$/u);
+  await expect(weekPicker).toHaveValue('6');
   held.resolve();
   await page.clock.runFor(1);
   await expect(page.getByText('Late Week Five', { exact: true })).toHaveCount(0);

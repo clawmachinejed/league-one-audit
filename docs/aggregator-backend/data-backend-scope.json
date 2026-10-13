@@ -1382,6 +1382,14 @@
       "proof": "CP15 source candidate from9f4945e294df56962a258d07d1987c94acbf2e76. Require meaningful targeted/full source checks and independent final review. Authored SQL and offline fixtures are not installed PostgreSQL qualification. Any later exact-source isolated run requires separate authorization and acknowledged cleanup. Preserve20-second fences,60-second spacing,fixed0.25CU,no automatic retry,30-minute work/40-minute lifecycle/50-minute CI limits and frozen CP1/2 targets. No credential access,paid SQL,provisioning,retained migration,merge,release or DATA activation is authorized.",
       "reviewer": "Independent GPT-6 Astra ultra /root/scope_reviewer confirmed exact files and purposes before implementation; this is scope confirmation only. Final source review remains independent of each author.",
       "reviewReference": "DATA-CP15-2026-10-13-SCOPE-REVIEW"
+    },
+    {
+      "path": "apps/site/e2e/snapshot-polling.spec.ts",
+      "resource": "Existing browser regression for stale matchup responses after selecting another week; no new DATA resource",
+      "purpose": "Repair only the existing previous-week response race test after Week 6 became Current. Read destination option 6's exact label before selection, validate the two supported label forms and require the corresponding exact canonical URL. Preserve selected Week 6, the held Week 5 response, its release and both stale-content exclusions. No runtime, shared fixture helper, projections, SQL, profile, timeout or retry changes.",
+      "proof": "Hosted CI 38428922976 at b6541cb125ee754574b0062934082ba96e386846 and a fresh-build local one-test/no-retry reproduction both failed the fixed ?week=6 expectation while the real picker displayed Week 6 as Current at /matchups. Independent trace review confirmed the original SSR rollover week was 6. Relevant selector/calendar owners and the test match main 87da4d0; require focused and snapshot-polling-suite browser checks without retries plus independent final source review. Existing CP15 SQL results retain their original bindings; this grants no SQL or release authority.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/scope_reviewer reproduced the trace-level root cause and confirmed this exact file and test-only purpose before authoring; coordinating root cleared fresh repository/Vercel authority at 16:35-16:36 UTC on October 13, 2026.",
+      "reviewReference": "DATA-CP15-2026-10-13-SNAPSHOT-POLLING-CURRENT-WEEK"
     }
   ],
   "governanceChanges": [
