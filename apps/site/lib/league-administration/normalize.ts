@@ -6,6 +6,7 @@ import { MANAGER_DIRECTORY_VERSION, type ManagerDirectoryNormalization, type Com
 import { LEAGUE_SETTINGS_POLICY, type SettingField, type LeagueSettingsNormalization,
   type LeagueSettingsValue, type NativePeriodReference } from '../aggregator/league-settings';
 import { normalizeSleeperScoringProfile } from '../projections/adapters/sleeper/scoring-profile';
+import { normalizeWeeklyReportEnvelope } from '../aggregator/weekly-report-normalization';
 import { providerKey } from '../projections/shared/provider-identity';
 import { SLEEPER_RECOGNIZED_ROSTER_SLOTS } from '../league-capabilities';
 import {
@@ -176,19 +177,19 @@ function validateEnvelope(envelope: AdministrationEnvelope): void {
   identifier(scope.externalLeagueId, 'scope.externalLeagueId');
   if (scope.provider !== 'sleeper') invalid('unsupported_provider', 'scope.provider', 'Only the Sleeper source dialect is supported.');
   if (safeInteger(scope.season, 'scope.season', 1000) > 9999) invalid('invalid_season', 'scope.season', 'Expected a four-digit season.');
-  if (!['league', 'rosters', 'users', 'matchups', 'transactions', 'drafts', 'traded_picks', 'winners_bracket', 'losers_bracket'].includes(envelope.family)) {
+  if (!['league', 'rosters', 'users', 'matchups', 'transactions', 'drafts', 'traded_picks', 'winners_bracket', 'losers_bracket', 'weekly_report'].includes(envelope.family)) {
     invalid('unsupported_family', 'family', 'This source family is not supported.');
   }
-  if (envelope.family === 'matchups' || envelope.family === 'transactions') safeInteger(envelope.week, 'week', envelope.family === 'matchups' ? 1 : 0);
+  if (envelope.family === 'matchups' || envelope.family === 'transactions' || envelope.family === 'weekly_report') safeInteger(envelope.week, 'week', envelope.family === 'matchups' ? 1 : 0);
   else if (envelope.week !== null) invalid('invalid_scope', 'week', 'This family has a season scope rather than a weekly scope.');
   if (!['complete', 'partial'].includes(envelope.completeness)) invalid('invalid_completeness', 'completeness', 'Completeness must be stated explicitly.');
   const provenance = object(envelope.provenance, 'provenance');
   if (provenance.acquisition !== undefined) {
     try {
       if (provenance.origin !== 'network'
-        || !['league', 'rosters', 'users', 'matchups', 'winners_bracket', 'losers_bracket'].includes(envelope.family)) throw new Error('scope');
+        || !['league', 'rosters', 'users', 'matchups', 'winners_bracket', 'losers_bracket', 'weekly_report'].includes(envelope.family)) throw new Error('scope');
       publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
-        envelope.family as 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket', String(scope.externalLeagueId), envelope.week);
+        envelope.family as 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket' | 'weekly_report', String(scope.externalLeagueId), envelope.week);
       const witness = provenance.acquisition as PublicCaptureWitness;
       if (witness.mapping && compatibleRevision(witness.mapping.scope) !== compatibleRevision(scope)) throw new Error('mapping');
       if ('season' in witness.work && witness.work.season !== scope.season) throw new Error('season');
@@ -770,12 +771,20 @@ export function normalizeAdministrationObservation(
       case 'transactions': value = normalizeTransactions(rows(envelope.payload, 'payload')); break;
       case 'drafts': value = normalizeDrafts(rows(envelope.payload, 'payload'), envelope); break;
       case 'traded_picks': value = { family: 'traded_picks', picks: metadataTradedPicks(envelope.payload, 'payload') }; break;
+      case 'weekly_report': {
+        const report = normalizeWeeklyReportEnvelope(envelope);
+        if (report.status !== 'accepted') {
+          const diagnostic = report.diagnostics[0];
+          invalid(diagnostic.code, diagnostic.path, 'Invalid native weekly report.');
+        }
+        value = { family: 'weekly_report', report: report.value }; break;
+      }
       case 'winners_bracket': case 'losers_bracket':
         value = normalizeBracket(isCompleteUnpublishedBracket(envelope) ? [] : rows(envelope.payload, 'payload'), envelope.family); break;
     }
     // League operational state is retained raw but does not manufacture a settings version.
     // Other families retain all unknown fields as material rather than silently ignoring them.
-    const material = envelope.family === 'league' ? value : materialCollection(envelope);
+    const material = envelope.family === 'league' ? value : envelope.family === 'weekly_report' ? envelope.payload : materialCollection(envelope);
     return frozenCopy({
       status: 'accepted', envelope, contentHash,
       semanticHash: compatibleRevision({ schemaVersion: envelope.schemaVersion, normalizerVersion: envelope.normalizerVersion, dialect: envelope.dialect, family: envelope.family, value: material }),

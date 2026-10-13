@@ -61,13 +61,26 @@ function metadata(value: unknown): string | undefined {
   return typeof value === 'string' && /^[a-zA-Z0-9_.:-]{1,100}$/.test(value) ? value : undefined;
 }
 
+const TARGET_VALIDATION_MESSAGES = {
+  NEON_TEST_CONFIG_INVALID: 'A dedicated test-only Neon project and explicit test identities are required',
+  NEON_TEST_PROJECT_IDENTITY_MISMATCH: 'Neon test project identity mismatch',
+  NEON_TEST_PARENT_IDENTITY_MISMATCH: 'Neon empty test parent identity mismatch',
+  NEON_TEST_PARENT_EXPIRATION_MISMATCH: 'Neon empty test parent identity requires no expiration',
+  NEON_TEST_PARENT_STATE_MISMATCH: 'Neon empty test parent identity requires ready or archived state',
+} as const;
+
+function targetValidationError(code: keyof typeof TARGET_VALIDATION_MESSAGES): Error & { code: typeof code } {
+  // Only local literal codes and messages reach the supervisor's existing serializer.
+  return Object.assign(new Error(TARGET_VALIDATION_MESSAGES[code]), { code });
+}
+
 function requireConfig(config: DisposableNeonConfig): void {
   if (!ID.test(config.projectId) || config.projectId === RETAINED_NEON_PROJECT_ID ||
     !/^br-[a-z0-9-]+$/.test(config.parentBranchId) || RETAINED_BRANCH_IDS.has(config.parentBranchId) ||
     !TEST_NAME.test(config.projectName) || !TEST_NAME.test(config.parentBranchName) ||
     !/^[a-z][a-z0-9_]{0,62}$/.test(config.databaseName) || !TEST_NAME.test(config.databaseName) ||
     !/^[a-z][a-z0-9_]{0,62}$/.test(config.ownerRoleName)) {
-    throw new Error('A dedicated test-only Neon project and explicit test identities are required');
+    throw targetValidationError('NEON_TEST_CONFIG_INVALID');
   }
 }
 
@@ -170,15 +183,23 @@ export class DisposableNeonApi {
 
   async validateTarget(config: DisposableNeonConfig): Promise<void> {
     requireConfig(config);
-    const { project } = await this.request<{ project: JsonObject }>('GET', `/projects/${config.projectId}`);
+    const project = (await this.request<{ project?: JsonObject } | null>('GET', `/projects/${config.projectId}`))?.project;
     if (project?.id !== config.projectId || project.name !== config.projectName) {
-      throw new Error('Neon test project identity mismatch');
+      throw targetValidationError('NEON_TEST_PROJECT_IDENTITY_MISMATCH');
     }
-    const { branch } = await this.request<{ branch: JsonObject }>('GET',
-      `/projects/${config.projectId}/branches/${config.parentBranchId}`);
+    const branch = (await this.request<{ branch?: JsonObject } | null>('GET',
+      `/projects/${config.projectId}/branches/${config.parentBranchId}`))?.branch;
     if (branch?.id !== config.parentBranchId || branch.project_id !== config.projectId ||
-      branch.name !== config.parentBranchName || branch.expires_at || branch.current_state !== 'ready') {
-      throw new Error('Neon empty test parent identity mismatch');
+      branch.name !== config.parentBranchName) {
+      throw targetValidationError('NEON_TEST_PARENT_IDENTITY_MISMATCH');
+    }
+    if (branch.expires_at) {
+      throw targetValidationError('NEON_TEST_PARENT_EXPIRATION_MISMATCH');
+    }
+    // Creating the ordinary child unarchives its parent. The owned child must
+    // still satisfy the separate ready-state and bounded-compute checks below.
+    if (branch.current_state !== 'ready' && branch.current_state !== 'archived') {
+      throw targetValidationError('NEON_TEST_PARENT_STATE_MISMATCH');
     }
   }
 

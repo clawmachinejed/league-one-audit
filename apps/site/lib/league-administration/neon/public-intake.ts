@@ -48,6 +48,18 @@ async function requireBracketCapability(client: DatabaseClient): Promise<void> {
   if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public bracket intake requires installed R047.');
 }
 
+/** Omitted selection never probes new schema; selected work must not be silently ignored. */
+async function requireWeeklyReportCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:weekly-report-capability */
+    SELECT to_regclass('public.public_data_report_tasks') IS NOT NULL
+      AND to_regclass('public.public_data_report_checkpoints') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='weekly_reports' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='weekly_reports' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public weekly-report intake requires installed R050.');
+}
+
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
     await client.query(`/* public-data-intake:checkpoint */
@@ -57,6 +69,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
+      if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
       if (validated.playoffBrackets) await requireBracketCapability(client);
       if (validated.periodInventory) await requirePeriodInventoryCapability(client);
       else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
@@ -73,8 +86,13 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
       const work = record(result);
       if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
-        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets'].includes(String(work.kind))) {
+        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report'].includes(String(work.kind))) {
         throw new Error('Invalid public intake work.');
+      }
+      if (work.kind === 'weekly-report' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
+        || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
+        || !Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) {
+        throw new Error('Invalid public weekly-report work.');
       }
       if (work.kind === 'playoff-brackets' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|requestId|revision|season'
         || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId))) {
@@ -159,6 +177,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     completeCore: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     completeExactPeriod: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     completeBrackets: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
+    completeWeeklyReport: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
   };
 }
@@ -171,6 +190,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
+      if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
       if (validated.playoffBrackets) await requireBracketCapability(client);
       if (validated.periodInventory) await requirePeriodInventoryCapability(client);
       else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);

@@ -1,0 +1,2766 @@
+{
+  "kind": "cp13-minimized-public-source-v1",
+  "season": 2026,
+  "acquisition": {
+    "sourceRevision": "14c6d7b1f1b053abb26f2c8f2c17b57b24b3af32",
+    "manifestFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/manifest.json",
+    "manifestSha256": "85ab60e5e4e5e785342122d6147520d14aac21859d1b6b5bea3391988818155a",
+    "startedAt": "2026-10-12T15:38:04.359Z",
+    "completedAt": "2026-10-12T15:38:09.021Z",
+    "resumedNetworkRequests": 24,
+    "priorNetworkRequests": 1,
+    "totalNetworkRequests": 25,
+    "stoppedAttempt": {
+      "manifestFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-36-48-946Z/manifest.json",
+      "manifestSha256": "3be184e8db26a6b2022897916200c719cefecf100cb2c225ada921d7fd270f67",
+      "startedAt": "2026-10-12T15:36:48.948Z",
+      "completedAt": "2026-10-12T15:36:56.266Z",
+      "outcome": "stopped",
+      "failure": {
+        "name": "AssertionError",
+        "message": "Current native leg unproved"
+      }
+    },
+    "limits": {
+      "maxGetAttempts": 25,
+      "perCaptureWorkMs": 20000,
+      "adapterTimeoutMs": 12000,
+      "redirects": false,
+      "retries": 0
+    },
+    "proof": "Public source capture and offline interpretation only; no hosted storage or canonical identity qualification."
+  },
+  "sliceHashPolicy": "sha256 of UTF-8 JSON.stringify(resource.document); original document member order, selected payload member order, and array order retained; pretty-print whitespace excluded",
+  "samples": [
+    {
+      "key": "league1",
+      "externalLeagueId": "1378850182409490432",
+      "selectedNativeWeek": 5,
+      "resources": {
+        "league": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850182409490432",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850182409490432",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league1-league.json",
+            "serializedDocumentSha256": "f0d7864f30e1d3b2361e1f16650f81964db2c2f4f29e75bde2ea3f3c59b83798",
+            "serializedDocumentBytes": 2935,
+            "newNetworkRequestInResumedAttempt": false,
+            "retainedFrom": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-36-48-946Z/league1-league.json"
+          },
+          "document": {
+            "family": "league",
+            "week": null,
+            "payload": {
+              "league_id": "1378850182409490432",
+              "sport": "nfl",
+              "season": "2026",
+              "season_type": "regular",
+              "status": "in_season",
+              "total_rosters": 12,
+              "settings": {
+                "best_ball": 0,
+                "last_report": 4,
+                "waiver_budget": 100,
+                "disable_adds": 0,
+                "capacity_override": 0,
+                "waiver_bid_min": 0,
+                "taxi_deadline": 0,
+                "draft_rounds": 3,
+                "reserve_allow_na": 0,
+                "start_week": 1,
+                "playoff_seed_type": 1,
+                "playoff_teams": 6,
+                "veto_votes_needed": 6,
+                "num_teams": 12,
+                "daily_waivers_hour": 7,
+                "playoff_type": 1,
+                "taxi_slots": 0,
+                "sub_start_time_eligibility": 0,
+                "last_scored_leg": 4,
+                "daily_waivers_days": 14679,
+                "sub_lock_if_starter_active": 0,
+                "playoff_week_start": 0,
+                "waiver_clear_days": 2,
+                "reserve_allow_doubtful": 0,
+                "commissioner_direct_invite": 0,
+                "veto_auto_poll": 0,
+                "reserve_allow_dnr": 0,
+                "taxi_allow_vets": 0,
+                "waiver_day_of_week": 2,
+                "playoff_round_type": 0,
+                "reserve_allow_out": 0,
+                "reserve_allow_sus": 0,
+                "veto_show_votes": 0,
+                "trade_deadline": 11,
+                "taxi_years": 0,
+                "daily_waivers": 1,
+                "faab_suggestions": 0,
+                "disable_trades": 0,
+                "pick_trading": 1,
+                "type": 1,
+                "max_keepers": 1,
+                "waiver_type": 2,
+                "max_subs": 0,
+                "league_average_match": 0,
+                "trade_review_days": 0,
+                "bench_lock": 0,
+                "offseason_adds": 0,
+                "leg": 5,
+                "reserve_slots": 0,
+                "reserve_allow_cov": 0,
+                "daily_waivers_last_ran": 12
+              }
+            },
+            "requestStartedAt": "2026-10-12T15:36:55.597Z",
+            "requestCompletedAt": "2026-10-12T15:36:56.262Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:36:56.262Z"
+          },
+          "sliceSha256": "2e12e447f655f38b637a0556f7ee7fac86235a8c4e4342e794af9e85a38a2c5c"
+        },
+        "rosters": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850182409490432/rosters",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850182409490432/rosters",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league1-rosters.json",
+            "serializedDocumentSha256": "734d3b2b1b53a290944c609f3a14476afe8fe3809d02937bffaf76d7f439fa95",
+            "serializedDocumentBytes": 8468,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "rosters",
+            "week": null,
+            "payload": [
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 1,
+                "settings": {
+                  "fpts": 442,
+                  "fpts_against": 442,
+                  "fpts_against_decimal": 84,
+                  "fpts_decimal": 78,
+                  "losses": 2,
+                  "ppts": 476,
+                  "ppts_decimal": 78,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 27,
+                  "waiver_position": 9,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 2,
+                "settings": {
+                  "fpts": 422,
+                  "fpts_against": 458,
+                  "fpts_against_decimal": 52,
+                  "fpts_decimal": 20,
+                  "losses": 3,
+                  "ppts": 489,
+                  "ppts_decimal": 70,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 30,
+                  "waiver_position": 6,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 3,
+                "settings": {
+                  "fpts": 412,
+                  "fpts_against": 437,
+                  "fpts_against_decimal": 4,
+                  "fpts_decimal": 6,
+                  "losses": 2,
+                  "ppts": 492,
+                  "ppts_decimal": 86,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 58,
+                  "waiver_position": 5,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 4,
+                "settings": {
+                  "fpts": 465,
+                  "fpts_against": 413,
+                  "fpts_against_decimal": 60,
+                  "fpts_decimal": 4,
+                  "losses": 1,
+                  "ppts": 534,
+                  "ppts_decimal": 22,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 8,
+                  "waiver_position": 2,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 5,
+                "settings": {
+                  "fpts": 449,
+                  "fpts_against": 445,
+                  "fpts_against_decimal": 22,
+                  "fpts_decimal": 44,
+                  "losses": 2,
+                  "ppts": 492,
+                  "ppts_decimal": 24,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 1,
+                  "waiver_position": 1,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 6,
+                "settings": {
+                  "fpts": 439,
+                  "fpts_against": 390,
+                  "fpts_against_decimal": 76,
+                  "fpts_decimal": 44,
+                  "losses": 2,
+                  "ppts": 469,
+                  "ppts_decimal": 98,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 90,
+                  "waiver_position": 8,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 7,
+                "settings": {
+                  "fpts": 495,
+                  "fpts_against": 470,
+                  "fpts_against_decimal": 74,
+                  "fpts_decimal": 20,
+                  "losses": 1,
+                  "ppts": 538,
+                  "ppts_decimal": 0,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 39,
+                  "waiver_position": 4,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 8,
+                "settings": {
+                  "fpts": 445,
+                  "fpts_against": 418,
+                  "fpts_against_decimal": 98,
+                  "fpts_decimal": 16,
+                  "losses": 1,
+                  "ppts": 503,
+                  "ppts_decimal": 86,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 16,
+                  "waiver_position": 11,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 9,
+                "settings": {
+                  "fpts": 353,
+                  "fpts_against": 465,
+                  "fpts_against_decimal": 78,
+                  "fpts_decimal": 72,
+                  "losses": 4,
+                  "ppts": 466,
+                  "ppts_decimal": 56,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 16,
+                  "waiver_position": 3,
+                  "wins": 0
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 10,
+                "settings": {
+                  "fpts": 507,
+                  "fpts_against": 498,
+                  "fpts_against_decimal": 54,
+                  "fpts_decimal": 18,
+                  "losses": 2,
+                  "ppts": 544,
+                  "ppts_decimal": 18,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 13,
+                  "waiver_position": 12,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 11,
+                "settings": {
+                  "fpts": 452,
+                  "fpts_against": 440,
+                  "fpts_against_decimal": 80,
+                  "fpts_decimal": 40,
+                  "losses": 2,
+                  "ppts": 548,
+                  "ppts_decimal": 60,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 10,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850182409490432",
+                "roster_id": 12,
+                "settings": {
+                  "fpts": 470,
+                  "fpts_against": 472,
+                  "fpts_against_decimal": 14,
+                  "fpts_decimal": 34,
+                  "losses": 2,
+                  "ppts": 532,
+                  "ppts_decimal": 28,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 16,
+                  "waiver_position": 7,
+                  "wins": 2
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:04.805Z",
+            "requestCompletedAt": "2026-10-12T15:38:04.993Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:04.993Z"
+          },
+          "sliceSha256": "3539fa1b6aae49c4fc0c4e60e43623686e89ac04e32a0278c83c9512ec120dc0"
+        },
+        "matchups": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850182409490432/matchups/5",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850182409490432/matchups/5",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league1-matchups-5.json",
+            "serializedDocumentSha256": "652f4875cbbd0553e4c111245f230fd2e5c5e88b412beb30316011744b93ce64",
+            "serializedDocumentBytes": 6122,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "matchups",
+            "week": 5,
+            "payload": [
+              {
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 103.2,
+                "custom_points": null
+              },
+              {
+                "roster_id": 2,
+                "matchup_id": 5,
+                "points": 92.44,
+                "custom_points": null
+              },
+              {
+                "roster_id": 3,
+                "matchup_id": 4,
+                "points": 131.38,
+                "custom_points": null
+              },
+              {
+                "roster_id": 4,
+                "matchup_id": 3,
+                "points": 122.24,
+                "custom_points": null
+              },
+              {
+                "roster_id": 5,
+                "matchup_id": 1,
+                "points": 109.06,
+                "custom_points": null
+              },
+              {
+                "roster_id": 6,
+                "matchup_id": 2,
+                "points": 102.88,
+                "custom_points": null
+              },
+              {
+                "roster_id": 7,
+                "matchup_id": 5,
+                "points": 90.56,
+                "custom_points": null
+              },
+              {
+                "roster_id": 8,
+                "matchup_id": 6,
+                "points": 41.2,
+                "custom_points": null
+              },
+              {
+                "roster_id": 9,
+                "matchup_id": 6,
+                "points": 107.4,
+                "custom_points": null
+              },
+              {
+                "roster_id": 10,
+                "matchup_id": 1,
+                "points": 99.06,
+                "custom_points": null
+              },
+              {
+                "roster_id": 11,
+                "matchup_id": 4,
+                "points": 146.34,
+                "custom_points": null
+              },
+              {
+                "roster_id": 12,
+                "matchup_id": 3,
+                "points": 160.38,
+                "custom_points": null
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:05.000Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.203Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.203Z"
+          },
+          "sliceSha256": "dfe6a5ab76124e3289ea1d4b0c285a9d3af48a5a4c6904e3b1ddb05ff9240660"
+        },
+        "winners_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850182409490432/winners_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850182409490432/winners_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league1-winners_bracket.json",
+            "serializedDocumentSha256": "068c99b6eea4f7f62ffe43ea945fdc488668882cf6551f7fd04e838514fdc2f2",
+            "serializedDocumentBytes": 215,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "winners_bracket",
+            "week": null,
+            "payload": null,
+            "requestStartedAt": "2026-10-12T15:38:05.204Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.408Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.408Z"
+          },
+          "sliceSha256": "8325a9203887a2574a39fc11adc09e8c569bb81e04a8e4ec18ceed65fd6f816c"
+        },
+        "losers_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850182409490432/losers_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850182409490432/losers_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league1-losers_bracket.json",
+            "serializedDocumentSha256": "9c7b0234ba428be37e317c554fbb91faa637aad367fb0c8c4634aa7ba160817a",
+            "serializedDocumentBytes": 214,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "losers_bracket",
+            "week": null,
+            "payload": null,
+            "requestStartedAt": "2026-10-12T15:38:05.409Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.516Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.516Z"
+          },
+          "sliceSha256": "05daf7b862e3f0adc717b16dfd1232b51076c8e6e3a3d7cd5f2bf805d764bb50"
+        }
+      }
+    },
+    {
+      "key": "league2",
+      "externalLeagueId": "1378850360529014784",
+      "selectedNativeWeek": 5,
+      "resources": {
+        "league": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850360529014784",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850360529014784",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league2-league.json",
+            "serializedDocumentSha256": "2898575c5a17d22dd6f80c65ad4d85fb1b788bcab3230a9a7868d0cf2b5a3dfe",
+            "serializedDocumentBytes": 2979,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "league",
+            "week": null,
+            "payload": {
+              "league_id": "1378850360529014784",
+              "sport": "nfl",
+              "season": "2026",
+              "season_type": "regular",
+              "status": "in_season",
+              "total_rosters": 12,
+              "settings": {
+                "best_ball": 0,
+                "last_report": 4,
+                "waiver_budget": 100,
+                "disable_adds": 0,
+                "capacity_override": 0,
+                "waiver_bid_min": 0,
+                "taxi_deadline": 0,
+                "draft_rounds": 3,
+                "reserve_allow_na": 0,
+                "start_week": 1,
+                "playoff_seed_type": 0,
+                "playoff_teams": 6,
+                "veto_votes_needed": 6,
+                "num_teams": 12,
+                "daily_waivers_hour": 7,
+                "playoff_type": 1,
+                "taxi_slots": 0,
+                "sub_start_time_eligibility": 0,
+                "last_scored_leg": 4,
+                "daily_waivers_days": 14679,
+                "sub_lock_if_starter_active": 0,
+                "playoff_week_start": 0,
+                "waiver_clear_days": 2,
+                "reserve_allow_doubtful": 0,
+                "commissioner_direct_invite": 0,
+                "veto_auto_poll": 0,
+                "reserve_allow_dnr": 0,
+                "taxi_allow_vets": 0,
+                "waiver_day_of_week": 2,
+                "playoff_round_type": 0,
+                "reserve_allow_out": 0,
+                "reserve_allow_sus": 0,
+                "veto_show_votes": 0,
+                "trade_deadline": 11,
+                "taxi_years": 0,
+                "daily_waivers": 1,
+                "faab_suggestions": 0,
+                "disable_trades": 0,
+                "pick_trading": 1,
+                "type": 1,
+                "max_keepers": 1,
+                "waiver_type": 2,
+                "max_subs": 0,
+                "league_average_match": 0,
+                "trade_review_days": 0,
+                "bench_lock": 0,
+                "offseason_adds": 0,
+                "leg": 5,
+                "reserve_slots": 0,
+                "reserve_allow_cov": 0,
+                "daily_waivers_last_ran": 12
+              }
+            },
+            "requestStartedAt": "2026-10-12T15:38:05.517Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.600Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.600Z"
+          },
+          "sliceSha256": "4e25da80ef3342532d85eee9827a675ff78044051ecee3ef7cc9128b7af0fc8e"
+        },
+        "rosters": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850360529014784/rosters",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850360529014784/rosters",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league2-rosters.json",
+            "serializedDocumentSha256": "f007bd83c7f76c4164e5ed33c245423bb7cfe31890ed7415945e50b880f4c212",
+            "serializedDocumentBytes": 7544,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "rosters",
+            "week": null,
+            "payload": [
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 1,
+                "settings": {
+                  "fpts": 453,
+                  "fpts_against": 442,
+                  "fpts_against_decimal": 94,
+                  "fpts_decimal": 84,
+                  "losses": 2,
+                  "ppts": 491,
+                  "ppts_decimal": 68,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 76,
+                  "waiver_position": 10,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 2,
+                "settings": {
+                  "fpts": 519,
+                  "fpts_against": 402,
+                  "fpts_against_decimal": 32,
+                  "fpts_decimal": 60,
+                  "losses": 0,
+                  "ppts": 565,
+                  "ppts_decimal": 64,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 19,
+                  "waiver_position": 2,
+                  "wins": 4
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 3,
+                "settings": {
+                  "fpts": 445,
+                  "fpts_against": 504,
+                  "fpts_against_decimal": 78,
+                  "fpts_decimal": 36,
+                  "losses": 3,
+                  "ppts": 504,
+                  "ppts_decimal": 36,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 30,
+                  "waiver_position": 11,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 4,
+                "settings": {
+                  "fpts": 481,
+                  "fpts_against": 428,
+                  "fpts_against_decimal": 66,
+                  "fpts_decimal": 50,
+                  "losses": 2,
+                  "ppts": 541,
+                  "ppts_decimal": 50,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 19,
+                  "waiver_position": 12,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 5,
+                "settings": {
+                  "fpts": 446,
+                  "fpts_against": 476,
+                  "fpts_against_decimal": 64,
+                  "fpts_decimal": 56,
+                  "losses": 3,
+                  "ppts": 510,
+                  "ppts_decimal": 20,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 51,
+                  "waiver_position": 4,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 6,
+                "settings": {
+                  "fpts": 365,
+                  "fpts_against": 473,
+                  "fpts_against_decimal": 94,
+                  "fpts_decimal": 86,
+                  "losses": 3,
+                  "ppts": 431,
+                  "ppts_decimal": 56,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 17,
+                  "waiver_position": 6,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 7,
+                "settings": {
+                  "fpts": 426,
+                  "fpts_against": 443,
+                  "fpts_against_decimal": 34,
+                  "fpts_decimal": 52,
+                  "losses": 1,
+                  "ppts": 478,
+                  "ppts_decimal": 42,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 15,
+                  "waiver_position": 3,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 8,
+                "settings": {
+                  "fpts": 439,
+                  "fpts_against": 512,
+                  "fpts_against_decimal": 24,
+                  "fpts_decimal": 22,
+                  "losses": 2,
+                  "ppts": 484,
+                  "ppts_decimal": 52,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 22,
+                  "waiver_position": 5,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 9,
+                "settings": {
+                  "fpts": 431,
+                  "fpts_against": 402,
+                  "fpts_against_decimal": 76,
+                  "fpts_decimal": 38,
+                  "losses": 1,
+                  "ppts": 493,
+                  "ppts_decimal": 20,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 82,
+                  "waiver_position": 9,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 10,
+                "settings": {
+                  "fpts": 409,
+                  "fpts_against": 353,
+                  "fpts_against_decimal": 84,
+                  "fpts_decimal": 28,
+                  "losses": 2,
+                  "ppts": 460,
+                  "ppts_decimal": 38,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 10,
+                  "waiver_position": 8,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 11,
+                "settings": {
+                  "fpts": 419,
+                  "fpts_against": 474,
+                  "fpts_against_decimal": 32,
+                  "fpts_decimal": 76,
+                  "losses": 3,
+                  "ppts": 459,
+                  "ppts_decimal": 42,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 17,
+                  "waiver_position": 7,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1378850360529014784",
+                "roster_id": 12,
+                "settings": {
+                  "fpts": 438,
+                  "fpts_against": 361,
+                  "fpts_against_decimal": 88,
+                  "fpts_decimal": 78,
+                  "losses": 2,
+                  "ppts": 476,
+                  "ppts_decimal": 58,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 15,
+                  "waiver_position": 1,
+                  "wins": 2
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:05.600Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.766Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.766Z"
+          },
+          "sliceSha256": "458f9edfbbacb0dee998565a42b8ba5fa78b0752a4b9a43a001fa2977ce3b7f6"
+        },
+        "matchups": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850360529014784/matchups/5",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850360529014784/matchups/5",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league2-matchups-5.json",
+            "serializedDocumentSha256": "b164db506c18479dd0a7dcbd271c53559cc26dede491240eefe66013bc9ce449",
+            "serializedDocumentBytes": 6091,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "matchups",
+            "week": 5,
+            "payload": [
+              {
+                "roster_id": 1,
+                "matchup_id": 3,
+                "points": 167.4,
+                "custom_points": null
+              },
+              {
+                "roster_id": 2,
+                "matchup_id": 4,
+                "points": 137.14,
+                "custom_points": null
+              },
+              {
+                "roster_id": 3,
+                "matchup_id": 5,
+                "points": 115.52,
+                "custom_points": null
+              },
+              {
+                "roster_id": 4,
+                "matchup_id": 5,
+                "points": 88.44,
+                "custom_points": null
+              },
+              {
+                "roster_id": 5,
+                "matchup_id": 1,
+                "points": 80.28,
+                "custom_points": null
+              },
+              {
+                "roster_id": 6,
+                "matchup_id": 4,
+                "points": 97.16,
+                "custom_points": null
+              },
+              {
+                "roster_id": 7,
+                "matchup_id": 3,
+                "points": 62.5,
+                "custom_points": null
+              },
+              {
+                "roster_id": 8,
+                "matchup_id": 2,
+                "points": 101,
+                "custom_points": null
+              },
+              {
+                "roster_id": 9,
+                "matchup_id": 2,
+                "points": 107.52,
+                "custom_points": null
+              },
+              {
+                "roster_id": 10,
+                "matchup_id": 1,
+                "points": 90.04,
+                "custom_points": null
+              },
+              {
+                "roster_id": 11,
+                "matchup_id": 6,
+                "points": 36,
+                "custom_points": null
+              },
+              {
+                "roster_id": 12,
+                "matchup_id": 6,
+                "points": 102.26,
+                "custom_points": null
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:05.767Z",
+            "requestCompletedAt": "2026-10-12T15:38:05.931Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:05.931Z"
+          },
+          "sliceSha256": "f4af51b878533143a07aad8425063b894501ea52b19d071d77a5f75851cf4479"
+        },
+        "winners_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850360529014784/winners_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850360529014784/winners_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league2-winners_bracket.json",
+            "serializedDocumentSha256": "c1862ebab60472c3bd1837d609e1c593366657ab2e082a3ef1c13c91232ef665",
+            "serializedDocumentBytes": 215,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "winners_bracket",
+            "week": null,
+            "payload": null,
+            "requestStartedAt": "2026-10-12T15:38:05.932Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.086Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.086Z"
+          },
+          "sliceSha256": "46eefab4e2d0f6974c0bdc90304fa45447dff50be0146bdbf2659e8669164817"
+        },
+        "losers_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1378850360529014784/losers_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1378850360529014784/losers_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/league2-losers_bracket.json",
+            "serializedDocumentSha256": "6941964f09d6c2b41016b757ed1aa13ac0f7acd2f2ee14c1446d97cadb3349c3",
+            "serializedDocumentBytes": 214,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "losers_bracket",
+            "week": null,
+            "payload": null,
+            "requestStartedAt": "2026-10-12T15:38:06.087Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.242Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.242Z"
+          },
+          "sliceSha256": "f1de585fa149a7f4ab46955826e9f58545047a03b7375947bcd0cf586a5dde52"
+        }
+      }
+    },
+    {
+      "key": "dynasty",
+      "externalLeagueId": "1312138224994385920",
+      "selectedNativeWeek": 5,
+      "resources": {
+        "league": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1312138224994385920",
+            "responseUrl": "https://api.sleeper.app/v1/league/1312138224994385920",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/dynasty-league.json",
+            "serializedDocumentSha256": "5882b113dc7455af0127f4765a45848a55b17b387114b5abb8ae250addd14806",
+            "serializedDocumentBytes": 2890,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "league",
+            "week": null,
+            "payload": {
+              "league_id": "1312138224994385920",
+              "sport": "nfl",
+              "season": "2026",
+              "season_type": "regular",
+              "status": "in_season",
+              "total_rosters": 10,
+              "settings": {
+                "best_ball": 0,
+                "last_report": 4,
+                "waiver_budget": 120,
+                "disable_adds": 0,
+                "capacity_override": 0,
+                "waiver_bid_min": 0,
+                "taxi_deadline": 4,
+                "draft_rounds": 3,
+                "reserve_allow_na": 0,
+                "start_week": 1,
+                "playoff_seed_type": 0,
+                "playoff_teams": 4,
+                "veto_votes_needed": 5,
+                "num_teams": 10,
+                "daily_waivers_hour": 7,
+                "playoff_type": 1,
+                "taxi_slots": 3,
+                "sub_start_time_eligibility": 0,
+                "last_scored_leg": 4,
+                "daily_waivers_days": 6485,
+                "sub_lock_if_starter_active": 0,
+                "playoff_week_start": 15,
+                "waiver_clear_days": 2,
+                "reserve_allow_doubtful": 0,
+                "commissioner_direct_invite": 0,
+                "veto_auto_poll": 0,
+                "reserve_allow_dnr": 0,
+                "taxi_allow_vets": 1,
+                "waiver_day_of_week": 2,
+                "playoff_round_type": 1,
+                "reserve_allow_out": 0,
+                "reserve_allow_sus": 1,
+                "veto_show_votes": 0,
+                "trade_deadline": 13,
+                "taxi_years": 4,
+                "daily_waivers": 1,
+                "faab_suggestions": 0,
+                "disable_trades": 0,
+                "pick_trading": 1,
+                "type": 2,
+                "max_keepers": 1,
+                "waiver_type": 2,
+                "max_subs": 0,
+                "league_average_match": 0,
+                "trade_review_days": 0,
+                "bench_lock": 0,
+                "offseason_adds": 0,
+                "leg": 5,
+                "reserve_slots": 2,
+                "reserve_allow_cov": 1,
+                "daily_waivers_last_ran": 12
+              }
+            },
+            "requestStartedAt": "2026-10-12T15:38:06.244Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.479Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.479Z"
+          },
+          "sliceSha256": "0405501ea880fde82f63a70eb338ed98aa083dbd5140ece16b07838b53a5df91"
+        },
+        "rosters": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1312138224994385920/rosters",
+            "responseUrl": "https://api.sleeper.app/v1/league/1312138224994385920/rosters",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/dynasty-rosters.json",
+            "serializedDocumentSha256": "6d71bee1e894db05b91240b12612fcd444ec5236ebc7a0f21f3d45b7ab75bdb4",
+            "serializedDocumentBytes": 8509,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "rosters",
+            "week": null,
+            "payload": [
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 1,
+                "settings": {
+                  "fpts": 534,
+                  "fpts_against": 511,
+                  "fpts_against_decimal": 38,
+                  "fpts_decimal": 10,
+                  "losses": 1,
+                  "ppts": 677,
+                  "ppts_decimal": 34,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 30,
+                  "waiver_position": 5,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 2,
+                "settings": {
+                  "fpts": 406,
+                  "fpts_against": 413,
+                  "fpts_against_decimal": 68,
+                  "fpts_decimal": 98,
+                  "losses": 2,
+                  "ppts": 549,
+                  "ppts_decimal": 6,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 24,
+                  "waiver_position": 8,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 3,
+                "settings": {
+                  "fpts": 431,
+                  "fpts_against": 433,
+                  "fpts_against_decimal": 26,
+                  "fpts_decimal": 10,
+                  "losses": 2,
+                  "ppts": 534,
+                  "ppts_decimal": 30,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 4,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 4,
+                "settings": {
+                  "fpts": 578,
+                  "fpts_against": 491,
+                  "fpts_against_decimal": 22,
+                  "fpts_decimal": 66,
+                  "losses": 2,
+                  "ppts": 661,
+                  "ppts_decimal": 16,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 25,
+                  "waiver_position": 3,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 5,
+                "settings": {
+                  "fpts": 431,
+                  "fpts_against": 547,
+                  "fpts_against_decimal": 58,
+                  "fpts_decimal": 66,
+                  "losses": 4,
+                  "ppts": 619,
+                  "ppts_decimal": 86,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 6,
+                  "waiver_position": 9,
+                  "wins": 0
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 6,
+                "settings": {
+                  "fpts": 419,
+                  "fpts_against": 429,
+                  "fpts_against_decimal": 78,
+                  "fpts_decimal": 2,
+                  "losses": 3,
+                  "ppts": 563,
+                  "ppts_decimal": 2,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 1,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 7,
+                "settings": {
+                  "fpts": 478,
+                  "fpts_against": 464,
+                  "fpts_against_decimal": 92,
+                  "fpts_decimal": 0,
+                  "losses": 2,
+                  "ppts": 613,
+                  "ppts_decimal": 14,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 5,
+                  "waiver_position": 10,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 8,
+                "settings": {
+                  "fpts": 520,
+                  "fpts_against": 459,
+                  "fpts_against_decimal": 2,
+                  "fpts_decimal": 54,
+                  "losses": 0,
+                  "ppts": 632,
+                  "ppts_decimal": 52,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 9,
+                  "waiver_position": 7,
+                  "wins": 4
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 9,
+                "settings": {
+                  "fpts": 456,
+                  "fpts_against": 332,
+                  "fpts_against_decimal": 18,
+                  "fpts_decimal": 44,
+                  "losses": 0,
+                  "ppts": 531,
+                  "ppts_decimal": 58,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 10,
+                  "waiver_position": 6,
+                  "wins": 4
+                }
+              },
+              {
+                "league_id": "1312138224994385920",
+                "roster_id": 10,
+                "settings": {
+                  "fpts": 302,
+                  "fpts_against": 476,
+                  "fpts_against_decimal": 34,
+                  "fpts_decimal": 86,
+                  "losses": 4,
+                  "ppts": 382,
+                  "ppts_decimal": 56,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 20,
+                  "waiver_position": 2,
+                  "wins": 0
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:06.480Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.620Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.620Z"
+          },
+          "sliceSha256": "f16287d4a1721e566c41c79553beb614f91c4937bef950ea26d1ae133380e5f0"
+        },
+        "matchups": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1312138224994385920/matchups/5",
+            "responseUrl": "https://api.sleeper.app/v1/league/1312138224994385920/matchups/5",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/dynasty-matchups-5.json",
+            "serializedDocumentSha256": "cb6e42fe4af9ebda8e11c318f72f9b5f7d7f55b682cab22bd92f362de1d09866",
+            "serializedDocumentBytes": 6850,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "matchups",
+            "week": 5,
+            "payload": [
+              {
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 154.02,
+                "custom_points": null
+              },
+              {
+                "roster_id": 2,
+                "matchup_id": 5,
+                "points": 143.28,
+                "custom_points": null
+              },
+              {
+                "roster_id": 3,
+                "matchup_id": 4,
+                "points": 106.58,
+                "custom_points": null
+              },
+              {
+                "roster_id": 4,
+                "matchup_id": 1,
+                "points": 91.64,
+                "custom_points": null
+              },
+              {
+                "roster_id": 5,
+                "matchup_id": 1,
+                "points": 132.68,
+                "custom_points": null
+              },
+              {
+                "roster_id": 6,
+                "matchup_id": 3,
+                "points": 116.5,
+                "custom_points": null
+              },
+              {
+                "roster_id": 7,
+                "matchup_id": 3,
+                "points": 71.78,
+                "custom_points": null
+              },
+              {
+                "roster_id": 8,
+                "matchup_id": 2,
+                "points": 81.94,
+                "custom_points": null
+              },
+              {
+                "roster_id": 9,
+                "matchup_id": 4,
+                "points": 132,
+                "custom_points": null
+              },
+              {
+                "roster_id": 10,
+                "matchup_id": 5,
+                "points": 100.6,
+                "custom_points": null
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:06.622Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.807Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.807Z"
+          },
+          "sliceSha256": "50764e22ceb5e965627350926ac93d32938d988ec764b975e04253fc93086ab2"
+        },
+        "winners_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1312138224994385920/winners_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1312138224994385920/winners_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/dynasty-winners_bracket.json",
+            "serializedDocumentSha256": "24648e6403a5149039c46f0b4ea93468ae8d28d8c63c594494eb6945ee2df6d6",
+            "serializedDocumentBytes": 492,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "winners_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 8,
+                "t2": 4
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 9,
+                "t2": 1
+              },
+              {
+                "p": 1,
+                "m": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                },
+                "t1_from": {
+                  "w": 1
+                }
+              },
+              {
+                "p": 3,
+                "m": 4,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:06.807Z",
+            "requestCompletedAt": "2026-10-12T15:38:06.916Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:06.916Z"
+          },
+          "sliceSha256": "841b289087b2ff36591f594893e0429bfbae2544717a6111eded1377edc6e569"
+        },
+        "losers_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1312138224994385920/losers_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1312138224994385920/losers_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/dynasty-losers_bracket.json",
+            "serializedDocumentSha256": "e08b088605148fad2482beb4b4f441942574840f4d1adbc9259b6594d971ffd8",
+            "serializedDocumentBytes": 491,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "losers_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 7,
+                "t2": 6
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 3,
+                "t2": 2
+              },
+              {
+                "m": 3,
+                "p": 1,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                },
+                "t1_from": {
+                  "w": 1
+                }
+              },
+              {
+                "m": 4,
+                "p": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:06.918Z",
+            "requestCompletedAt": "2026-10-12T15:38:07.038Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:07.038Z"
+          },
+          "sliceSha256": "a1961ccea66d8a10a7fe5bbf1c56670f64736d3431cc28f7b12f399533777c88"
+        }
+      }
+    },
+    {
+      "key": "keeper-sample",
+      "externalLeagueId": "1395875117568913408",
+      "selectedNativeWeek": 5,
+      "resources": {
+        "league": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1395875117568913408",
+            "responseUrl": "https://api.sleeper.app/v1/league/1395875117568913408",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/keeper-sample-league.json",
+            "serializedDocumentSha256": "4597a750f61a3f64ea8d8ca05dc4064479ea9a9436c3a5de7cb0f7b9b450c11f",
+            "serializedDocumentBytes": 4159,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "league",
+            "week": null,
+            "payload": {
+              "league_id": "1395875117568913408",
+              "sport": "nfl",
+              "season": "2026",
+              "season_type": "regular",
+              "status": "in_season",
+              "total_rosters": 12,
+              "settings": {
+                "best_ball": 0,
+                "last_report": 4,
+                "waiver_budget": 100,
+                "disable_adds": 0,
+                "capacity_override": 0,
+                "waiver_bid_min": 0,
+                "taxi_deadline": 0,
+                "draft_rounds": 3,
+                "reserve_allow_na": 0,
+                "start_week": 1,
+                "playoff_seed_type": 0,
+                "playoff_teams": 6,
+                "veto_votes_needed": 6,
+                "num_teams": 12,
+                "daily_waivers_hour": 7,
+                "playoff_type": 0,
+                "taxi_slots": 0,
+                "sub_start_time_eligibility": 0,
+                "last_scored_leg": 4,
+                "daily_waivers_days": 6487,
+                "sub_lock_if_starter_active": 0,
+                "playoff_week_start": 15,
+                "waiver_clear_days": 2,
+                "reserve_allow_doubtful": 0,
+                "commissioner_direct_invite": 0,
+                "veto_auto_poll": 0,
+                "reserve_allow_dnr": 0,
+                "taxi_allow_vets": 0,
+                "waiver_day_of_week": 2,
+                "playoff_round_type": 0,
+                "reserve_allow_out": 0,
+                "reserve_allow_sus": 0,
+                "veto_show_votes": 0,
+                "trade_deadline": 11,
+                "taxi_years": 0,
+                "daily_waivers": 1,
+                "faab_suggestions": 0,
+                "disable_trades": 0,
+                "pick_trading": 1,
+                "type": 1,
+                "max_keepers": 1,
+                "waiver_type": 2,
+                "max_subs": 0,
+                "league_average_match": 0,
+                "trade_review_days": 2,
+                "bench_lock": 0,
+                "offseason_adds": 0,
+                "leg": 5,
+                "reserve_slots": 0,
+                "reserve_allow_cov": 0,
+                "daily_waivers_last_ran": 12
+              }
+            },
+            "requestStartedAt": "2026-10-12T15:38:07.039Z",
+            "requestCompletedAt": "2026-10-12T15:38:07.181Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:07.181Z"
+          },
+          "sliceSha256": "72bb0c13319f40ca691540a2f3e0dbb9acd64dfb9ad9ebd7ba41676496d210a6"
+        },
+        "rosters": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1395875117568913408/rosters",
+            "responseUrl": "https://api.sleeper.app/v1/league/1395875117568913408/rosters",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/keeper-sample-rosters.json",
+            "serializedDocumentSha256": "c8b44f8cd50c53d92a6589598811d3b4f7e2826a7b497f4930f673e89f81b172",
+            "serializedDocumentBytes": 7471,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "rosters",
+            "week": null,
+            "payload": [
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 1,
+                "settings": {
+                  "fpts": 499,
+                  "fpts_against": 565,
+                  "fpts_against_decimal": 0,
+                  "fpts_decimal": 45,
+                  "losses": 3,
+                  "ppts": 548,
+                  "ppts_decimal": 15,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 54,
+                  "waiver_position": 7,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 2,
+                "settings": {
+                  "fpts": 463,
+                  "fpts_against": 516,
+                  "fpts_against_decimal": 20,
+                  "fpts_decimal": 30,
+                  "losses": 3,
+                  "ppts": 532,
+                  "ppts_decimal": 70,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 6,
+                  "waiver_position": 11,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 3,
+                "settings": {
+                  "fpts": 587,
+                  "fpts_against": 461,
+                  "fpts_against_decimal": 75,
+                  "fpts_decimal": 99,
+                  "losses": 2,
+                  "ppts": 706,
+                  "ppts_decimal": 25,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 6,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 4,
+                "settings": {
+                  "fpts": 408,
+                  "fpts_against": 491,
+                  "fpts_against_decimal": 40,
+                  "fpts_decimal": 55,
+                  "losses": 3,
+                  "ppts": 421,
+                  "ppts_decimal": 85,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 47,
+                  "waiver_position": 8,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 5,
+                "settings": {
+                  "fpts": 587,
+                  "fpts_against": 545,
+                  "fpts_against_decimal": 25,
+                  "fpts_decimal": 40,
+                  "losses": 2,
+                  "ppts": 638,
+                  "ppts_decimal": 55,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 24,
+                  "waiver_position": 4,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 6,
+                "settings": {
+                  "fpts": 506,
+                  "fpts_against": 533,
+                  "fpts_against_decimal": 0,
+                  "fpts_decimal": 15,
+                  "losses": 3,
+                  "ppts": 580,
+                  "ppts_decimal": 75,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 2,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 7,
+                "settings": {
+                  "fpts": 534,
+                  "fpts_against": 464,
+                  "fpts_against_decimal": 80,
+                  "fpts_decimal": 10,
+                  "losses": 1,
+                  "ppts": 623,
+                  "ppts_decimal": 20,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 1,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 8,
+                "settings": {
+                  "fpts": 461,
+                  "fpts_against": 529,
+                  "fpts_against_decimal": 10,
+                  "fpts_decimal": 50,
+                  "losses": 2,
+                  "ppts": 512,
+                  "ppts_decimal": 10,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 62,
+                  "waiver_position": 12,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 9,
+                "settings": {
+                  "fpts": 506,
+                  "fpts_against": 524,
+                  "fpts_against_decimal": 90,
+                  "fpts_decimal": 65,
+                  "losses": 2,
+                  "ppts": 572,
+                  "ppts_decimal": 0,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 20,
+                  "waiver_position": 9,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 10,
+                "settings": {
+                  "fpts": 461,
+                  "fpts_against": 488,
+                  "fpts_against_decimal": 90,
+                  "fpts_decimal": 50,
+                  "losses": 1,
+                  "ppts": 552,
+                  "ppts_decimal": 50,
+                  "ties": 1,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 5,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 11,
+                "settings": {
+                  "fpts": 583,
+                  "fpts_against": 492,
+                  "fpts_against_decimal": 75,
+                  "fpts_decimal": 55,
+                  "losses": 0,
+                  "ppts": 620,
+                  "ppts_decimal": 75,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_budget_used": 28,
+                  "waiver_position": 10,
+                  "wins": 4
+                }
+              },
+              {
+                "league_id": "1395875117568913408",
+                "roster_id": 12,
+                "settings": {
+                  "fpts": 498,
+                  "fpts_against": 485,
+                  "fpts_against_decimal": 25,
+                  "fpts_decimal": 15,
+                  "losses": 1,
+                  "ppts": 592,
+                  "ppts_decimal": 35,
+                  "ties": 1,
+                  "total_moves": 0,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 3,
+                  "wins": 2
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:07.183Z",
+            "requestCompletedAt": "2026-10-12T15:38:07.337Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:07.337Z"
+          },
+          "sliceSha256": "eebee0ba84ab96ef6a713b03b8a54952fc1b11adfc30743a72c936e8850f4bdb"
+        },
+        "matchups": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1395875117568913408/matchups/5",
+            "responseUrl": "https://api.sleeper.app/v1/league/1395875117568913408/matchups/5",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/keeper-sample-matchups-5.json",
+            "serializedDocumentSha256": "2c5f0f1c20f7ea6e9e7b11b51fa1524fe2dd28a804f6b023cc9feadeedf525d0",
+            "serializedDocumentBytes": 6284,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "matchups",
+            "week": 5,
+            "payload": [
+              {
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 179.4,
+                "custom_points": null
+              },
+              {
+                "roster_id": 2,
+                "matchup_id": 3,
+                "points": 105.45,
+                "custom_points": null
+              },
+              {
+                "roster_id": 3,
+                "matchup_id": 3,
+                "points": 98.15,
+                "custom_points": null
+              },
+              {
+                "roster_id": 4,
+                "matchup_id": 2,
+                "points": 79.8,
+                "custom_points": null
+              },
+              {
+                "roster_id": 5,
+                "matchup_id": 4,
+                "points": 116.45,
+                "custom_points": null
+              },
+              {
+                "roster_id": 6,
+                "matchup_id": 4,
+                "points": 101.15,
+                "custom_points": null
+              },
+              {
+                "roster_id": 7,
+                "matchup_id": 6,
+                "points": 119.6,
+                "custom_points": null
+              },
+              {
+                "roster_id": 8,
+                "matchup_id": 6,
+                "points": 109.5,
+                "custom_points": null
+              },
+              {
+                "roster_id": 9,
+                "matchup_id": 5,
+                "points": 110.15,
+                "custom_points": null
+              },
+              {
+                "roster_id": 10,
+                "matchup_id": 1,
+                "points": 136,
+                "custom_points": null
+              },
+              {
+                "roster_id": 11,
+                "matchup_id": 1,
+                "points": 161.55,
+                "custom_points": null
+              },
+              {
+                "roster_id": 12,
+                "matchup_id": 5,
+                "points": 78.8,
+                "custom_points": null
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:07.340Z",
+            "requestCompletedAt": "2026-10-12T15:38:07.810Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:07.810Z"
+          },
+          "sliceSha256": "48acfeb9cdcc1f502e3939e685d5bb07ceaee15cb5d9d2eb7a1f2323fb7a6c44"
+        },
+        "winners_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1395875117568913408/winners_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1395875117568913408/winners_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/keeper-sample-winners_bracket.json",
+            "serializedDocumentSha256": "e7fbd09f3c4e902b6013192b7d73ff49c63fbc59cda2a3b28e28d8de6c8a44a9",
+            "serializedDocumentBytes": 723,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "winners_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 10,
+                "t2": 3
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 5,
+                "t2": 12
+              },
+              {
+                "m": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 11,
+                "t2": null,
+                "t2_from": {
+                  "w": 1
+                }
+              },
+              {
+                "m": 4,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 7,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                }
+              },
+              {
+                "p": 5,
+                "m": 5,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              },
+              {
+                "p": 1,
+                "m": 6,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 4
+                },
+                "t1_from": {
+                  "w": 3
+                }
+              },
+              {
+                "p": 3,
+                "m": 7,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 4
+                },
+                "t1_from": {
+                  "l": 3
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:07.811Z",
+            "requestCompletedAt": "2026-10-12T15:38:07.975Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:07.975Z"
+          },
+          "sliceSha256": "771033f668f6b340554bb1da952d51529d5e1c12b99dc9cd68dc0de78aae2bf7"
+        },
+        "losers_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1395875117568913408/losers_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1395875117568913408/losers_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/keeper-sample-losers_bracket.json",
+            "serializedDocumentSha256": "fc1ac8306418eb865cc1e468af0156017071b5e574db43c94987d5715906f2ba",
+            "serializedDocumentBytes": 719,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "losers_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 6,
+                "t2": 8
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 9,
+                "t2": 1
+              },
+              {
+                "m": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 4,
+                "t2": null,
+                "t2_from": {
+                  "w": 1
+                }
+              },
+              {
+                "m": 4,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 2,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                }
+              },
+              {
+                "p": 5,
+                "m": 5,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              },
+              {
+                "p": 1,
+                "m": 6,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 4
+                },
+                "t1_from": {
+                  "w": 3
+                }
+              },
+              {
+                "p": 3,
+                "m": 7,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 4
+                },
+                "t1_from": {
+                  "l": 3
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:07.976Z",
+            "requestCompletedAt": "2026-10-12T15:38:08.137Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:08.137Z"
+          },
+          "sliceSha256": "f59366f4c39462b444720330130ae00737216955677ecf6262c2abd7973d030d"
+        }
+      }
+    },
+    {
+      "key": "redraft-sample",
+      "externalLeagueId": "1398809418962898944",
+      "selectedNativeWeek": 5,
+      "resources": {
+        "league": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1398809418962898944",
+            "responseUrl": "https://api.sleeper.app/v1/league/1398809418962898944",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/redraft-sample-league.json",
+            "serializedDocumentSha256": "1c3945e711d5786dd2023f9348fff15c817692a56b097c3b9eac54128b29656f",
+            "serializedDocumentBytes": 2708,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "league",
+            "week": null,
+            "payload": {
+              "league_id": "1398809418962898944",
+              "sport": "nfl",
+              "season": "2026",
+              "season_type": "regular",
+              "status": "in_season",
+              "total_rosters": 12,
+              "settings": {
+                "best_ball": 0,
+                "last_report": 4,
+                "waiver_budget": 100,
+                "disable_adds": 0,
+                "capacity_override": 0,
+                "waiver_bid_min": 0,
+                "taxi_deadline": 0,
+                "draft_rounds": 3,
+                "reserve_allow_na": 0,
+                "start_week": 1,
+                "playoff_seed_type": 0,
+                "playoff_teams": 6,
+                "veto_votes_needed": 6,
+                "num_teams": 12,
+                "daily_waivers_hour": 4,
+                "playoff_type": 0,
+                "taxi_slots": 0,
+                "sub_start_time_eligibility": 0,
+                "last_scored_leg": 4,
+                "daily_waivers_days": 5461,
+                "sub_lock_if_starter_active": 0,
+                "playoff_week_start": 15,
+                "waiver_clear_days": 2,
+                "reserve_allow_doubtful": 0,
+                "commissioner_direct_invite": 0,
+                "veto_auto_poll": 0,
+                "reserve_allow_dnr": 0,
+                "taxi_allow_vets": 0,
+                "waiver_day_of_week": 2,
+                "playoff_round_type": 0,
+                "reserve_allow_out": 1,
+                "reserve_allow_sus": 0,
+                "veto_show_votes": 0,
+                "trade_deadline": 11,
+                "taxi_years": 0,
+                "daily_waivers": 1,
+                "faab_suggestions": 1,
+                "disable_trades": 0,
+                "pick_trading": 0,
+                "type": 0,
+                "max_keepers": 1,
+                "waiver_type": 1,
+                "max_subs": 2,
+                "league_average_match": 0,
+                "trade_review_days": 2,
+                "bench_lock": 0,
+                "offseason_adds": 0,
+                "leg": 5,
+                "reserve_slots": 1,
+                "reserve_allow_cov": 0,
+                "daily_waivers_last_ran": 12
+              }
+            },
+            "requestStartedAt": "2026-10-12T15:38:08.139Z",
+            "requestCompletedAt": "2026-10-12T15:38:08.476Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:08.476Z"
+          },
+          "sliceSha256": "4c0a7ae91cacd30a61556f4fbfcec3649c0ddd65fa7fc91b83ffbb72d38b6bf6"
+        },
+        "rosters": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1398809418962898944/rosters",
+            "responseUrl": "https://api.sleeper.app/v1/league/1398809418962898944/rosters",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/redraft-sample-rosters.json",
+            "serializedDocumentSha256": "74225952b2742bfb800d36c744ab5c114bfde5a487beaeccc66bd462d106c5a8",
+            "serializedDocumentBytes": 8354,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "rosters",
+            "week": null,
+            "payload": [
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 1,
+                "settings": {
+                  "fpts": 449,
+                  "fpts_against": 494,
+                  "fpts_against_decimal": 0,
+                  "fpts_decimal": 2,
+                  "losses": 3,
+                  "ppts": 528,
+                  "ppts_decimal": 28,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 10,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 2,
+                "settings": {
+                  "fpts": 546,
+                  "fpts_against": 473,
+                  "fpts_against_decimal": 94,
+                  "fpts_decimal": 54,
+                  "losses": 1,
+                  "ppts": 659,
+                  "ppts_decimal": 54,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 11,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 3,
+                "settings": {
+                  "fpts": 499,
+                  "fpts_against": 523,
+                  "fpts_against_decimal": 70,
+                  "fpts_decimal": 96,
+                  "losses": 2,
+                  "ppts": 556,
+                  "ppts_decimal": 84,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 5,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 4,
+                "settings": {
+                  "fpts": 617,
+                  "fpts_against": 472,
+                  "fpts_against_decimal": 14,
+                  "fpts_decimal": 70,
+                  "losses": 1,
+                  "ppts": 669,
+                  "ppts_decimal": 10,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 12,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 5,
+                "settings": {
+                  "fpts": 555,
+                  "fpts_against": 489,
+                  "fpts_against_decimal": 16,
+                  "fpts_decimal": 50,
+                  "losses": 1,
+                  "ppts": 624,
+                  "ppts_decimal": 84,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 8,
+                  "wins": 3
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 6,
+                "settings": {
+                  "fpts": 510,
+                  "fpts_against": 541,
+                  "fpts_against_decimal": 68,
+                  "fpts_decimal": 16,
+                  "losses": 3,
+                  "ppts": 594,
+                  "ppts_decimal": 86,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 2,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 7,
+                "settings": {
+                  "fpts": 526,
+                  "fpts_against": 522,
+                  "fpts_against_decimal": 30,
+                  "fpts_decimal": 4,
+                  "losses": 2,
+                  "ppts": 656,
+                  "ppts_decimal": 14,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 6,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 8,
+                "settings": {
+                  "fpts": 533,
+                  "fpts_against": 519,
+                  "fpts_against_decimal": 40,
+                  "fpts_decimal": 34,
+                  "losses": 3,
+                  "ppts": 586,
+                  "ppts_decimal": 26,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 3,
+                  "wins": 1
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 9,
+                "settings": {
+                  "fpts": 336,
+                  "fpts_against": 574,
+                  "fpts_against_decimal": 99,
+                  "fpts_decimal": 24,
+                  "losses": 4,
+                  "ppts": 408,
+                  "ppts_decimal": 28,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 1,
+                  "wins": 0
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 10,
+                "settings": {
+                  "fpts": 599,
+                  "fpts_against": 471,
+                  "fpts_against_decimal": 78,
+                  "fpts_decimal": 38,
+                  "losses": 0,
+                  "ppts": 675,
+                  "ppts_decimal": 68,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 9,
+                  "wins": 4
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 11,
+                "settings": {
+                  "fpts": 444,
+                  "fpts_against": 518,
+                  "fpts_against_decimal": 86,
+                  "fpts_decimal": 2,
+                  "losses": 2,
+                  "ppts": 463,
+                  "ppts_decimal": 52,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 4,
+                  "wins": 2
+                }
+              },
+              {
+                "league_id": "1398809418962898944",
+                "roster_id": 12,
+                "settings": {
+                  "fpts": 549,
+                  "fpts_against": 564,
+                  "fpts_against_decimal": 99,
+                  "fpts_decimal": 6,
+                  "losses": 2,
+                  "ppts": 677,
+                  "ppts_decimal": 2,
+                  "ties": 0,
+                  "total_moves": 0,
+                  "waiver_adjusted": 5,
+                  "waiver_budget_used": 0,
+                  "waiver_position": 7,
+                  "wins": 2
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:08.477Z",
+            "requestCompletedAt": "2026-10-12T15:38:08.614Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:08.614Z"
+          },
+          "sliceSha256": "0f245ba3ba4704cc30afaf87b96f3e34ffcf595bcade003474e41d18d99fa03d"
+        },
+        "matchups": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1398809418962898944/matchups/5",
+            "responseUrl": "https://api.sleeper.app/v1/league/1398809418962898944/matchups/5",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/redraft-sample-matchups-5.json",
+            "serializedDocumentSha256": "3c2f808a29b624747a9ff197b0a4a0277ea7e941b8d8701693576ca388595b2d",
+            "serializedDocumentBytes": 6440,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "matchups",
+            "week": 5,
+            "payload": [
+              {
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 76.22,
+                "custom_points": null
+              },
+              {
+                "roster_id": 2,
+                "matchup_id": 4,
+                "points": 176.9,
+                "custom_points": null
+              },
+              {
+                "roster_id": 3,
+                "matchup_id": 6,
+                "points": 160.36,
+                "custom_points": null
+              },
+              {
+                "roster_id": 4,
+                "matchup_id": 5,
+                "points": 126.74,
+                "custom_points": null
+              },
+              {
+                "roster_id": 5,
+                "matchup_id": 2,
+                "points": 159.88,
+                "custom_points": null
+              },
+              {
+                "roster_id": 6,
+                "matchup_id": 4,
+                "points": 102.5,
+                "custom_points": null
+              },
+              {
+                "roster_id": 7,
+                "matchup_id": 5,
+                "points": 135.84,
+                "custom_points": null
+              },
+              {
+                "roster_id": 8,
+                "matchup_id": 1,
+                "points": 110.9,
+                "custom_points": null
+              },
+              {
+                "roster_id": 9,
+                "matchup_id": 3,
+                "points": 44.14,
+                "custom_points": null
+              },
+              {
+                "roster_id": 10,
+                "matchup_id": 3,
+                "points": 130.1,
+                "custom_points": null
+              },
+              {
+                "roster_id": 11,
+                "matchup_id": 1,
+                "points": 96.4,
+                "custom_points": null
+              },
+              {
+                "roster_id": 12,
+                "matchup_id": 6,
+                "points": 69.3,
+                "custom_points": null
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:08.617Z",
+            "requestCompletedAt": "2026-10-12T15:38:08.738Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:08.738Z"
+          },
+          "sliceSha256": "16017d32cd24be0f1a2759a0a1d52ab99e022de14c47ffd6ab71798d3e0a20b0"
+        },
+        "winners_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1398809418962898944/winners_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1398809418962898944/winners_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/redraft-sample-winners_bracket.json",
+            "serializedDocumentSha256": "179f6cfa8c5d6d542850b93bbcd1afcc267e5ec7b510e1936d335d1a15b98307",
+            "serializedDocumentBytes": 722,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "winners_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 2,
+                "t2": 12
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 7,
+                "t2": 5
+              },
+              {
+                "m": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 10,
+                "t2": null,
+                "t2_from": {
+                  "w": 1
+                }
+              },
+              {
+                "m": 4,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 4,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                }
+              },
+              {
+                "p": 5,
+                "m": 5,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              },
+              {
+                "p": 1,
+                "m": 6,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 4
+                },
+                "t1_from": {
+                  "w": 3
+                }
+              },
+              {
+                "p": 3,
+                "m": 7,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 4
+                },
+                "t1_from": {
+                  "l": 3
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:08.739Z",
+            "requestCompletedAt": "2026-10-12T15:38:08.841Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:08.841Z"
+          },
+          "sliceSha256": "97b96ea7f51a8298bee16f711eacc64f730016562dd3f1ee3011cffe1871b5af"
+        },
+        "losers_bracket": {
+          "source": {
+            "endpoint": "https://api.sleeper.app/v1/league/1398809418962898944/losers_bracket",
+            "responseUrl": "https://api.sleeper.app/v1/league/1398809418962898944/losers_bracket",
+            "httpStatus": 200,
+            "contentType": "application/json; charset=utf-8",
+            "originalDocumentFile": "apps/site/test-results/data-backend/cp13/live-source-inventory/2026-10-12T15-38-04-356Z/redraft-sample-losers_bracket.json",
+            "serializedDocumentSha256": "096fa966ecc61ce0d88ac8069a747c08c21c938110a834c00fda7e636378b653",
+            "serializedDocumentBytes": 720,
+            "newNetworkRequestInResumedAttempt": true
+          },
+          "document": {
+            "family": "losers_bracket",
+            "week": null,
+            "payload": [
+              {
+                "m": 1,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 8,
+                "t2": 11
+              },
+              {
+                "m": 2,
+                "r": 1,
+                "l": null,
+                "w": null,
+                "t1": 3,
+                "t2": 6
+              },
+              {
+                "m": 3,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 9,
+                "t2": null,
+                "t2_from": {
+                  "w": 1
+                }
+              },
+              {
+                "m": 4,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": 1,
+                "t2": null,
+                "t2_from": {
+                  "w": 2
+                }
+              },
+              {
+                "p": 5,
+                "m": 5,
+                "r": 2,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 2
+                },
+                "t1_from": {
+                  "l": 1
+                }
+              },
+              {
+                "p": 1,
+                "m": 6,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "w": 4
+                },
+                "t1_from": {
+                  "w": 3
+                }
+              },
+              {
+                "p": 3,
+                "m": 7,
+                "r": 3,
+                "l": null,
+                "w": null,
+                "t1": null,
+                "t2": null,
+                "t2_from": {
+                  "l": 4
+                },
+                "t1_from": {
+                  "l": 3
+                }
+              }
+            ],
+            "requestStartedAt": "2026-10-12T15:38:08.842Z",
+            "requestCompletedAt": "2026-10-12T15:38:09.017Z",
+            "origin": "network",
+            "sourceObservedAt": "2026-10-12T15:38:09.017Z"
+          },
+          "sliceSha256": "2856fa5a6d7bfacd6c48ff25d795c6c14c5fe00da087d05d0f2dec57f982fad8"
+        }
+      }
+    }
+  ]
+}

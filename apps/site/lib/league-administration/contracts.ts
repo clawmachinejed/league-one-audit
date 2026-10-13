@@ -8,7 +8,7 @@ export const ADMINISTRATION_NORMALIZER_VERSION = 'sleeper-administration-v1' as 
 export const ADMINISTRATION_DIALECT = 'sleeper-nfl-v1' as const;
 
 export type AdministrationFamily = 'league' | 'rosters' | 'users' | 'matchups' | 'transactions'
-  | 'drafts' | 'traded_picks' | 'winners_bracket' | 'losers_bracket';
+  | 'drafts' | 'traded_picks' | 'winners_bracket' | 'losers_bracket' | 'weekly_report';
 export type ConfigurationComponentName = 'scoring' | 'roster' | 'competition' | 'display' | 'extensions';
 
 export type AdministrationScope = Readonly<{
@@ -34,6 +34,7 @@ export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }>
   | Readonly<{ kind: 'leagues'; userId: string; season: number }>
   | Readonly<{ kind: 'bootstrap' | 'core' | 'users'; externalLeagueId: string; season: number }>
   | Readonly<{ kind: 'playoff-brackets'; externalLeagueId: string; season: 2026 }>
+  | Readonly<{ kind: 'weekly-report'; externalLeagueId: string; season: 2026; nativeWeek: number }>
   | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
 );
 /** DB-issued causality evidence, separate from the provider document and its clocks.
@@ -65,7 +66,7 @@ export type AdministrationEnvelope = Readonly<{
   dialect: typeof ADMINISTRATION_DIALECT;
   scope: AdministrationScope;
   family: AdministrationFamily;
-  /** Exact weekly scope for matchups/transactions; null for season-scoped families. */
+  /** Exact weekly scope for matchups/transactions/reports; null for season-scoped families. */
   week: number | null;
   provenance: AdministrationProvenance;
   /** A partial document can be retained as evidence but cannot replace a complete pointer. */
@@ -186,7 +187,8 @@ export type NormalizedAdministrationValue =
   | Readonly<{ family: 'transactions'; transactions: readonly SourceTransaction[] }>
   | Readonly<{ family: 'drafts'; drafts: readonly SourceDraft[] }>
   | Readonly<{ family: 'traded_picks'; picks: readonly SourceDraftPickMovement[] }>
-  | Readonly<{ family: 'winners_bracket' | 'losers_bracket'; matches: readonly SourceBracketMatch[] }>;
+  | Readonly<{ family: 'winners_bracket' | 'losers_bracket'; matches: readonly SourceBracketMatch[] }>
+  | Readonly<{ family: 'weekly_report'; report: import('../aggregator/weekly-reports').WeeklyReportValue }>;
 
 export type NormalizedAdministrationObservation = Readonly<{
   status: 'accepted' | 'rejected';

@@ -11,6 +11,55 @@ export const QUALIFICATION_MAX_BYTES = 4 * 1024 * 1024;
 export const SELECTED_PROFILE = 'data-core-refresh-v1';
 export const INGESTION_PROFILE = 'data-core-ingestion-v1';
 export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
+export const OFFICIAL_RESULTS_PROFILE = 'data-official-results-v1';
+export const OFFICIAL_RESULTS_MODULE = 'integration/official-results.integration-case.ts';
+// CP13 authored fixture, pinned after independent source review; hosted SQL qualification remains separate.
+export const OFFICIAL_RESULTS_SOURCE_DIGEST = '592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479';
+export const OFFICIAL_RESULTS_SUITE = 'official standings and results through restricted PostgreSQL';
+export const OFFICIAL_RESULTS_TESTS = [
+  'stores provider record points and supplied placement through independent typed receipts',
+  'preserves native field states capacity outcomes and missing population without membership inference',
+  'retains corrections replay equal captures and current attempt ordering without silent backfill',
+  'rejects forged projections foreign receipts and source mapping mismatches atomically',
+  'rolls back observed lock expiry and deferred changed or equal capture commits under original fences',
+  'denies direct typed mutations and private helpers while stored reads remain source free',
+  'composes native scores and reported bracket results without inferring outcomes or finality',
+  'composes ordinary failed core recovery and changed refresh through immutable selected results',
+] as const;
+export const OFFICIAL_RESULTS_FULL_NAMES = OFFICIAL_RESULTS_TESTS.map(name => OFFICIAL_RESULTS_SUITE + ' > ' + name);
+export const OFFICIAL_RESULTS_PATTERN = closedPattern(OFFICIAL_RESULTS_FULL_NAMES);
+// Reuse only the two existing composition cases; retain the full eight-case source inventory.
+export const OFFICIAL_RESULTS_PLAYED_PROFILE = 'data-official-results-played-v1';
+export const OFFICIAL_RESULTS_PLAYED_FULL_NAMES = [OFFICIAL_RESULTS_FULL_NAMES[6], OFFICIAL_RESULTS_FULL_NAMES[7]];
+export const OFFICIAL_RESULTS_PLAYED_PATTERN = closedPattern(OFFICIAL_RESULTS_PLAYED_FULL_NAMES);
+export const WEEKLY_REPORTS_PROFILE = 'data-weekly-reports-v1';
+export const WEEKLY_REPORTS_MODULE = 'integration/weekly-reports.integration-case.ts';
+// Authored CP13 report candidate; this source pin is not hosted SQL qualification.
+export const WEEKLY_REPORTS_SOURCE_DIGEST = '298dfeec2fa275eea7993c19822541360b5041356c4fc406a924251a9b8d09a2';
+export const WEEKLY_REPORTS_SUITE = 'weekly report facts through restricted PostgreSQL and ordinary intake';
+export const WEEKLY_REPORTS_TESTS = [
+  'replays all twenty four retained native report rows through typed storage with independent clocks',
+  'preserves optional native field states decimals round identity and fail closed capacity boundaries',
+  'retains corrections equal native times replay ordering failed latest attempts and immutable receipts',
+  'rejects forged normalized facts native scope team identity and source mapping substitutions atomically',
+  'rolls back observed relation locks and deferred changed or equal receipts under original fences',
+  'denies typed mutations private helpers and late history changes while stored reads stay source free',
+  'validates optional selectors immutable request scope and report task permissions before admission',
+  'composes one post report intake and failed refresh recovery through immutable witnessed selections',
+] as const;
+export const WEEKLY_REPORTS_FULL_NAMES = WEEKLY_REPORTS_TESTS.map(name => WEEKLY_REPORTS_SUITE + ' > ' + name);
+export const WEEKLY_REPORTS_PATTERN = closedPattern(WEEKLY_REPORTS_FULL_NAMES);
+export const OFFICIAL_RESULTS_EVIDENCE_PROFILE = 'data-official-results-evidence-v1';
+export const OFFICIAL_RESULTS_EVIDENCE_MODULE = 'integration/official-results-evidence.integration-case.ts';
+// Separate CP13 retained evidence fixture; authored source is not hosted SQL qualification.
+export const OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST = '342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae';
+export const OFFICIAL_RESULTS_EVIDENCE_SUITE = 'retained official standings and ordinary recovery through restricted PostgreSQL';
+export const OFFICIAL_RESULTS_EVIDENCE_TESTS = [
+  'replays retained 2026 standings without refreshing source clocks or claiming membership',
+  'preserves accepted membership and exact historical brackets through ordinary refresh failures and recovery',
+] as const;
+export const OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES = OFFICIAL_RESULTS_EVIDENCE_TESTS.map(name => OFFICIAL_RESULTS_EVIDENCE_SUITE + ' > ' + name);
+export const OFFICIAL_RESULTS_EVIDENCE_PATTERN = closedPattern(OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES);
 export const BRACKET_INTAKE_PROFILE = 'data-bracket-intake-v1';
 export const BRACKET_INTAKE_MODULE = 'integration/bracket-intake.integration-case.ts';
 // CP12 authored ordinary intake fixture; SQL execution needs separate exact-source authorization.
@@ -162,7 +211,7 @@ export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated l
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
 export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
-  | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
+  | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
 export const SELECTED_SUITE = 'bounded public DATA refresh cycles through the existing intake owner';
@@ -259,6 +308,10 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return { names: OFFICIAL_RESULTS_PLAYED_FULL_NAMES, pattern: OFFICIAL_RESULTS_PLAYED_PATTERN };
+  if (profile === WEEKLY_REPORTS_PROFILE) return { names: WEEKLY_REPORTS_FULL_NAMES, pattern: WEEKLY_REPORTS_PATTERN };
+  if (profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE) return { names: OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES, pattern: OFFICIAL_RESULTS_EVIDENCE_PATTERN };
+  if (profile === OFFICIAL_RESULTS_PROFILE) return { names: OFFICIAL_RESULTS_FULL_NAMES, pattern: OFFICIAL_RESULTS_PATTERN };
   if (profile === BRACKET_INTAKE_PROFILE) return { names: BRACKET_INTAKE_FULL_NAMES, pattern: BRACKET_INTAKE_PATTERN };
   if (profile === TYPED_BRACKETS_PROFILE) return { names: TYPED_BRACKETS_FULL_NAMES, pattern: TYPED_BRACKETS_PATTERN };
   if (profile === EXACT_MATCHUP_VALUES_PROFILE) return { names: EXACT_MATCHUP_VALUES_FULL_NAMES, pattern: EXACT_MATCHUP_VALUES_PATTERN };
@@ -435,21 +488,24 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
-  return profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
+  if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_MODULE;
+  return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_MODULE : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_MODULE : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_MODULE : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
-  return profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_SOURCE_DIGEST : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_SOURCE_DIGEST : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_SOURCE_DIGEST : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_SOURCE_DIGEST : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_SOURCE_DIGEST : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_SOURCE_DIGEST : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_SOURCE_DIGEST : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_SOURCE_DIGEST : profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
+  if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_SOURCE_DIGEST;
+  return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_SOURCE_DIGEST : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_SOURCE_DIGEST : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_SOURCE_DIGEST : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_SOURCE_DIGEST : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_SOURCE_DIGEST : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_SOURCE_DIGEST : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_SOURCE_DIGEST : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_SOURCE_DIGEST : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_SOURCE_DIGEST : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_SOURCE_DIGEST : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_SOURCE_DIGEST : profile === JOURNEY_PROFILE ? JOURNEY_SOURCE_DIGEST : profile === LIVE_PROFILE ? LIVE_SOURCE_DIGEST : SELECTED_SOURCE_DIGEST;
 }
 function selectedModules(profile: QualificationProfile) {
   return profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES
     : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
 }
 function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_FULL_NAMES;
   if (profile === CORE_COMPATIBILITY_PROFILE) {
     const spec = CORE_COMPATIBILITY_MODULES.find(module => module.path === path);
     assert(spec, 'Unexpected core compatibility module.'); return spec.inventory;
   }
-  return profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_FULL_NAMES : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_FULL_NAMES : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_FULL_NAMES : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_FULL_NAMES : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_FULL_NAMES : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_FULL_NAMES : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_FULL_NAMES : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
+  return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_FULL_NAMES : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_FULL_NAMES : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_FULL_NAMES : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_FULL_NAMES : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_FULL_NAMES : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_FULL_NAMES : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_FULL_NAMES : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_FULL_NAMES : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_FULL_NAMES : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
   if (profile === CORE_COMPATIBILITY_PROFILE) return qualificationDigest({ version: 1, profile,
@@ -459,6 +515,10 @@ function profileDigest(profile: QualificationProfile) {
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if (!args.length) return 'full';
+  if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE) return OFFICIAL_RESULTS_PLAYED_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + WEEKLY_REPORTS_PROFILE) return WEEKLY_REPORTS_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_RESULTS_EVIDENCE_PROFILE) return OFFICIAL_RESULTS_EVIDENCE_PROFILE;
+  if (args.length === 1 && args[0] === '--profile=' + OFFICIAL_RESULTS_PROFILE) return OFFICIAL_RESULTS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + BRACKET_INTAKE_PROFILE) return BRACKET_INTAKE_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + TYPED_BRACKETS_PROFILE) return TYPED_BRACKETS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + EXACT_MATCHUP_VALUES_PROFILE) return EXACT_MATCHUP_VALUES_PROFILE;
@@ -479,10 +539,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === 'full' || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === 'full' || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -495,7 +555,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === 'full' || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === 'full' || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
@@ -504,6 +564,12 @@ function validateContext(value: QualificationContext): QualificationContext {
     assert.match(entry.sourceDigest, /^[0-9a-f]{64}$/u);
   }
   unique(value.modules.map(module => module.path));
+  if (value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE) assert.equal(value.modules[0].sourceDigest, OFFICIAL_RESULTS_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
+  if (value.profile === WEEKLY_REPORTS_PROFILE) assert.equal(value.modules[0].sourceDigest, WEEKLY_REPORTS_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
+  if (value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE) assert.equal(value.modules[0].sourceDigest, OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST,
+    'Selected qualification source differs from the reviewed LF digest.');
   if (value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE) assert.equal(value.modules[0].sourceDigest, selectedDigest(value.profile));
   if (value.profile === 'full') assert(value.modules.every(module => !module.path.endsWith('.live-integration-case.ts')));
   if (value.profile !== 'full') assert.deepEqual(value.modules.map(module => module.path), selectedModules(value.profile).map(module => module.path));
@@ -636,6 +702,50 @@ export function validateQualificationReport(context: QualificationContext, repor
       assert.equal(suite.name, LIVE_PLAYER_DIRECTORY_SUITE); assert.equal(suite.mode, 'run');
       sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
       for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Live directory hooks must execute exactly once.');
+    }
+    if (context.profile === OFFICIAL_RESULTS_PROFILE || context.profile === OFFICIAL_RESULTS_PLAYED_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), OFFICIAL_RESULTS_FULL_NAMES,
+        'Official results cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Official results requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, OFFICIAL_RESULTS_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Official results hooks must execute exactly once.');
+      const selected = entry.cases.filter(test => selectedCase(context.profile).names.includes(test.name));
+      assert.deepEqual(selected.map(test => test.name), selectedCase(context.profile).names);
+      for (let index = 1; index < selected.length; index++) {
+        const previous = selected[index - 1].diagnostic, current = selected[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Official results cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === WEEKLY_REPORTS_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), WEEKLY_REPORTS_FULL_NAMES,
+        'Weekly reports cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Weekly reports requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, WEEKLY_REPORTS_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Weekly reports hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Weekly reports cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES,
+        'Official results evidence cases must retain their source order.');
+      assert.equal(entry.suites.length, 1, 'Official results evidence requires its one shared suite.');
+      const suite = entry.suites[0];
+      assert.equal(suite.name, OFFICIAL_RESULTS_EVIDENCE_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Official results evidence hooks must execute exactly once.');
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        assert(previous && current && current.startTime >= previous.startTime,
+          'Official results evidence cases must execute in chronological source order.');
+      }
     }
     if (context.profile === BRACKET_INTAKE_PROFILE) {
       assert.deepEqual(entry.cases.map(test => test.name), BRACKET_INTAKE_FULL_NAMES,
@@ -834,7 +944,8 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
-  return profile === BRACKET_INTAKE_PROFILE ? [BRACKET_INTAKE_MODULE] : profile === TYPED_BRACKETS_PROFILE ? [TYPED_BRACKETS_MODULE] : profile === EXACT_MATCHUP_VALUES_PROFILE ? [EXACT_MATCHUP_VALUES_MODULE] : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? [PERIOD_SETTINGS_CONTEXT_MODULE] : profile === PERIOD_INVENTORY_PROFILE ? [PERIOD_INVENTORY_MODULE] : profile === TEAM_MANAGER_FACTS_PROFILE ? [TEAM_MANAGER_FACTS_MODULE] : profile === ROSTER_PLAYER_LINKS_PROFILE ? [ROSTER_PLAYER_LINKS_MODULE] : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_MODULE] : profile === PLAYER_DIRECTORY_PROFILE ? [PLAYER_DIRECTORY_MODULE]
+  if (profile === OFFICIAL_RESULTS_PLAYED_PROFILE) return [OFFICIAL_RESULTS_MODULE];
+  return profile === WEEKLY_REPORTS_PROFILE ? [WEEKLY_REPORTS_MODULE] : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? [OFFICIAL_RESULTS_EVIDENCE_MODULE] : profile === OFFICIAL_RESULTS_PROFILE ? [OFFICIAL_RESULTS_MODULE] : profile === BRACKET_INTAKE_PROFILE ? [BRACKET_INTAKE_MODULE] : profile === TYPED_BRACKETS_PROFILE ? [TYPED_BRACKETS_MODULE] : profile === EXACT_MATCHUP_VALUES_PROFILE ? [EXACT_MATCHUP_VALUES_MODULE] : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? [PERIOD_SETTINGS_CONTEXT_MODULE] : profile === PERIOD_INVENTORY_PROFILE ? [PERIOD_INVENTORY_MODULE] : profile === TEAM_MANAGER_FACTS_PROFILE ? [TEAM_MANAGER_FACTS_MODULE] : profile === ROSTER_PLAYER_LINKS_PROFILE ? [ROSTER_PLAYER_LINKS_MODULE] : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_MODULE] : profile === PLAYER_DIRECTORY_PROFILE ? [PLAYER_DIRECTORY_MODULE]
     : profile === CORE_COMPATIBILITY_PROFILE ? CORE_COMPATIBILITY_MODULES.map(module => module.path)
     : profile === LIVE_PROFILE ? [LIVE_MODULE] : profile === JOURNEY_PROFILE ? [JOURNEY_MODULE] : ['integration/**/*.integration-case.ts'];
 }

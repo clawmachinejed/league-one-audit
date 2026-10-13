@@ -1,6 +1,6 @@
 # Checkpoint 13: official results and standings plan
 
-Status: scope and acceptance plan reviewed; storage lifecycle and shared-core design decisions remain open after the four-way impact review. Implementation and qualification remain pending. Prepared October 11, 2026 against `de3f0225de7c088bb82282333488e33e6742e8f8` (accepted CP12 executable source `be012efb6582c26daab5162f4841c5c7a9ba31bb`). This plan preserves the [readiness contract](data-backend-readiness-contract.md), [frozen acceptance baseline](data-backend-acceptance-baseline.md), and [current qualification record](data-backend-evidence.md#current-checkpoint-summary).
+Status: **CP13 is complete for its bounded acceptance scope.** The recorded standings/report qualifications retain their original sources. The user-approved selected 2025 test evidence supplies actual played outcomes and a representative multiweek championship; the two selected `data-official-results-played-v1` cases passed at `6707ada9c2705db28d907bc84cf422855df91463` in [run 38336934123](https://github.com/clawmachinejed/league-one-audit/actions/runs/38336934123), with independently accepted results and cleanup. See the [current closeout](data-backend-cp13-semantics.md#current-cp13-closeout--selected-2025-evidence) for exact proof and carry-forward boundaries. The acceptance matrix below is unchanged; no populated series aggregate/link is required where the source does not evidence one. Product intake remains 2026-only. This plan preserves the [readiness contract](data-backend-readiness-contract.md), [frozen acceptance baseline](data-backend-acceptance-baseline.md), and [current qualification record](data-backend-evidence.md#current-checkpoint-summary).
 
 ## Outcome and scope
 
@@ -9,7 +9,7 @@ A stored backend reader returns the official season facts and supplied competiti
 1. **Data resource:** 2026 season-to-date standings facts from the existing roster acquisition; exact native-period scores and group identities from CP10; supplied bracket outcomes and relationships from CP11-12; applicable settings/context from CP9. Public Sleeper usernames remain eligible without a named-league whitelist. Head-to-head redraft, keeper and dynasty fixtures are required; special structures limit only the affected resource or conclusion.
 2. **Existing path:** existing `lib/sleeper.ts` acquisition and `league-administration` acceptance/receipt owners feed typed SQL and stored-only readers. Reuse field and decimal semantics from `aggregator/season-overview-source.ts` and `season-overview-standings.ts`, and reuse exact-matchup and bracket readers; extend ordinary intake/refresh read composition. The existing season-overview reader itself requires accepted players coverage and cannot be the independent standings reader unchanged. No new provider feed, worker, scheduler, page, projection calculation, account workflow, or production selection.
 3. **Persisted result:** independently validated, receipt-bound, queryable standings facts and their field states, exact captured native values, canonical season/team identities, immutable observation/version history, and a bounded composed result response whose components retain their own receipt and source time. Existing accepted membership, score and bracket resources keep their independent semantics.
-4. **Real evidence and gaps:** this document records requirements, not executed CP13 assertions. CP10 score parity and CP11-12 bracket qualification are prerequisites with their original source/run limits. Dedicated typed standings persistence, CP13 result composition, latest-source restricted-role SQL and combined correction readback are still pending. Paid SQL, provisioning, migrations, credentials, merge, deployment and activation need their applicable separate authority.
+4. **Real evidence and gaps (planning-date baseline):** this document records requirements, not executed CP13 assertions. The implementation and local diagnostics now appear in the [current evidence record](data-backend-evidence.md); the following pending statements describe the original planning baseline. CP10 score parity and CP11-12 bracket qualification are prerequisites with their original source/run limits. Dedicated typed standings persistence, CP13 result composition, latest-source restricted-role SQL and combined correction readback are still pending. Paid SQL, provisioning, migrations, credentials, merge, deployment and activation need their applicable separate authority.
 
 ## Existing ownership and proposed change boundary
 
@@ -108,3 +108,26 @@ The initial GPT-6 Astra ultra source/contract review by `/root/cp13_contract_rev
 For the initial planning revision, the existing scope checker passed against its unchanged canonical baseline, and its 23 self-tests passed. Read-only validation checked 30 local document links/anchors, confirmed historical ledger bodies are unchanged except their explicit historical wrapper, and confirmed application/workflow files and frozen CP1/2 contracts are byte-unchanged from the planning base. No local application suite, SQL qualification, provider acquisition or production action was performed for the initial documentation increment. Publication and automatic CI/preview status are reported separately; these checks establish documentation consistency, not CP13 runtime readiness.
 
 The follow-up impact review changed only this plan. Independent contract and upstream/writer reviewers approved the correction with no remaining material findings in their reviewed scopes. This establishes planning/source consistency only. Its validation and publication state are recorded with the review revision; no CP13 application code, SQL run, migration application, provider acquisition or production action was performed.
+
+## October 12 retained-source and recovery verification
+
+After the accepted eight-case run and public-source inventory, the separate
+two-case `data-official-results-evidence-v1` profile passed at `e7977776` in
+[run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+with independently accepted report and automatic cleanup. It reused existing
+standings receipt/write/read paths for 58 retained native rows, and ordinary
+intake/refresh owners for accepted-membership and historical-pair preservation
+through later failures. Source clocks remain original; replay supplies no new
+acquisition or population witness. The existing eight cases and source pin
+remain unchanged; their selected-period/player-link proof was not rerun.
+
+The selected authored allowance stayed 23 minutes (60s + 1080s + two 120s hooks).
+Cases took 3.259333s and 858.555202s; lifecycle was 947.032s, within unchanged
+supervisor limits. Standard discovery adds one module, from 57 to 58; this
+makes no full-suite duration claim. The
+[qualification notes](../../apps/site/integration/README.md#cp13-retained-source-and-ordinary-recovery-candidate)
+record case boundaries. Local/source verification, hosted qualification and
+release remain separate. The one-run authorization is consumed. Positive
+official-result and representative multiweek obligations above remain CP13 work,
+with the [next source-meaning proof unit](data-backend-cp13-semantics.md#next-complete-proof-unit)
+specified separately from this closeout.

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import net from 'node:net';
-import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList,
+import { capturePublicSleeperCore, capturePublicSleeperWeeklyReport, capturePublicSleeperIdentity, capturePublicSleeperLeagueList,
   getSleeperUserIdentity, getSleeperUserLeagues } from '../sleeper';
 import { assertOriginalPublicCapture, type PublicCaptureWitness } from './public-capture-witness';
 
@@ -41,12 +41,16 @@ function dispatchWitness(kind: 'identity' | 'leagues' | 'bootstrap' | 'users' | 
   return { ...witness, work: { ...witness.work, kind }, mapping: kind === 'bootstrap' ? null : witness.mapping, attempts: {} };
 }
 type CaptureEntry = Readonly<{
-  label: string; path: string; witness: () => PublicCaptureWitness;
+  label: string; path: string; url?: string; witness: () => PublicCaptureWitness;
   capture: (signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<{
     payload: unknown; acquisition?: PublicCaptureWitness; requestStartedAt: string; requestCompletedAt: string;
   }>;
 }>;
 const entries: readonly CaptureEntry[] = [
+  { label: 'weekly report', path: '/graphql', url: 'https://sleeper.com/graphql',
+    witness: () => ({ ...coreWitness(), work: { ...coreWitness().work, kind: 'weekly-report', season: 2026, nativeWeek: 4 },
+      attempts: { weekly_report: { id: uuid(14), nonce: uuid(24) } } }),
+    capture: (signal, witness) => capturePublicSleeperWeeklyReport(native, 4, signal, witness) },
   { label: 'identity', path: '/user/manager_55', witness: () => dispatchWitness('identity'),
     capture: (signal, witness) => capturePublicSleeperIdentity('manager_55', signal, witness) },
   { label: 'league list', path: '/user/55/leagues/nfl/2026', witness: () => dispatchWitness('leagues'),
@@ -171,8 +175,8 @@ describe('public DATA response limits through the maintained transport', () => {
     const request = fixtureFetch(fixtureResponse('['.repeat(MAX_DEPTH) + '0' + ']'.repeat(MAX_DEPTH)));
     await expect(entry.capture(new AbortController().signal, entry.witness()).then(() => 'accepted'))
       .rejects.toThrow(/depth.*limit|limit.*depth/i);
-    expect(request).toHaveBeenCalledExactlyOnceWith(`https://api.sleeper.app/v1${entry.path}`,
-      expect.objectContaining({ cache: 'no-store', redirect: 'error', headers: { Accept: 'application/json' },
+    expect(request).toHaveBeenCalledExactlyOnceWith(entry.url ?? `https://api.sleeper.app/v1${entry.path}`,
+      expect.objectContaining({ cache: 'no-store', redirect: 'error', headers: { Accept: 'application/json', ...(entry.url ? { 'Content-Type': 'application/json', 'X-Sleeper-GraphQL-Op': 'metadata' } : {}) },
         signal: expect.any(AbortSignal) }));
     expect(request.mock.calls[0][1]).not.toHaveProperty('next');
   });

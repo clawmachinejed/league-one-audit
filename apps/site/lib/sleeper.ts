@@ -197,7 +197,7 @@ const readAdministration = cache(async (
 });
 
 async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?: AbortSignal,
-  requestPolicy?: Readonly<{ redirect: 'error'; boundedPublicCapture: true }>): Promise<unknown> {
+  requestPolicy?: Readonly<{ redirect: 'error'; boundedPublicCapture: true; weeklyReportKey?: string }>): Promise<unknown> {
   const timeout = AbortSignal.timeout(path.startsWith('/players/nfl') ? 20_000 : 12_000);
   const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
   const family = sleeperEndpointFamily(path);
@@ -205,10 +205,14 @@ async function fetchJson(path: string, revalidate = CORE_CACHE_SECONDS, signal?:
   const finished = startProviderHttp('sleeper', family, revalidate > 0 ? 'framework-managed' : 'bypass');
   let response: Response;
   try {
-    response = await fetch(`${API}${path}`, {
+    response = await fetch(requestPolicy?.weeklyReportKey ? 'https://sleeper.com/graphql' : `${API}${path}`, {
       ...(revalidate > 0 ? { next: { revalidate } } : { cache: 'no-store' as const }),
       signal: requestSignal,
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...(requestPolicy?.weeklyReportKey
+        ? { 'Content-Type': 'application/json', 'X-Sleeper-GraphQL-Op': 'metadata' } : {}) },
+      ...(requestPolicy?.weeklyReportKey ? { method: 'POST', credentials: 'omit' as const,
+        body: JSON.stringify({ operationName: 'metadata', variables: {},
+          query: `query metadata { metadata(type: "league_report", key: "${requestPolicy.weeklyReportKey}") { key type data last_updated created } }` }) } : {}),
       ...(requestPolicy ? { redirect: requestPolicy.redirect } : {}),
     });
   } catch (error) {
@@ -339,6 +343,23 @@ export async function capturePublicSleeperCore(leagueId: string, family: 'league
   const payload = await fetchJson(administrationPath(leagueId, family, nativeWeek ?? null), 0, signal, { redirect: 'error', boundedPublicCapture: true });
   const requestCompletedAt = new Date().toISOString();
   return sealPublicCapture({ family, week: nativeWeek ?? null, payload, requestStartedAt, requestCompletedAt,
+    origin: 'network' as const, sourceObservedAt: requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition);
+}
+
+/** Exact anonymous report acquisition. The complete GraphQL envelope remains source evidence;
+ * the administration normalizer independently rejects errors and malformed/foreign metadata. */
+export async function capturePublicSleeperWeeklyReport(leagueId: string, nativeWeek: number,
+  signal: AbortSignal, witness?: PublicCaptureWitness): Promise<CapturedAdministrationDocument> {
+  if (!/^[1-9]\d{0,31}$/u.test(leagueId) || !Number.isInteger(nativeWeek) || nativeWeek < 1 || nativeWeek > 18) {
+    throw new Error('Invalid Sleeper report identity.');
+  }
+  signal.throwIfAborted();
+  const acquisition = publicCaptureForRequest(witness, 'weekly_report', leagueId, nativeWeek);
+  const requestStartedAt = new Date().toISOString();
+  const payload = await fetchJson('/graphql', 0, signal, { redirect: 'error', boundedPublicCapture: true,
+    weeklyReportKey: `${leagueId}_${nativeWeek}` });
+  const requestCompletedAt = new Date().toISOString();
+  return sealPublicCapture({ family: 'weekly_report', week: nativeWeek, payload, requestStartedAt, requestCompletedAt,
     origin: 'network' as const, sourceObservedAt: requestCompletedAt, ...(acquisition ? { acquisition } : {}) }, acquisition);
 }
 

@@ -1,4 +1,8 @@
 import { bracketMethods } from './brackets';
+import { weeklyReportMethods } from './weekly-reports';
+import { projectWeeklyReport } from '../../aggregator/weekly-reports';
+import { officialStandingsMethods } from './official-standings';
+import { projectOfficialStandings } from '../../aggregator/official-standings';
 import { projectPlayoffBracket } from '../../aggregator/playoff-brackets';
 import { rosterPlayerLinkMethods } from './roster-player-links';
 import 'server-only';
@@ -79,7 +83,7 @@ function sourceResult(rows: readonly DatabaseRow[]): LeagueAdministrationStoreRe
     schemaVersion: 'league-administration-v1', normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
     scope: { leagueKey: text(row, 'league_key'), provider: 'sleeper', externalLeagueId: text(row, 'external_league_id'), season: Number(row.season) },
     family: row.family as AdministrationEnvelope['family'],
-    week: row.family === 'matchups' || row.family === 'transactions' ? Number(row.week) : null,
+    week: row.family === 'matchups' || row.family === 'transactions' || row.family === 'weekly_report' ? Number(row.week) : null,
     completeness: 'complete', payload: row.payload as AdministrationEnvelope['payload'],
     provenance: { origin: row.origin as AdministrationEnvelope['provenance']['origin'],
       requestStartedAt: row.request_started_at ? timestamp(row.request_started_at) : null,
@@ -124,6 +128,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   return {
     ...transactionMethods(client),
     ...bracketMethods(client),
+    ...weeklyReportMethods(client),
     ...currentRosterMethods(client),
     ...rosterPlayerLinkMethods(client),
     ...playerDirectoryMethods(client),
@@ -132,6 +137,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
     ...exactMatchupMethods(client),
     ...exactPeriodContextMethods(client),
     ...exactMatchupValuesMethods(client),
+    ...officialStandingsMethods(client),
     ...retainedMatchupMethods(client),
     async beginCalculationSourceCapture(mapping, week, id) {
       if (!isAdministrationSourceMapping(mapping) || !Number.isInteger(week) || week < 1 || week > 18
@@ -165,7 +171,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance, weeklyReportAcceptance) {
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`,
       [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
@@ -175,7 +181,11 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
         ...(leagueSettingsAcceptance ? { leagueSettingsAcceptance } : {}),
         ...(matchupAcceptance ? { matchupAcceptance } : {}), ...(calendarEvidence ? { calendarEvidence } : {}),
         ...(calculationCapture ? { calculationCapture } : {}), ...(transactionAcceptance ? { transactionAcceptance } : {}),
-        ...(bracketAcceptance ? { bracketAcceptance, bracketProjection: projectPlayoffBracket(input) } : {}) })]);
+        ...(bracketAcceptance ? { bracketAcceptance, bracketProjection: projectPlayoffBracket(input) } : {}),
+        ...(weeklyReportAcceptance ? { weeklyReportAcceptance, weeklyReportProjection: projectWeeklyReport(input) } : {}),
+        ...(acceptance && input.envelope.family === 'rosters' && input.envelope.scope.season === 2026
+          && input.envelope.provenance.acquisition?.work.kind === 'core'
+          ? { officialStandings: projectOfficialStandings(input) } : {}) })]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {

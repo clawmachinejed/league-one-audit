@@ -56,11 +56,15 @@ export async function recordCapturedAdministration(
     transactionAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     /** Both reservations precede the original witnessed bracket requests. */
     bracketAttempts?: Readonly<Record<BracketFamily, RosterAttempt>>;
+    /** Exact report reservation, made before its original network request. */
+    weeklyReportAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
     /** Expected pre-HTTP context; never attached to an older document by this writer. */
     expectedAcquisition?: PublicCaptureWitness;
+    /** Public core only: retain the independently captured roster after a sibling league write failure. */
+    retainIndependentCoreCaptures?: boolean;
     verify?: (document: CapturedAdministrationDocument, signal: AbortSignal) => Promise<CapturedAdministrationDocument> }> = {},
 ): Promise<AdministrationCaptureResult> {
   const signal = options.signal ?? AbortSignal.timeout(8_000);
@@ -71,6 +75,14 @@ export async function recordCapturedAdministration(
     throw new Error('Administration capture mapping does not match the requested scope.');
   }
   const now = options.now ?? (() => new Date());
+  if (options.retainIndependentCoreCaptures && (!options.mapping || !options.fence
+    || options.expectedAcquisition?.work.kind !== 'core' || options.expectedAcquisition.work.season !== 2026
+    || options.mapping.scope.season !== 2026 || options.populationEvidence !== undefined
+    || options.expectedRosterCount !== undefined || options.calculationCapture !== undefined
+    || documents.some(document => !['league', 'rosters'].includes(document.family)
+      || document.week !== null || document.origin !== 'network'))) {
+    throw new Error('Independent core capture requires its original public core witness and source documents.');
+  }
   if (options.calculationCapture && (!options.mapping
     || !isCalculationSourceCapture(options.calculationCapture.reservation)
     || !Number.isInteger(options.calculationCapture.week) || options.calculationCapture.week < 1 || options.calculationCapture.week > 18
@@ -110,7 +122,9 @@ export async function recordCapturedAdministration(
       ...(options.managerEvidenceVersion === 'v2' ? { managerEvidenceVersion: 'v2' as const } : {}) });
     const bracketAttempt = origin === 'network' && (document.family === 'winners_bracket' || document.family === 'losers_bracket')
       ? options.bracketAttempts?.[document.family] : undefined;
-    let mapping = Boolean(bracketAttempt) || ['rosters', 'league'].includes(document.family)
+    const weeklyReportAttempt = origin === 'network' && document.family === 'weekly_report'
+      && options.weeklyReportAttempt?.week === document.week ? options.weeklyReportAttempt.attempt : undefined;
+    let mapping = Boolean(bracketAttempt) || Boolean(weeklyReportAttempt) || ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
         || options.calculationCapture?.week === document.week))
@@ -138,7 +152,10 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => bracketAttempt
+    const write = () => weeklyReportAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, { attempt: weeklyReportAttempt })
+      : bracketAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, { attempt: bracketAttempt })
       : managerEvidenceAttempt
@@ -169,7 +186,17 @@ export async function recordCapturedAdministration(
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
         leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined)
         : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
-    let result = await write();
+    let result: AdministrationWriteResult;
+    try { result = await write(); }
+    catch (error) {
+      // Each document owns a separate atomic write. Keep only the already captured
+      // sibling; never retry, replace its witness, borrow prior population or extend work.
+      if (!options.retainIndependentCoreCaptures || document.family !== 'league') throw error;
+      signal.throwIfAborted();
+      if (!options.fence || Date.parse(options.fence.deadlineAt) <= now().getTime()) throw error;
+      results.push({ family: document.family, result: { status: 'rejected', reason: 'public_core_document_write_failed' } });
+      continue;
+    }
     if (result.status === 'stale' && result.reason === 'unproven_cache_change' && origin === 'cache') {
       // Only changed cached documents need a fresh verification. Never overwrite a
       // newer network observation using an unknown cache age, or refetch a whole league.

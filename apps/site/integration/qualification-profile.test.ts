@@ -16,6 +16,14 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   LATE_WRITE_PROFILE, LATE_WRITE_FULL_NAMES, LATE_WRITE_PATTERN, LATE_WRITE_SUITE,
   CLOSEOUT_PROFILES, INTAKE_RECOVERY_PROFILE, REFRESH_HISTORY_PROFILE, PERIOD_RECOVERY_PROFILE, PERIOD_EXHAUSTION_PROFILE,
   CORE_COMPATIBILITY_PROFILE, CORE_COMPATIBILITY_MODULES, CORE_COMPATIBILITY_FULL_NAMES, CORE_COMPATIBILITY_PATTERN,
+  OFFICIAL_RESULTS_PROFILE, OFFICIAL_RESULTS_MODULE, OFFICIAL_RESULTS_SOURCE_DIGEST, OFFICIAL_RESULTS_SUITE,
+  OFFICIAL_RESULTS_TESTS, OFFICIAL_RESULTS_FULL_NAMES, OFFICIAL_RESULTS_PATTERN,
+  OFFICIAL_RESULTS_PLAYED_PROFILE, OFFICIAL_RESULTS_PLAYED_FULL_NAMES, OFFICIAL_RESULTS_PLAYED_PATTERN,
+  WEEKLY_REPORTS_PROFILE, WEEKLY_REPORTS_MODULE, WEEKLY_REPORTS_SOURCE_DIGEST, WEEKLY_REPORTS_SUITE,
+  WEEKLY_REPORTS_TESTS, WEEKLY_REPORTS_FULL_NAMES, WEEKLY_REPORTS_PATTERN,
+  OFFICIAL_RESULTS_EVIDENCE_PROFILE, OFFICIAL_RESULTS_EVIDENCE_MODULE, OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST,
+  OFFICIAL_RESULTS_EVIDENCE_SUITE, OFFICIAL_RESULTS_EVIDENCE_TESTS, OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES,
+  OFFICIAL_RESULTS_EVIDENCE_PATTERN,
   BRACKET_INTAKE_PROFILE, BRACKET_INTAKE_MODULE, BRACKET_INTAKE_SOURCE_DIGEST, BRACKET_INTAKE_SUITE,
   BRACKET_INTAKE_TESTS, BRACKET_INTAKE_FULL_NAMES, BRACKET_INTAKE_PATTERN,
   TYPED_BRACKETS_PROFILE, TYPED_BRACKETS_MODULE, TYPED_BRACKETS_SOURCE_DIGEST, TYPED_BRACKETS_SUITE,
@@ -303,7 +311,7 @@ it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFI
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
-  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(56);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(59);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
@@ -869,7 +877,7 @@ it('requires a closed bound live directory profile while preserving default55 di
   expect(() => requireLivePlayerDirectoryQualification({})).toThrow('Explicit bound');
   expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
-  expect(full.modules).toHaveLength(56);
+  expect(full.modules).toHaveLength(59);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   for (const profile of [PLAYER_DIRECTORY_PROFILE, SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE] as const) {
     const older = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), profile);
@@ -1675,4 +1683,501 @@ it('independently inventories the bracket intake SQL fixture source and hooks wi
   expect(workflow.match(/^\s+- data-bracket-intake-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-bracket-intake-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-bracket-intake-v1$/gmu)).toHaveLength(1);
+});
+
+async function officialResultsFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'official-results-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_PROFILE);
+  const evidence: QualificationReport = {
+    kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0,
+    specifications: [{ path: OFFICIAL_RESULTS_MODULE, pattern: OFFICIAL_RESULTS_PATTERN, otherFilters: false }],
+    collected: [OFFICIAL_RESULTS_MODULE],
+    hooks: ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })),
+    modules: [{ path: OFFICIAL_RESULTS_MODULE, state: 'passed', errors: 0,
+      suites: [{ id: 'suite', name: OFFICIAL_RESULTS_SUITE, mode: 'run', errors: 0 }],
+      cases: OFFICIAL_RESULTS_FULL_NAMES.map((name, index) => ({ id: 'case-' + index, name, state: 'passed', mode: 'run',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }],
+  };
+  return { binding: { context, directory }, evidence };
+}
+it('binds the official results profile to eight exact cases and original cleanup gates while full discovery includes its module', async () => {
+  expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_PROFILE])).toBe(OFFICIAL_RESULTS_PROFILE);
+  expect(qualificationArguments(OFFICIAL_RESULTS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PATTERN]);
+  for (const args of [
+    ['--profile=data-official-results-v2'], ['--profile', OFFICIAL_RESULTS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + OFFICIAL_RESULTS_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + OFFICIAL_RESULTS_PROFILE, extra]),
+  ]) expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await officialResultsFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([OFFICIAL_RESULTS_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules.some(module => module.path === OFFICIAL_RESULTS_MODULE)).toBe(true);
+  const older = await fixture(INGESTION_PROFILE);
+  expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
+  const regex = new RegExp(OFFICIAL_RESULTS_PATTERN);
+  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(8);
+  for (const name of OFFICIAL_RESULTS_FULL_NAMES) {
+    expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(regex.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(SELECTED_INVENTORY.some(name => regex.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_PROFILE,
+    collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects incomplete official results inventory, reordered execution, hook drift, retries and substituted profile evidence', async () => {
+  const { binding, evidence } = await officialResultsFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].ends = 0; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const older = await fixture(INGESTION_PROFILE), oldReport = report(older);
+  expect(() => validateQualificationReport(older.context, { ...evidence, contextDigest: qualificationDigest(older.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...oldReport, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, OFFICIAL_RESULTS_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_PROFILE))
+    .rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories the official results SQL fixture source and hooks without importing its execution', async () => {
+  const path = fileURLToPath(new URL('../' + OFFICIAL_RESULTS_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(OFFICIAL_RESULTS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+        suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) hooks.push(expression);
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual([OFFICIAL_RESULTS_SUITE]); expect(names).toEqual(OFFICIAL_RESULTS_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+  expect(budgets.slice(0, 7)).toEqual(Array(7).fill('60_000'));
+  expect(['18 * 60_000', '1_080_000', '1080_000', '1080000']).toContain(budgets[7]);
+  expect(budgets).toHaveLength(8);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-official-results-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-official-results-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-official-results-v1$/gmu)).toHaveLength(1);
+});
+
+async function officialResultsEvidenceFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const directory = await mkdtemp(join(tmpdir(), 'official-results-evidence-profile-')); directories.push(directory);
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_EVIDENCE_PROFILE);
+  const evidence: QualificationReport = {
+    kind: 'integration-qualification-report-v1', contextDigest: qualificationDigest(context), starts: 1, ends: 1,
+    reason: 'passed', unhandledErrors: 0,
+    specifications: [{ path: OFFICIAL_RESULTS_EVIDENCE_MODULE, pattern: OFFICIAL_RESULTS_EVIDENCE_PATTERN, otherFilters: false }],
+    collected: [OFFICIAL_RESULTS_EVIDENCE_MODULE],
+    hooks: ['beforeAll', 'afterAll'].map(name => ({ key: 'suite:' + name, starts: 1, ends: 1 })),
+    modules: [{ path: OFFICIAL_RESULTS_EVIDENCE_MODULE, state: 'passed', errors: 0,
+      suites: [{ id: 'suite', name: OFFICIAL_RESULTS_EVIDENCE_SUITE, mode: 'run', errors: 0 }],
+      cases: OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES.map((name, index) => ({ id: 'case-' + index, name, state: 'passed', mode: 'run',
+        expectedFailure: false, configuredRetries: false, configuredRepeats: 0, errors: 0, readyEvents: 1, resultEvents: 1,
+        diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }],
+  };
+  return { binding: { context, directory }, evidence };
+}
+it('binds the official results evidence profile to two exact cases and original cleanup gates while full discovery includes its module', async () => {
+  expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_EVIDENCE_PROFILE])).toBe(OFFICIAL_RESULTS_EVIDENCE_PROFILE);
+  expect(qualificationArguments(OFFICIAL_RESULTS_EVIDENCE_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_EVIDENCE_MODULE, '--testNamePattern', OFFICIAL_RESULTS_EVIDENCE_PATTERN]);
+  for (const args of [
+    ['--profile=data-official-results-evidence-v2'], ['--profile', OFFICIAL_RESULTS_EVIDENCE_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + OFFICIAL_RESULTS_EVIDENCE_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + OFFICIAL_RESULTS_EVIDENCE_PROFILE, extra]),
+  ]) expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await officialResultsEvidenceFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([OFFICIAL_RESULTS_EVIDENCE_MODULE]);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  // Preserve the prior 57 standard modules and both separately pinned CP13 additions.
+  const previousModules = [
+    'integration/account-enrollment.integration-case.ts',
+    'integration/account-foundation.integration-case.ts',
+    'integration/account-store.integration-case.ts',
+    'integration/all-player-alias-repair.integration-case.ts',
+    'integration/all-player-hourly-collection.integration-case.ts',
+    'integration/all-player-league-acceptance.integration-case.ts',
+    'integration/all-player-metrics.integration-case.ts',
+    'integration/all-player-participation-assumption.integration-case.ts',
+    'integration/all-player-pregame-empty.integration-case.ts',
+    'integration/all-player-provider-participation.integration-case.ts',
+    'integration/all-player-statistics.integration-case.ts',
+    'integration/all-player-team-drift.integration-case.ts',
+    'integration/b3-function-security.integration-case.ts',
+    'integration/b3-legacy-compatibility.integration-case.ts',
+    'integration/b3-write-guards.integration-case.ts',
+    'integration/bracket-intake.integration-case.ts',
+    'integration/bundle-four.integration-case.ts',
+    'integration/bundle-two.integration-case.ts',
+    'integration/calculation-source-history.integration-case.ts',
+    'integration/current-roster-acceptance.integration-case.ts',
+    'integration/exact-matchup-compatibility.integration-case.ts',
+    'integration/exact-matchup-values.integration-case.ts',
+    'integration/exact-matchups.integration-case.ts',
+    'integration/future-distance.integration-case.ts',
+    'integration/future-probability-refresh.integration-case.ts',
+    'integration/league-administration.integration-case.ts',
+    'integration/league-settings.integration-case.ts',
+    'integration/lineup-authority.integration-case.ts',
+    'integration/lineup-lineage.integration-case.ts',
+    'integration/lineup-observer-worker.integration-case.ts',
+    'integration/lineup-reservation.integration-case.ts',
+    'integration/lineup-watch.integration-case.ts',
+    'integration/live-box-scores.integration-case.ts',
+    'integration/live-defense-publication.integration-case.ts',
+    'integration/live-defense-reader.integration-case.ts',
+    'integration/live-defense-weekly-statistics.integration-case.ts',
+    'integration/matchup-revision.integration-case.ts',
+    'integration/official-results.integration-case.ts',
+    'integration/period-inventory.integration-case.ts',
+    'integration/period-mapping.integration-case.ts',
+    'integration/period-settings-context.integration-case.ts',
+    'integration/player-directory.integration-case.ts',
+    'integration/projection-slate-recovery.integration-case.ts',
+    'integration/projection-store.integration-case.ts',
+    'integration/public-data-intake.integration-case.ts',
+    'integration/reset-session-revocation.integration-case.ts',
+    'integration/retained-matchup-comparison.integration-case.ts',
+    'integration/roster-player-links.integration-case.ts',
+    'integration/scoring-event-coverage.integration-case.ts',
+    'integration/source-mapping-upgrade.integration-case.ts',
+    'integration/source-mapping.integration-case.ts',
+    'integration/team-lineup-availability.integration-case.ts',
+    'integration/team-manager-facts.integration-case.ts',
+    'integration/team-manager-relationships.integration-case.ts',
+    'integration/transactions.integration-case.ts',
+    'integration/typed-brackets.integration-case.ts',
+    'integration/website-auth.integration-case.ts',
+  ];
+  expect(full.modules.map(module => module.path)).toEqual([...previousModules, OFFICIAL_RESULTS_EVIDENCE_MODULE, WEEKLY_REPORTS_MODULE].sort());
+  expect(full.modules).toHaveLength(59);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+  const original = await officialResultsFixture();
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479');
+  expect(original.binding.context.modules).toEqual([{ path: OFFICIAL_RESULTS_MODULE, sourceDigest: OFFICIAL_RESULTS_SOURCE_DIGEST }]);
+  expect(original.binding.context.profileDigest).not.toBe(binding.context.profileDigest);
+  expect(qualificationArguments(OFFICIAL_RESULTS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PATTERN]);
+  expect(qualificationIncludes({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(original.binding.context) })).toEqual([OFFICIAL_RESULTS_MODULE]);
+  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(8);
+  const originalPattern = new RegExp(OFFICIAL_RESULTS_PATTERN);
+  expect(OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES.every(name => !originalPattern.test(name.replaceAll(' > ', ' ')))).toBe(true);
+  const older = await fixture(INGESTION_PROFILE);
+  expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
+  const regex = new RegExp(OFFICIAL_RESULTS_EVIDENCE_PATTERN);
+  expect(OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES).toHaveLength(2);
+  for (const name of OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES) {
+    expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(regex.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect([...SELECTED_INVENTORY, ...OFFICIAL_RESULTS_FULL_NAMES].some(name => regex.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_EVIDENCE_PROFILE,
+    collected: 2, executed: 2, passed: 2, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects incomplete official results evidence inventory, reordered execution, hook drift, retries and substituted profile evidence', async () => {
+  const { binding, evidence } = await officialResultsEvidenceFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].ends = 0; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; },
+    r => { r.starts = 2; }, r => { r.ends = 0; }, r => { r.contextDigest = 'f'.repeat(64); },
+    r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].state = 'failed'; }, r => { r.modules[0].cases[0].mode = 'todo'; },
+    r => { r.modules[0].cases[0].errors = 1; }, r => { r.modules[0].cases[0].diagnostic!.flaky = true; },
+    r => { r.modules[0].cases[0].diagnostic!.duration = -1; }, r => { r.modules[0].cases[0].diagnostic!.startTime = 0; },
+    r => { r.modules[0].suites[0].errors = 1; }, r => { r.modules[0].suites[0].id = r.modules[0].cases[0].id; },
+    r => { r.collected.push(OFFICIAL_RESULTS_MODULE); }, r => { r.modules.push(structuredClone(r.modules[0])); },
+    r => { r.specifications.push({ ...r.specifications[0] }); },
+    r => { r.hooks.push({ ...r.hooks[0] }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'older-filtered', name: OFFICIAL_RESULTS_FULL_NAMES[0],
+      state: 'skipped', mode: 'skip', diagnostic: null }); },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const older = await fixture(INGESTION_PROFILE), oldReport = report(older);
+  expect(() => validateQualificationReport(older.context, { ...evidence, contextDigest: qualificationDigest(older.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...oldReport, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  const original = await officialResultsFixture();
+  expect(() => validateQualificationReport(original.binding.context, { ...evidence,
+    contextDigest: qualificationDigest(original.binding.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...original.evidence,
+    contextDigest: qualificationDigest(binding.context) })).toThrow();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  for (const change of [
+    (context: typeof binding.context) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: typeof binding.context) => { context.modules[0].path = OFFICIAL_RESULTS_MODULE; },
+    (context: typeof binding.context) => { context.profileDigest = original.binding.context.profileDigest; },
+    (context: typeof binding.context) => { context.modules.push({ ...context.modules[0] }); },
+  ]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context) })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, OFFICIAL_RESULTS_EVIDENCE_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_EVIDENCE_PROFILE))
+    .rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories the official results evidence SQL fixture source and hooks without importing its execution', async () => {
+  const path = fileURLToPath(new URL('../' + OFFICIAL_RESULTS_EVIDENCE_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+        suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) {
+        hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default');
+      }
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual([OFFICIAL_RESULTS_EVIDENCE_SUITE]); expect(names).toEqual(OFFICIAL_RESULTS_EVIDENCE_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+  expect(budgets).toEqual(['60_000', '1_080_000']);
+  expect(hookBudgets).toEqual(['120_000', '120_000']);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-official-results-evidence-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-official-results-evidence-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-official-results-evidence-v1$/gmu)).toHaveLength(1);
+});
+
+async function weeklyReportsFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), WEEKLY_REPORTS_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: WEEKLY_REPORTS_MODULE, pattern: WEEKLY_REPORTS_PATTERN, otherFilters: false }];
+  evidence.collected = [WEEKLY_REPORTS_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: WEEKLY_REPORTS_MODULE,
+    suites: [{ id: 'suite', name: WEEKLY_REPORTS_SUITE, mode: 'run', errors: 0 }],
+    cases: WEEKLY_REPORTS_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('binds the weekly reports profile to eight exact source ordered cases and unchanged cleanup requirements', async () => {
+  expect(parseQualificationArguments(['--profile=' + WEEKLY_REPORTS_PROFILE])).toBe(WEEKLY_REPORTS_PROFILE);
+  expect(qualificationArguments(WEEKLY_REPORTS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', WEEKLY_REPORTS_MODULE, '--testNamePattern', WEEKLY_REPORTS_PATTERN]);
+  for (const args of [['--profile=data-weekly-reports-v2'], ['--profile', WEEKLY_REPORTS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + WEEKLY_REPORTS_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + WEEKLY_REPORTS_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await weeklyReportsFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([WEEKLY_REPORTS_MODULE]);
+  expect(WEEKLY_REPORTS_FULL_NAMES).toHaveLength(8);
+  const pattern = new RegExp(WEEKLY_REPORTS_PATTERN);
+  for (const name of WEEKLY_REPORTS_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect([...OFFICIAL_RESULTS_FULL_NAMES, ...OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES].some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence); await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: WEEKLY_REPORTS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479');
+  expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
+});
+it('rejects report profile inventory hook retry source substitution and cleanup evidence drift', async () => {
+  const { binding, evidence } = await weeklyReportsFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; }, r => { r.hooks[0].ends = 0; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; }, r => { r.starts = 2; }, r => { r.ends = 0; },
+    r => { r.contextDigest = 'f'.repeat(64); }, r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.flaky = true; }, r => { r.collected.push(OFFICIAL_RESULTS_MODULE); },
+  ];
+  for (const change of changes) { const changed = structuredClone(evidence); change(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+  const original = await officialResultsEvidenceFixture();
+  expect(() => validateQualificationReport(original.binding.context, { ...evidence, contextDigest: qualificationDigest(original.binding.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...original.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  for (const change of [(context: typeof binding.context) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: typeof binding.context) => { context.modules[0].path = OFFICIAL_RESULTS_MODULE; },
+    (context: typeof binding.context) => { context.profileDigest = original.binding.context.profileDigest; },
+    (context: typeof binding.context) => { context.modules.push({ ...context.modules[0] }); }]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, WEEKLY_REPORTS_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), WEEKLY_REPORTS_PROFILE)).rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories report candidate source hooks budgets and manual workflow without importing SQL execution', async () => {
+  const path = fileURLToPath(new URL('../' + WEEKLY_REPORTS_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(WEEKLY_REPORTS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default'); }
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(suites).toEqual([WEEKLY_REPORTS_SUITE]); expect(names).toEqual(WEEKLY_REPORTS_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']); expect(budgets).toEqual([...Array<string>(7).fill('60_000'), '1_080_000']); expect(hookBudgets).toEqual(['120_000', '120_000']);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-weekly-reports-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-weekly-reports-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-weekly-reports-v1$/gmu)).toHaveLength(1);
+});
+
+
+async function officialResultsPlayedFixture() {
+  const { binding, evidence } = await officialResultsFixture();
+  binding.context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), OFFICIAL_RESULTS_PLAYED_PROFILE);
+  evidence.contextDigest = qualificationDigest(binding.context);
+  evidence.specifications[0].pattern = OFFICIAL_RESULTS_PLAYED_PATTERN;
+  for (const test of evidence.modules[0].cases.slice(0, 6)) {
+    test.state = 'skipped'; test.mode = 'skip'; test.diagnostic = null;
+  }
+  return { binding, evidence };
+}
+it('qualifies only the two existing stored played-result cases with six honestly filtered cases', async () => {
+  expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE])).toBe(OFFICIAL_RESULTS_PLAYED_PROFILE);
+  expect(qualificationArguments(OFFICIAL_RESULTS_PLAYED_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PLAYED_PATTERN]);
+  const { binding, evidence } = await officialResultsPlayedFixture();
+  expect(binding.context.modules).toEqual([{ path: OFFICIAL_RESULTS_MODULE, sourceDigest: OFFICIAL_RESULTS_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([OFFICIAL_RESULTS_MODULE]);
+  expect(OFFICIAL_RESULTS_PLAYED_FULL_NAMES).toEqual(OFFICIAL_RESULTS_FULL_NAMES.slice(6));
+  const pattern = new RegExp(OFFICIAL_RESULTS_PLAYED_PATTERN);
+  for (const [index, name] of OFFICIAL_RESULTS_FULL_NAMES.entries()) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(index >= 6);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_PLAYED_PROFILE,
+    collected: 8, executed: 2, passed: 2, skipped: 6, filtered: 6 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+});
+it('rejects missing played-result executions, extra execution, altered inventory, hooks and source binding', async () => {
+  const { binding, evidence } = await officialResultsPlayedFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.reverse(); },
+    r => { r.modules[0].cases[7].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[6].state = 'skipped'; }, r => { r.modules[0].cases[7].diagnostic = null; },
+    r => { r.modules[0].cases[6].configuredRetries = true; },
+    r => { r.modules[0].cases[7].configuredRepeats = 1; },
+    r => { r.modules[0].cases[6].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[7].diagnostic!.flaky = true; },
+    r => { r.modules[0].cases[0].diagnostic = { ...r.modules[0].cases[6].diagnostic! }; },
+    r => { r.modules[0].cases[0].state = 'passed'; r.modules[0].cases[0].mode = 'run'; },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    r => { r.modules[0].suites[0].mode = 'skip'; },
+    r => { r.specifications[0].pattern = OFFICIAL_RESULTS_PATTERN; },
+    r => { r.specifications[0].otherFilters = true; }, r => { r.unhandledErrors = 1; },
+  ];
+  for (const change of changes) {
+    const changed = structuredClone(evidence); change(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+  const changedContext = structuredClone(binding.context); changedContext.modules[0].sourceDigest = 'f'.repeat(64);
+  expect(() => validateQualificationReport(changedContext, { ...evidence, contextDigest: qualificationDigest(changedContext) })).toThrow();
+  const fullProfile = await officialResultsFixture();
+  expect(() => validateQualificationReport(fullProfile.binding.context,
+    { ...evidence, contextDigest: qualificationDigest(fullProfile.binding.context) })).toThrow();
+  for (const args of [['--profile=data-official-results-played-v2'], ['--profile', OFFICIAL_RESULTS_PLAYED_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other',
+      '--profile=' + OFFICIAL_RESULTS_PROFILE].map(extra => ['--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE, extra])]) {
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+  }
+});
+it('keeps the played-result selection on the unchanged SQL fixture and fixed manual workflow arm', async () => {
+  const source = await readFile(new URL('../' + OFFICIAL_RESULTS_MODULE, import.meta.url), 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(OFFICIAL_RESULTS_SOURCE_DIGEST);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.split('          - data-official-results-played-v1')).toHaveLength(2);
+  expect(workflow.split('workflow_dispatch:data-official-results-played-v1)')).toHaveLength(2);
+  expect(workflow.split('pnpm test:integration --profile=data-official-results-played-v1')).toHaveLength(2);
+  expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
 });

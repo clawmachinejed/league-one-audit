@@ -686,3 +686,97 @@ DO $$ DECLARE bracket_table text; helper text; denied_privileges text:='INSERT,U
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC BRACKET INTAKE GRANTS
+
+-- BEGIN OPTIONAL OFFICIAL STANDINGS GRANTS
+-- CP13 adds immutable typed facts under the existing writer and capture receipt.
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_official_standings_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_official_standings_contents','league_official_standings_teams','league_official_standings_captures'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect official standings privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.official_standings_native_fact(jsonb,text,boolean,integer)',
+      'public.official_standings_native_points(jsonb,text,text)','public.project_official_standings_native(jsonb,text)',
+      'public.official_standings_typed_value(uuid)','public.official_standings_receipt_coverage(uuid)',
+      'public.guard_official_standings_insert()','public.validate_official_standings_capture()',
+      'public.record_league_administration_observation_v47(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private official standings helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.record_league_administration_observation(jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot record official standings capture'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL OFFICIAL STANDINGS GRANTS
+
+-- BEGIN OPTIONAL WEEKLY REPORT GRANTS
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_weekly_report_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_weekly_report_contents','league_weekly_report_teams'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect weekly report privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.weekly_report_native_fact(jsonb,text,text,text,integer)',
+      'public.project_weekly_report_native(jsonb,text,integer,jsonb)',
+      'public.weekly_report_typed_value(uuid)',
+      'public.capture_weekly_report_typed(uuid,uuid,jsonb)',
+      'public.validate_weekly_report_typed_lineage()',
+      'public.guard_weekly_report_team_insert()',
+      'public.validate_weekly_report_receipt_fence()',
+      'public.validate_weekly_report_acceptance_fence()',
+      'public.record_league_administration_observation_v48(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private weekly report helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_weekly_report_attempt(jsonb,integer,uuid,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_weekly_report_attempt(jsonb,integer,uuid,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot execute weekly report entry point'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL WEEKLY REPORT GRANTS
+
+-- BEGIN OPTIONAL PUBLIC REPORT INTAKE GRANTS
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.public_data_report_tasks') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['public_data_report_tasks','public_data_report_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect public report intake privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.canonical_public_data_weekly_reports(jsonb,integer[])',
+      'public.validate_public_data_report_task()',
+      'public.validate_public_data_report_task_fence()',
+      'public.fail_public_data_report_work(jsonb,jsonb)',
+      'public.validate_public_data_report_checkpoint()',
+      'public.validate_public_data_report_checkpoint_fence()',
+      'public.checkpoint_public_data_intake_v49(jsonb,jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public report intake helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot execute public report intake entry point'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC REPORT INTAKE GRANTS

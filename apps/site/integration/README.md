@@ -8,6 +8,29 @@ The authoritative source-bound results, failed-attempt history, cleanup evidence
 
 The production/retained project `solitary-base-99261075`, its production branch `br-rapid-boat-avgeevye`, its retained branch `br-still-breeze-avaibago`, and the retained `projection_refactor_test` and `account_reset_integration_test` database names are explicitly denied. The shared SQL harness independently denies both branch IDs and both retained database names for every caller, including legacy migration and capacity commands, regardless of the supplied denylist or an old valid safety comment. Do not reset either retained database or rotate roles on that branch.
 
+## Parent availability and safe target diagnostics
+
+A configured baseline may be `ready` or `archived`, provided its exact project,
+branch identity and permanent expiration checks pass. Neon documents automatic
+unarchiving when the existing child-creation request accesses an archived parent.
+The runner adds no parent SQL query, activation request, protection change or
+retry. All other parent states are rejected before creation. The disposable child
+must still become `ready`, return the exact bounded endpoint and pass the existing
+empty-database, TLS, ownership, sentinel and restricted-login checks.
+
+Target-validation failures use fixed diagnostic codes for configuration, project
+identity, parent identity, parent expiration and parent state. The existing
+supervisor journals only those codes; provider response bodies, field values,
+messages, credentials and connection strings are not attached to these errors.
+Initial environment validation remains separate and can fail before a receipt is
+created. A failure before child creation remains a failed run with tests not run;
+it does not acquire successful cleanup or qualification flags.
+
+This source repair does not rerun the failed weekly-report attempt or qualify its
+eight cases. A new hosted run requires its own exact-source authorization. See
+[the failed attempt and repair record](../../../docs/aggregator-backend/data-backend-cp13-semantics.md#weekly-report-hosted-attempt--october-12-2026)
+and [Neon's archive behavior](https://neon.com/docs/guides/branch-archiving).
+
 ## One-time test infrastructure setup
 
 The test project, empty baseline, verified database and owner identities, and scoped API credential must be configured before the first run. A project name alone does not establish readiness. Use an API key scoped only to this dedicated test project; do not use a production connection string or an organization-wide key as ordinary test configuration. Keep the baseline empty, without an application, auth, worker, or development client attached.
@@ -708,3 +731,164 @@ acknowledged cleanup. Offline selector/report/AST checks, network-blocked runner
 tests, TypeScript and source inspection do not establish PostgreSQL execution,
 installed permissions or elapsed runtime fit. Record actual results and gaps in
 the [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP13 independent official standings and result composition qualification
+
+The authored closed `data-official-results-v1` profile selects eight ordered cases
+in `official-results.integration-case.ts` under the single suite `official standings
+and results through restricted PostgreSQL`, with one shared beforeAll/afterAll
+pair. After separate authorization for its reviewed exact source, its fixed command
+is `pnpm test:integration --profile=data-official-results-v1`. The protected manual
+workflow offers only that literal choice. Default discovery adds one module (56
+to 57); all older fixture bodies, selectors and source pins remain unchanged.
+The new profile source digest must match the frozen fixture before execution.
+Authored selection is not authorization for SQL, credentials, provisioning,
+migration application, a live provider capture or production work.
+
+The first seven cases exercise independent typed record/points/placement fields,
+presence and population/capacity states, correction/replay/unchanged captures,
+latest-attempt ordering, forged projection/foreign identity rejection, actual
+lock and deferred-COMMIT rollback under the original fence, restricted privileges,
+and composition of exact scores with reported bracket outcomes. The final case
+uses ordinary failed-core recovery and changed recurring refresh with immutable
+selected receipts, two resolved held-player identities and available manager
+resources before and after refresh. It must retain usable standings while unrelated players or
+managers fail without marking the request complete. Stored reads must preserve
+request/dispatch scope and original observation times, expose a newer failure
+instead of silently returning last-good facts, and run with source access disabled.
+
+The existing ordering case also evaluates the reader's exact SQL population-time
+predicate with read-only before/equal/after microsecond operands within one
+millisecond, missing timestamps and guarded witness branches. These operands do
+not rewrite stored clocks. Both overlapping completion orders must return the
+newest receipt with unproved population while retaining the original replay,
+historical-read and legacy-upgrade assertions. The case inventory and deadlines
+remain unchanged.
+
+The new supplement does not weaken players acceptance or add an acquisition
+pipeline. Native weekly and bracket identifiers remain separate. Equal scores,
+null opponents, source array order, current standings, league status and local
+game completion never manufacture official winners, ties, byes, ranks, series
+aggregates or finality. Positive synthetic result cases establish code behavior,
+not real provider availability. Retained evidence and unresolved interpretation
+obligations are listed in the [CP13 design inventory](../../../docs/aggregator-backend/data-backend-cp13-design.md).
+
+The final case first records a synthetic two-player catalog through the existing
+complete-catalog loader, restricted directory reservation/write and shared job
+owner. It changes only the fixture's mutable directory cadence prerequisite;
+immutable source clocks and acceptance evidence still come from the maintained
+path. That setup asserts one intercepted directory GET. The ordinary intake and
+refresh separately assert 15 admissions and 22 intercepted GETs. Per-call owner
+claims are reconciled against admissions and observed zero-GET backoffs: at most
+one during failed-core recovery and exactly one for terminal settlement. No
+rigid total claim count depends on whether recovery polls before its retry is
+due. Directory owner claims and any reservation wait are separate from this
+ordinary accounting. All payloads remain synthetic.
+
+Seven 60-second cases, one 1,080-second case and two 120-second hooks total a
+29-minute authored allowance before harness overhead. The remaining one minute
+inside the 30-minute supervisor work bound is not measured fit or a cost guarantee.
+Directory setup, its bounded reservation wait and the shared-owner cooldown are
+inside the final case's 1,080-second allowance; they do not receive an extra budget.
+The original 20-second worker, 60-second admission, 30-minute work, 40-minute
+lifecycle, 50-minute CI and one-hour expiry limits remain unchanged, as do all
+identity, TLS, role, sentinel, denylist, source, cleanup and no-retry controls.
+
+The first authorized run at `67b43a6` failed with seven cases passed and one
+fixture assertion failed; cleanup was verified. The second run,
+[`38236085130`](https://github.com/clawmachinejed/league-one-audit/actions/runs/38236085130)
+at `f28f673`, failed with six cases passed and two failed. Its automatic cleanup
+acknowledgments were recorded; fresh provider-side absence and credential
+revocation checks remain unverified. The current local source includes the
+two-team assertion correction and population-time precision repair. A separate
+offline PostgreSQL proof exercises the precision repair using PGlite and
+`SET ROLE`; it does not prove a hosted restricted LOGIN. These local results do
+not qualify the corrected fixture. It remains **hosted SQL-unqualified**
+until a separately authorized run passes all eight cases, exact
+inventory/order/hooks, reviewed source pin and acknowledged cleanup.
+Offline selector/report/source tests do not establish SQL
+constraints, restricted LOGIN behavior, concurrency, elapsed fit or live provider
+parity. The profile does not qualify all 2026 periods, every competition format,
+positive provider finality, fleet freshness, the complete SQL suite or CP13's
+unresolved source-evidence obligations. Record tested database version, source,
+duration, actual results and remaining gaps in the
+[DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
+
+## CP13 retained-source and ordinary recovery candidate
+
+The earlier eight-case profile subsequently passed at `29be8bc` in run
+[38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033),
+with independently accepted report and automatic cleanup. The failed attempts
+above remain historical failures. This continuation preserves that module and
+its source pin unchanged.
+
+The separate `data-official-results-evidence-v1` profile selects exactly two
+ordered cases in `official-results-evidence.integration-case.ts`. Both passed at
+`e7977776a645439fea966751dca389a4188a447b` in separately authorized
+[run 38281416550](https://github.com/clawmachinejed/league-one-audit/actions/runs/38281416550),
+with independently accepted report and automatic cleanup. Its fixed command is
+`pnpm test:integration --profile=data-official-results-evidence-v1`; that one-run
+authorization is consumed and supplies no retry. Standard discovery grows from 57 to 58
+modules, retaining all prior modules. This is not a claim that the complete
+suite fits the 30-minute work limit.
+
+The retained-source case replays the 58 minimized roster standings from five
+captured 2026 leagues through canonical registration, the existing restricted
+writer and stored reader. It preserves native league/team identities, endpoint
+clocks, field presence and exact decimal components. A new local `checkedAt`
+records validation time only; request and source-observation times remain original.
+The original full-document
+digest, minimized fixture/slice hashes and newly stored minimized-content hash
+have distinct meanings. Replay has a live write fence but no fabricated current
+acquisition witness or backdated reservation. Population remains unproved and
+minimized rows cannot establish accepted roster or manager membership.
+
+The ordinary case completed a synthetic intake with populated membership
+and both brackets, then tested a failed bracket sibling and malformed core data
+during refresh. Its assertions showed pending current pairs cannot borrow old
+pairs, exact historical pairs remain stable, independently valid standings stay
+request-bound, prior membership survives rejection, and recovery settles. It
+selects neither exact-period acquisition nor a player-directory acquisition;
+canonical player resolution and selected scores retain their separate earlier
+proof. All HTTP responses in this case are intercepted synthetic fixtures.
+
+One 60-second case, one 1,080-second case and two 120-second hooks total a
+23-minute authored allowance. The measured cases took 3.259333 seconds and
+858.555202 seconds; supervisor lifecycle was 947.032 seconds. The ordinary case
+passed 14 admissions and 20 intercepted GET attempts, both real retry backoffs
+and zero-GET settlement within its existing 1,080 seconds. All original
+worker, admission, supervisor, lifecycle and CI deadlines and cleanup/identity/
+role/source guards remain unchanged. The selected hosted run qualifies retained-source
+readback and failure preservation within its exact source/case boundaries;
+offline checks and the earlier eight-case proof remain separate evidence. No
+positive provider finality, weekly ties/byes, multiweek completion/correction,
+natural cadence, full-suite timing or fleet freshness follows. Full report,
+cleanup, source-CI and release state are in the
+[DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md#cp13-retained-source-and-ordinary-recovery-hosted-qualification--october-12-2026).
+
+## Focused played-result qualification
+
+The closed `data-official-results-played-v1` profile selects only the last two
+existing cases in `official-results.integration-case.ts`: stored native-score
+and bracket composition, then ordinary failed-core recovery and corrected
+refresh. It retains the module's existing LF digest, all eight collected names,
+source order and one beforeAll/afterAll pair. Exactly two cases must execute and
+pass; the other six are reported as filtered (and included in the validator's
+skipped total), never as passed. Default discovery and all older profiles are
+unchanged.
+
+The first case reads independent stored periods and supplied bracket outcomes;
+the second reads initial/corrected bracket results and immutable prior receipts
+through the ordinary intake/refresh readers, with stored reads making no provider
+calls. Its existing synthetic 2026 fixtures remain synthetic. Separately retained
+genuine 2025 source fixtures exercise the same played-result predicate offline;
+this profile does not relabel those captures or claim 2025 SQL support.
+
+One 60-second case, one 1,080-second case and two 120-second hooks give a
+23-minute authored allowance. The ordinary case retains 15 admissions, 22
+intercepted GET attempts plus its separately asserted directory prerequisite,
+real admission spacing and original settlement behavior. All existing identity,
+restricted LOGIN, source, cleanup and 20-second worker / 30-minute work /
+40-minute lifecycle / 50-minute CI guards remain unchanged. No paid execution
+is authorized by authoring this selector. The separate retained-evidence module
+is not selected; its recovery proof keeps its original source binding.

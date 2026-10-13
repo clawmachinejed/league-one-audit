@@ -1,59 +1,20 @@
-import type { Decimal } from './contracts';
 import { currentRosterScope, CURRENT_ROSTER_POLICY } from './current-roster';
-import type { JsonObject, JsonValue } from '../league-administration/contracts';
+import type { JsonValue } from '../league-administration/contracts';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { isAdministrationSourceMapping } from '../league-administration/source-mapping';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
 import type { SleeperRoster } from '../transform';
 import { assertAcceptedResource } from './validation';
-import { SEASON_OVERVIEW_SOURCE_VERSION, type SeasonFact, type SeasonPointsFact, type SeasonOverviewSourceInput,
+import { SEASON_OVERVIEW_SOURCE_VERSION, type SeasonOverviewSourceInput,
   type SeasonOverviewSourceRead, type SeasonOverviewTeamFacts } from './season-overview-source-contracts';
+import { seasonField as field, seasonFinite as finite, seasonInteger as integer,
+  seasonObject as object, seasonPoints as points } from './season-overview-fields';
 export { SEASON_OVERVIEW_SOURCE_VERSION } from './season-overview-source-contracts';
 export type { SeasonFact, SeasonPointsFact, SeasonOverviewSourceInput,
   SeasonOverviewSourceRead, SeasonOverviewTeamFacts } from './season-overview-source-contracts';
 
-function object(value: JsonValue | undefined): JsonObject | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as JsonObject : null;
-}
-function field<T>(container: JsonObject | null, key: string, sourcePath: string,
-  valid: (value: JsonValue) => value is T & JsonValue): SeasonFact<T> {
-  if (container === null) return { state: 'invalid', value: null, sourcePath };
-  if (!Object.hasOwn(container, key)) return { state: 'absent', value: null, sourcePath };
-  const value = container[key];
-  return value === null ? { state: 'null', value: null, sourcePath }
-    : valid(value) ? { state: 'known', value, sourcePath } : { state: 'invalid', value: null, sourcePath };
-}
-const finite = (value: JsonValue): value is number => typeof value === 'number' && Number.isFinite(value);
-const integer = (minimum: number) => (value: JsonValue): value is number => finite(value) && Number.isSafeInteger(value) && value >= minimum;
 const signedInteger = (value: JsonValue): value is number => finite(value) && Number.isSafeInteger(value);
 const text = (value: JsonValue): value is string => typeof value === 'string' && value.trim().length > 0;
-
-/** Parsed JSON numbers retain their shortest round-trippable decimal, not lost lexical source scale. */
-function decimalParts(value: number): { units: bigint; scale: number } {
-  const [mantissa, exponent = '0'] = String(Object.is(value, -0) ? 0 : value).split(/[eE]/u);
-  const [whole, fraction = ''] = mantissa.split('.');
-  const scale = fraction.length - Number(exponent);
-  const units = BigInt(`${whole}${fraction}`);
-  return scale < 0 ? { units: units * 10n ** BigInt(-scale), scale: 0 } : { units, scale };
-}
-function totalDecimal(whole: number, fraction: number): Decimal {
-  const left = decimalParts(whole); const right = decimalParts(fraction);
-  right.scale += 2;
-  const scale = Math.max(left.scale, right.scale);
-  const units = left.units * 10n ** BigInt(scale - left.scale) + right.units * 10n ** BigInt(scale - right.scale);
-  const negative = units < 0n; const digits = (negative ? -units : units).toString().padStart(scale + 1, '0');
-  const result = scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/u, '');
-  return `${negative ? '-' : ''}${result}`;
-}
-function points(settings: JsonObject | null, wholeKey: string, fractionKey: string): SeasonPointsFact {
-  const whole = field(settings, wholeKey, `settings.${wholeKey}`, finite);
-  const fraction = field(settings, fractionKey, `settings.${fractionKey}`, finite);
-  // Sleeper's optional fractional component is hundredths. Its omission leaves an integer total;
-  // explicit null/invalid fractions and an absent whole part never become a known zero.
-  const state = whole.state !== 'known' ? whole.state : fraction.state === 'known' || fraction.state === 'absent' ? 'known' : fraction.state;
-  return { whole, fraction, state, value: state === 'known' ? totalDecimal(whole.value!, fraction.value ?? 0) : null,
-    policy: 'sleeper-whole-plus-hundredths-v1' };
-}
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') {
     for (const child of Object.values(value)) freeze(child);

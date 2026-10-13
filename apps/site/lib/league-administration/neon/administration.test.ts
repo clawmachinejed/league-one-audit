@@ -1,3 +1,4 @@
+import { projectOfficialStandings } from '../../aggregator/official-standings';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { runPublicIntakeStep } from '../public-intake';
@@ -285,6 +286,10 @@ describe('official-only bootstrap and typed settings through the existing worker
       expect(await runPublicIntakeStep(requestId, { intake, administration, jobs }, new AbortController().signal))
         .toMatchObject({ status: 'progress', resource: 'core', providerRequests: 2 });
       expect(events).toEqual(['reserve-rosters', 'reserve-settings', 'capture-witness', 'fetch-league', 'fetch-rosters']);
+      const rosterWrite = writes.find(write => write.envelope.family === 'rosters');
+      expect(rosterWrite).toBeDefined();
+      expect(rosterWrite!.officialStandings).toEqual(projectOfficialStandings(rosterWrite!));
+      expect(writes.find(write => write.envelope.family === 'league')).not.toHaveProperty('officialStandings');
       const read = await administration.readAcceptedLeagueSettings(mapping);
       expect(read).toMatchObject({ status: 'available', leagueId, leagueSeasonId: mapping.leagueSeasonId,
         value: { nativeSettings: { fields: { state } }, scoring: { rules: { state } }, slots: { state } } });

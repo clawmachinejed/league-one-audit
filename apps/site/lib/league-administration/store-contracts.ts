@@ -1,4 +1,6 @@
+import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { BracketFamily, BracketSelection, AcceptedBracketRead } from '../aggregator/playoff-brackets';
+import type { WeeklyReportSelection, AcceptedWeeklyReportRead } from '../aggregator/weekly-reports';
 import type { RosterPlayerLinksSelection, RosterPlayerLinksRead } from '../aggregator/roster-player-links';
 import type { PlayerDirectoryAttempt, PlayerDirectoryCapture, PlayerDirectoryRead, PlayerDirectoryReadSelection,
   PlayerDirectoryReservation, PlayerDirectoryWriteResult } from './player-directory-contracts';
@@ -43,6 +45,7 @@ export type AdministrationWriteResult = Readonly<{
   matchupAcceptance?: RosterAcceptanceResult;
   transactionAcceptance?: RosterAcceptanceResult;
   bracketAcceptance?: RosterAcceptanceResult;
+  weeklyReportAcceptance?: RosterAcceptanceResult;
   calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
   calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
@@ -73,8 +76,13 @@ export type LeagueAdministrationStore = Readonly<{
     managerAcceptance?: RosterAcceptanceInput, leagueSettingsAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
     calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
-    managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    weeklyReportAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginWeeklyReportAttempt?: (mapping: AdministrationSourceMapping, nativeWeek: number, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readAcceptedWeeklyReport?: (mapping: AdministrationSourceMapping, selection: WeeklyReportSelection) => Promise<AcceptedWeeklyReportRead>;
   beginBracketAttempt?: (mapping: AdministrationSourceMapping, family: BracketFamily, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  /** Independent typed facts on the existing roster capture; never widens players acceptance. */
+  readOfficialStandings?: (mapping: AdministrationSourceMapping, selection?: OfficialStandingsSelection) => Promise<OfficialStandingsRead>;
   readAcceptedBracket?: (mapping: AdministrationSourceMapping, selection: BracketSelection) => Promise<AcceptedBracketRead>;
   beginTransactionAttempt: (mapping: AdministrationSourceMapping, week: number, id: string,
     fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
