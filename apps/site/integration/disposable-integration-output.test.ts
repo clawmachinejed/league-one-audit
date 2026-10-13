@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration } from './disposable-integration';
+import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration, type IntegrationRunReceipt } from './disposable-integration';
 
 const mocks = vi.hoisted(() => ({
   pool: vi.fn(), query: vi.fn(), spawn: vi.fn(), context: vi.fn(), evidence: vi.fn(), closure: vi.fn(),
+  safe: vi.fn(), owner: vi.fn(), clean: vi.fn(), release: vi.fn(), end: vi.fn(),
   api: { validateTarget: vi.fn(), createBranch: vi.fn(), rotateOwnerCredentials: vi.fn(),
     getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), reconcileCreation: vi.fn(), deleteBranch: vi.fn() },
 }));
@@ -18,11 +19,11 @@ vi.mock('./disposable-neon-api', async importOriginal => ({
   DisposableNeonApi: vi.fn(function () { return mocks.api; }),
 }));
 vi.mock('./neon-integration-harness', () => ({
-  assertSafeIntegrationDatabase: vi.fn(), cleanIntegrationDatabase: vi.fn(), integrationEnvironment: vi.fn(),
+  assertSafeIntegrationDatabase: mocks.safe, cleanIntegrationDatabase: mocks.clean, integrationEnvironment: vi.fn(),
 }));
 vi.mock('./integration-database-ownership', () => ({
   INTEGRATION_MUTEX: 'test-mutex', INTEGRATION_OWNER_ENV: 'PROJECTION_INTEGRATION_OWNER_PROOF',
-  assertIntegrationOwner: vi.fn(),
+  assertIntegrationOwner: mocks.owner,
 }));
 vi.mock('./integration-artifacts', () => ({
   createIntegrationArtifactDirectory: vi.fn(async () => resolve('test-results/mock-artifacts')),
@@ -42,17 +43,26 @@ const environment: NodeJS.ProcessEnv = {
 };
 const branch = { branchId: 'br-fictional-child', branchName: 'fictional-test-child' };
 const ownerUri = (password: string) => `postgresql://neondb_owner:${password}@ep-fictional.neon.tech/integration_test?sslmode=require`;
-const run = (output = vi.fn()) => runDisposableIntegration({ environment, gitSha: 'a'.repeat(40),
-  journal: async () => {}, signal: new AbortController().signal, output });
+const run = (output = vi.fn(), journal: (receipt: IntegrationRunReceipt) => Promise<void> = async () => {}) =>
+  runDisposableIntegration({ environment, gitSha: 'a'.repeat(40),
+    journal, signal: new AbortController().signal, output });
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.context.mockResolvedValue({ profile: 'full', runId: 'generated-run' });
+  for (const mock of Object.values(mocks)) if (typeof mock === 'function') mock.mockReset();
+  for (const mock of Object.values(mocks.api)) mock.mockReset();
+  mocks.context.mockImplementation(async (_root, gitSha, runId) => ({
+    kind: 'integration-qualification-context-v1', profile: 'full', runId, gitSha,
+    nonce: '00000000-0000-4000-8000-000000000002', profileDigest: 'b'.repeat(64),
+    modules: [{ path: 'integration/example.integration-case.ts', sourceDigest: 'c'.repeat(64) }] }));
   mocks.evidence.mockResolvedValue({ profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0, reportDigest: 'a'.repeat(64) });
   mocks.closure.mockResolvedValue('child-close');
   mocks.api.createBranch.mockResolvedValue(branch);
   mocks.api.ownedReceipts.mockReturnValue([branch]);
   mocks.query.mockImplementation(async (sql: string) => {
+    if (sql.includes("current_setting('server_version')")) return { rows: [{ database: 'integration_test',
+      owner: 'neondb_owner', session: 'neondb_owner', branch: branch.branchId,
+      server_version: '18.6', server_version_num: '180006' }] };
     if (sql.includes('current_database() AS database')) return { rows: [{ database: 'integration_test',
       owner: 'neondb_owner', session: 'neondb_owner', branch: branch.branchId,
       schemas: 0, relations: 0, functions: 0, types: 0, roles: 0, sessions: 0 }] };
@@ -63,8 +73,8 @@ beforeEach(() => {
     return { rows: [] };
   });
   mocks.pool.mockImplementation(function () {
-    const client = Object.assign(new EventEmitter(), { query: mocks.query, release: vi.fn() });
-    return Object.assign(new EventEmitter(), { connect: vi.fn(async () => client), end: vi.fn(async () => {}) });
+    const client = Object.assign(new EventEmitter(), { query: mocks.query, release: mocks.release });
+    return Object.assign(new EventEmitter(), { connect: vi.fn(async () => client), end: mocks.end });
   });
 });
 
@@ -134,4 +144,87 @@ it.each(['invalid-evidence', 'unverified-closure'] as const)('rejects zero-exit 
     expect(result.receipt.schemaCleanupVerified).toBe(true);
   } else { expect(mocks.evidence).not.toHaveBeenCalled(); expect(result.receipt.schemaCleanupVerified).toBe(false); }
   expect(mocks.api.deleteBranch).toHaveBeenCalled();
+});
+
+describe('supervisor PostgreSQL-version observation and acceptance', () => {
+  const versionQuery = (sql: string) => sql.includes("current_setting('server_version')");
+  function passingChild() {
+    const child = Object.assign(new EventEmitter(), { pid: 12345 });
+    setImmediate(() => child.emit('close', 0, null)); return child;
+  }
+  it('observes after all guards and waits for immutable evidence acknowledgment before spawning', async () => {
+    mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional'));
+    const reached = Promise.withResolvers<void>(), acknowledge = Promise.withResolvers<void>();
+    const snapshots: IntegrationRunReceipt[] = [];
+    mocks.spawn.mockImplementation(passingChild);
+    const running = run(vi.fn(), async receipt => {
+      snapshots.push(structuredClone(receipt));
+      if (receipt.stage === 'provision' && receipt.postgresqlVersion) {
+        reached.resolve(); await acknowledge.promise;
+      }
+    });
+    await reached.promise;
+    expect(mocks.spawn).not.toHaveBeenCalled();
+    const versionIndex = mocks.query.mock.calls.findIndex(([sql]) => versionQuery(sql));
+    expect(versionIndex).toBeGreaterThan(-1);
+    expect(mocks.safe.mock.invocationCallOrder[0]).toBeLessThan(mocks.query.mock.invocationCallOrder[versionIndex]);
+    expect(mocks.owner.mock.invocationCallOrder[0]).toBeLessThan(mocks.query.mock.invocationCallOrder[versionIndex]);
+    expect(snapshots.at(-1)?.postgresqlVersion).toMatchObject({ serverVersion: '18.6', serverVersionNum: '180006',
+      databaseName: 'integration_test', branchId: branch.branchId });
+    acknowledge.resolve();
+    const result = await running;
+    expect(result.passed).toBe(true);
+    expect(result.receipt.testEvidence?.contextDigest).toBe(result.receipt.postgresqlVersion?.contextDigest);
+    expect(snapshots.filter(snapshot => snapshot.postgresqlVersion)
+      .every(snapshot => JSON.stringify(snapshot.postgresqlVersion) === JSON.stringify(result.receipt.postgresqlVersion))).toBe(true);
+  });
+  it.each(['safe-guard', 'owner-guard', 'read', 'missing-row', 'wrong-target', 'version-pair', 'journal'])(
+    'does not spawn after %s failure and retains honest owned-resource cleanup', async fault => {
+      mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional'));
+      if (fault === 'safe-guard') mocks.safe.mockRejectedValue(new Error('private guard detail'));
+      if (fault === 'owner-guard') mocks.owner.mockRejectedValue(new Error('private owner detail'));
+      const originalQuery = mocks.query.getMockImplementation()!;
+      mocks.query.mockImplementation(async (sql: string) => {
+        if (versionQuery(sql)) {
+          if (fault === 'read') throw new Error('private database password');
+          if (fault === 'missing-row') return { rows: [] };
+          const result = await originalQuery(sql);
+          if (fault === 'wrong-target') result.rows[0].branch = 'br-parent';
+          if (fault === 'version-pair') result.rows[0].server_version_num = '170006';
+          return result;
+        }
+        return originalQuery(sql);
+      });
+      let rejected = false;
+      const result = await run(vi.fn(), async receipt => {
+        if (fault === 'journal' && receipt.postgresqlVersion && !rejected) {
+          rejected = true; throw new Error('private filesystem detail');
+        }
+      });
+      expect(result.passed).toBe(false);
+      expect(mocks.spawn).not.toHaveBeenCalled();
+      expect(mocks.clean).not.toHaveBeenCalled();
+      expect(mocks.release).toHaveBeenCalledWith(true);
+      expect(mocks.api.deleteBranch).toHaveBeenCalledOnce();
+      expect(result.receipt).toMatchObject({ tests: 'not-run', schemaCleanupVerified: false,
+        credentialsRevoked: false, branchDeletionVerified: true, failures: ['provision'] });
+      if (fault.endsWith('guard')) expect(mocks.query.mock.calls.some(([sql]) => versionQuery(sql))).toBe(false);
+      expect(JSON.stringify(result.receipt)).not.toContain('private ');
+    });
+  it('denies post-child version mismatch while preserving schema and credential cleanup', async () => {
+    mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional'));
+    mocks.spawn.mockImplementation(passingChild);
+    let current: IntegrationRunReceipt;
+    const evidence = { profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0, reportDigest: 'a'.repeat(64) };
+    mocks.evidence.mockImplementation(async () => {
+      current.postgresqlVersion = { ...current.postgresqlVersion!, branchId: 'br-foreign' };
+      return evidence;
+    });
+    const result = await run(vi.fn(), async receipt => { current = receipt; });
+    expect(result.passed).toBe(false);
+    expect(result.receipt).toMatchObject({ tests: 'failed', testEvidenceFailure: 'missing-or-invalid',
+      childClosed: true, schemaCleanupVerified: true, credentialsRevoked: true, branchDeletionVerified: true });
+    expect(mocks.clean).toHaveBeenCalledOnce();
+    expect(mocks.api.deleteBranch).toHaveBeenCalledOnce();
+  });
 });

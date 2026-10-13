@@ -12,7 +12,7 @@ import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV 
 import { IntegrationDeadlineError, IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS,
   INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
 
-import { createQualificationContext, qualificationArguments, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
+import { createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
   type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
 
 export const DISPOSABLE_AUTHORIZATION = 'I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES';
@@ -88,6 +88,8 @@ export type IntegrationRunReceipt = {
   kind: 'disposable-integration-v1'; runId: string; gitSha: string; startedAt: string; finishedAt?: string;
   projectId: string; parentBranchId: string; branchId?: string; branchName?: string; expiresAt?: string;
   attemptedBranchName?: string;
+  databaseName?: string;
+  postgresqlVersion?: IntegrationPostgresqlVersion;
   provisionStep?: string;
   stage: string; tests: 'not-run' | 'passed' | 'failed'; childClosed: boolean; schemaCleanupVerified: boolean;
   credentialsRevoked: boolean; branchDeletionVerified: boolean; failures: string[]; productionWrites: false;
@@ -96,12 +98,90 @@ export type IntegrationRunReceipt = {
   artifactDirectory?: string;
   qualification?: 'unverified' | 'passed' | 'failed';
   testContext?: QualificationContext;
-  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>>;
+  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>> & { contextDigest: string };
   testEvidenceFailure?: 'missing-or-invalid';
   cancellationReason?: 'deadline' | 'sigint' | 'sigterm' | 'requested' | 'ownership-lost';
   lifecycle?: { limitMs: number; teardownReserveMs: number; elapsedMs: number };
   unresolvedResources?: string[];
 };
+
+type IntegrationPostgresqlVersion = Readonly<{
+  kind: 'integration-postgresql-version-v1'; serverVersion: string; serverVersionNum: string;
+  observedAt: string; runId: string; gitSha: string; profile: QualificationProfile;
+  contextDigest: string; databaseName: string; branchId: string;
+}>;
+
+function invalidPostgresqlVersion(): never {
+  throw Object.assign(new Error('Run-bound PostgreSQL version evidence is missing or invalid.'),
+    { code: 'POSTGRESQL_VERSION_EVIDENCE_INVALID' });
+}
+
+function assertPostgresqlVersionBinding(receipt: IntegrationRunReceipt,
+  expected: { gitSha: string; profile: QualificationProfile }): void {
+  const evidence = receipt.postgresqlVersion, context = receipt.testContext;
+  if (!evidence || !context || Object.keys(evidence).sort().join(',') !==
+    ['kind', 'serverVersion', 'serverVersionNum', 'observedAt', 'runId', 'gitSha', 'profile',
+      'contextDigest', 'databaseName', 'branchId'].sort().join(',')) invalidPostgresqlVersion();
+  if (evidence.kind !== 'integration-postgresql-version-v1'
+    || !receipt.databaseName || !receipt.branchId
+    || evidence.databaseName !== receipt.databaseName || evidence.branchId !== receipt.branchId
+    || evidence.runId !== receipt.runId || context.runId !== receipt.runId
+    || evidence.gitSha !== expected.gitSha || receipt.gitSha !== expected.gitSha || context.gitSha !== expected.gitSha
+    || evidence.profile !== expected.profile || context.profile !== expected.profile
+    || evidence.contextDigest !== qualificationDigest(context)) invalidPostgresqlVersion();
+  // Preserve the actual server strings; accept bounded release versions and
+  // optional packaging suffixes, never arbitrary driver diagnostics or URLs.
+  const version = typeof evidence.serverVersion === 'string' && evidence.serverVersion.length <= 96
+    ? /^([1-9]\d{0,2})\.(0|[1-9]\d{0,3})(?:\.(0|[1-9]\d?))?(?: \([A-Za-z0-9 .+~_-]+\))?$/u.exec(evidence.serverVersion) : null;
+  if (!version || typeof evidence.serverVersionNum !== 'string'
+    || !/^[1-9]\d{4,6}$/u.test(evidence.serverVersionNum)) invalidPostgresqlVersion();
+  const major = Number(version[1]), minor = Number(version[2]);
+  const expectedNumber = major >= 10 && version[3] === undefined ? major * 10_000 + minor
+    : major < 10 && minor < 100 && version[3] !== undefined ? major * 10_000 + minor * 100 + Number(version[3]) : NaN;
+  if (Number(evidence.serverVersionNum) !== expectedNumber) invalidPostgresqlVersion();
+  const observed = Date.parse(evidence.observedAt), started = Date.parse(receipt.startedAt);
+  if (typeof evidence.observedAt !== 'string' || !Number.isFinite(observed) || !Number.isFinite(started)
+    || new Date(observed).toISOString() !== evidence.observedAt || observed < started
+    || observed > Date.now() || (receipt.finishedAt !== undefined
+      && (!Number.isFinite(Date.parse(receipt.finishedAt)) || observed > Date.parse(receipt.finishedAt)))) invalidPostgresqlVersion();
+}
+
+/** Called only on the already guarded, pinned supervisor owner connection. */
+export async function captureIntegrationPostgresqlVersion(query: Query, receipt: IntegrationRunReceipt,
+  target: { database: string; branch: string; owner: string }): Promise<IntegrationPostgresqlVersion> {
+  try {
+    const result = await query(`SELECT current_database() AS database, current_user AS owner,
+      session_user AS session, current_setting('neon.branch_id',true) AS branch,
+      current_setting('server_version') AS server_version,
+      current_setting('server_version_num') AS server_version_num`);
+    const row = result.rows[0];
+    if (result.rows.length !== 1 || !row || Object.keys(row).sort().join(',') !==
+      ['database', 'owner', 'session', 'branch', 'server_version', 'server_version_num'].sort().join(',')
+      || row.database !== target.database || row.branch !== target.branch
+      || row.owner !== target.owner || row.session !== target.owner
+      || receipt.databaseName !== target.database || receipt.branchId !== target.branch
+      || !receipt.testContext) invalidPostgresqlVersion();
+    const evidence: IntegrationPostgresqlVersion = {
+      kind: 'integration-postgresql-version-v1', serverVersion: row.server_version as string,
+      serverVersionNum: row.server_version_num as string, observedAt: new Date().toISOString(),
+      runId: receipt.runId, gitSha: receipt.gitSha, profile: receipt.testContext.profile,
+      contextDigest: qualificationDigest(receipt.testContext), databaseName: target.database, branchId: target.branch,
+    };
+    assertPostgresqlVersionBinding({ ...receipt, postgresqlVersion: evidence }, receipt.testContext);
+    return Object.freeze(evidence);
+  } catch { invalidPostgresqlVersion(); }
+}
+
+/** Both supervisor and command must reject missing, foreign or corrupt proof. */
+export function assertIntegrationPostgresqlVersionEvidence(receipt: IntegrationRunReceipt,
+  expected: { gitSha: string; profile: QualificationProfile }): void {
+  try {
+    assertPostgresqlVersionBinding(receipt, expected);
+    if (receipt.testEvidence?.profile !== expected.profile
+      || receipt.testEvidence.contextDigest !== receipt.postgresqlVersion!.contextDigest
+      || !/^[0-9a-f]{64}$/u.test(receipt.testEvidence.reportDigest)) invalidPostgresqlVersion();
+  } catch { invalidPostgresqlVersion(); }
+}
 type Runtime = {
   provision: (signal: AbortSignal) => Promise<void>; execute: (signal: AbortSignal) => Promise<{ passed: boolean; closed: boolean }>;
   shutdown?: (signal: AbortSignal) => Promise<{ closed: boolean }>;
@@ -205,6 +285,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   let api: DisposableNeonApi;
   const runId = randomUUID();
   const receipt: IntegrationRunReceipt = { kind: 'disposable-integration-v1', runId, gitSha: options.gitSha,
+    databaseName: config.databaseName,
     projectId: config.projectId, parentBranchId: config.parentBranchId, startedAt: new Date().toISOString(),
     stage: 'preflight', tests: 'not-run', childClosed: false, schemaCleanupVerified: false,
     credentialsRevoked: false, branchDeletionVerified: false, failures: [], productionWrites: false };
@@ -324,6 +405,12 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       assert.equal((await query('SELECT pg_advisory_unlock(hashtextextended($1::text,0)) AS unlocked', [INTEGRATION_MUTEX])).rows[0].unlocked, true);
       proof = JSON.stringify({ database: config.databaseName, branch: branch.branchId, ...identity, applicationName, lockMode: 'ShareLock' });
       await verifyOwner(signal);
+      receipt.provisionStep = 'postgresql-version-evidence';
+      receipt.postgresqlVersion = await captureIntegrationPostgresqlVersion(
+        (sql, parameters) => query(sql, parameters, signal), receipt,
+        { database: config.databaseName, branch: branch.branchId, owner: config.ownerRoleName });
+      signal.throwIfAborted();
+      await save(); // Acknowledged immutable evidence is required before child launch.
       childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
         [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context) };
       receipt.provisionStep = 'complete';
@@ -356,7 +443,12 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         let evidenceValid = false;
         // Reports precede close/timeout failures; validate only after tree closure.
         if (closed) {
-          try { receipt.testEvidence = await validateQualificationArtifacts(qualification); evidenceValid = true; }
+          try {
+            receipt.testEvidence = { ...await validateQualificationArtifacts(qualification),
+              contextDigest: qualificationDigest(qualification.context) };
+            assertIntegrationPostgresqlVersionEvidence(receipt, qualification.context);
+            evidenceValid = true;
+          }
           catch { receipt.testEvidenceFailure = 'missing-or-invalid'; }
         }
         return { passed: evidenceValid && outcome.code === 0 && !outcome.childError && !childSignal.aborted && !ownerLost, closed };
