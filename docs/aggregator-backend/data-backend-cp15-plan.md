@@ -1,6 +1,6 @@
 # CP15: complete 2026 transaction history
 
-Revision: October 13, 2026. This source candidate extends completed CP14 at `9f4945e294df56962a258d07d1987c94acbf2e76`. Implementation, local verification and ordinary draft publication/preview preparation are authorized. SQL qualification, credential access, provisioning, retained installation, merge, release and DATA activation are not authorized.
+Revision: October 13, 2026. This source candidate extends completed CP14 at `9f4945e294df56962a258d07d1987c94acbf2e76`. The source-authoring record below predates publication and the separately authorized intake-only SQL attempt. Its uncommitted, unexecuted and no-SQL-authorization statements describe that earlier stage; the [hosted intake record](#hosted-intake-only-result--october-13-2026) supplies the later accepted result. Refresh and recovery remain unexecuted and unqualified; full CP15 remains open. Retained installation, merge, release and DATA activation remain unauthorized.
 
 ## Four scope fields
 
@@ -73,3 +73,26 @@ Earlier launcher failures, the three initial test-typing diagnostics, the transi
 A fresh prepublication authority check at approximately **13:56–13:58 UTC on October 13** again matched local/GitHub main and the canonical Vercel repository binding, production branch and exact production SHA at `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. **No competing owner observed** within the worktree/PR/workflow/deployment/cron evidence inspected; production database/worker leases remain uninspected.
 
 Ordinary branch/PR publication, hosted CI and actual preview inspection remain pending and will be reported separately. No SQL qualification, retained installation, merge, production deployment or DATA activation occurred.
+
+## Hosted intake-only result — October 13, 2026
+
+The user authorized exactly one disposable `data-transaction-history-intake-v1` attempt with a **$1 spending authorization ceiling**, at source `9bee75f3e1be0b3bc47327b2675433e8f7b0706e`. [Run 38413020672, attempt 1](https://github.com/clawmachinejed/league-one-audit/actions/runs/38413020672) completed successfully at **14:51:15 UTC**. Independent intake-only acceptance is complete. This authorization is consumed; there was no automatic retry. The harness did not enforce a billing cap; actual billing was not measured. This documentation closeout is later than the executed source and does not rebind the result to a new commit.
+
+The acknowledged terminal receipt `run-1791901520329-b7040c5f-f4f9-49b5-8883-7d9346cacf22-0012.json` reports tests and qualification **passed**. The bound report contains **one collected, selected, executed and passed case**, with zero skips, filters, retries, repeats or unhandled errors; `beforeAll` and `afterAll` each started and ended once. The independent audit reproduced the maintained validator result, regenerated the approved source/profile context, and verified all fifteen extracted files against the original archive. Earlier journal snapshots use a pessimistic `tests: failed` sentinel before execution; they do not record an executed failed case or retry.
+
+| Measured interval | Observed result and unchanged limit |
+| --- | --- |
+| Selected case | **1,466.078 seconds** (24 minutes 26.078 seconds); 63.922 seconds below its 1,530-second cap. |
+| Vitest process | **1,538.92 seconds**. Individual hook durations were not retained. |
+| Supervisor work | **1,546.944 seconds**; 253.056 seconds below the 30-minute work deadline. |
+| Supervisor lifecycle | **1,550.744 seconds** (25 minutes 50.744 seconds), within the 40-minute lifecycle and 50-minute CI limits. Post-test supervisor cleanup took 3.800 seconds. |
+
+The endpoint request and ready-endpoint guard enforced fixed **0.25 CU**. This is measured fit for this single synthetic, one-league intake case, not maximum-capacity, fleet or general latency proof. The original 20-second work fence and 60-second cadence remained unchanged.
+
+The passing case acquired all **nineteen native periods 0–18** through ordinary restricted-PostgreSQL intake: **24 admissions, 25 intercepted synthetic GETs and 25 job claims**, including zero-GET settlement. It checked the ordered task/checkpoint/receipt set, exact native/normalized/relational/projected values, positive trade movements, zero bids, authoritative empty Week 18, immutable old request receipts after a separately labeled direct complete correction, bounded pages and provider-disabled reads. Repeated native transaction IDs stayed grouped by period. The direct correction is not an ordinary refresh, and store reconstruction is not process-death evidence.
+
+Accepted terminal cleanup records child process closure, schema cleanup, credential revocation and branch deletion all verified, with `posix-process-group` closure evidence, no failures or unresolved resources, and `productionWrites: false`. Child `br-green-tooth-b7om058p` was deletion-verified by the run's API-checked receipt; no separate post-run provider inventory query was performed. No retained installation occurred.
+
+The original [artifact 11825131744](https://github.com/clawmachinejed/league-one-audit/actions/runs/38413020672/artifacts/11825131744) ZIP has independently recomputed SHA-256 `02e1c9b5ff2440ea50ffc1fe1f818fdaa7031736cda6e46f7f7384a5f45fc71b`. Report digest: `85fdbda5122cb8f7dc00d82fcabf4230355a4d8796ed9464a5a10bfedeb3cd53`; acknowledged terminal receipt SHA-256: `31cbdcda12c5a9425b519b3e62e696add0dd3c80329f1bf544128b7e95cf8d43`. The intake module LF digest remains `cc41ea92ce0da8ac3622919e3858c665622a5ec9bbd6ff9348b7c235a83512c7`. Raw artifacts remain under ignored `apps/site/test-results/data-backend/cp15/intake-38413020672`, with sibling `.zip` and `.log` files. Earlier failed development logs and the local workflow's SQL skip retain their original outcomes.
+
+Fresh authority inspection at approximately **14:55 UTC** again matched local/GitHub main and canonical Ready Vercel production at `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`; CP14 remained clean at its original closeout. No competing run observed; production database/worker leases remain uninspected. **Refresh and recovery are still authored, unexecuted and unqualified; full CP15 is open.** This run supplies no live-provider, sustained-operation or production evidence. No further SQL attempt, retained installation, merge, production release or DATA activation is authorized by this result.
