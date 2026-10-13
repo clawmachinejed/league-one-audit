@@ -2,13 +2,31 @@
 
 This October 12, 2026 supplement records public source evidence and the accepted
 two-case retained-source/recovery run at `e7977776`, following the separately
-accepted eight-case run at `29be8bc`. Read it with the unchanged
+accepted eight-case run at `29be8bc`. Read it with the
 [completion contract](data-backend-readiness-contract.md),
 [CP13 acceptance plan](data-backend-cp13-plan.md) and
 [current evidence ledger](data-backend-evidence.md#current-checkpoint-summary).
 The runs retain their separate source and proof boundaries. The later
 [documented bracket interpretation](#documented-bracket-played-interpretation--october-12-2026)
 is a new source candidate, outside those hosted proof bindings. CP13 remains open.
+
+## Selected 2025 test evidence exception — October 12, 2026
+
+The user approved selected 2025 leagues **for testing only**. The [readiness
+contract](data-backend-readiness-contract.md#season-format-and-official-data-coverage)
+now permits bounded collection and retention of genuine 2025 source fixtures for
+the remaining CP13 playoff/result assertions. The existing `capturePublicSleeperCore`
+adapter can collect those source documents; no new acquisition pipeline is needed.
+Keep native 2025 identities, settings, periods and capture provenance intact.
+
+This documentation change opens source-evidence collection and fixture inspection.
+It does not change the 2026-only runtime projectors, selectors, readers or SQL, and
+does not claim that genuine 2025 fixtures already pass the stored qualification
+chain. Any necessary test support must preserve the product boundary and truthful
+source season. Previously accepted standings, report, permission and recovery
+proofs retain their original scope; they are not reopened by this exception.
+No 2025 acquisition or test execution is claimed by this amendment, and no paid
+run, migration application, merge or release is authorized.
 
 ## Resource, existing path and persisted evidence
 
