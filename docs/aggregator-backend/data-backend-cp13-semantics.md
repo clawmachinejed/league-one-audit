@@ -1,4 +1,4 @@
-# CP13 provider meaning and remaining acceptance
+# CP13 provider meaning and accepted evidence
 
 This October 12, 2026 supplement records public source evidence and the accepted
 two-case retained-source/recovery run at `e7977776`, following the separately
@@ -6,9 +6,7 @@ accepted eight-case run at `29be8bc`. Read it with the
 [completion contract](data-backend-readiness-contract.md),
 [CP13 acceptance plan](data-backend-cp13-plan.md) and
 [current evidence ledger](data-backend-evidence.md#current-checkpoint-summary).
-The runs retain their separate source and proof boundaries. The later
-[documented bracket interpretation](#documented-bracket-played-interpretation--october-12-2026)
-is a new source candidate, outside those hosted proof bindings. CP13 remains open.
+The runs retain their separate source and proof boundaries. The later [documented bracket interpretation](#documented-bracket-played-interpretation--october-12-2026) was outside those earlier hosted proof bindings. Its accepted targeted qualification and bounded CP13 completion are recorded in the current closeout below.
 
 ## Current CP13 closeout — selected 2025 evidence
 
@@ -39,25 +37,12 @@ No observed before/after provider correction or true-2025 typed SQL is claimed.
 | --- | --- |
 | CP13-01/02, 06-11: standings, reports, clocks, history, permissions, recovery and limits | Keep the recorded successful source-bound qualifications. This increment does not reopen their unchanged behavior or claim a complete current-source rerun. |
 | CP13-03: unknown weekly winner/tie/bye/finality when source evidence is insufficient | Existing negative behavior remains intentional and tested; no new calculator or positive bye inference is required. Report W/L/T remains separately qualified. |
-| CP13-04: source-supplied played bracket result | Eight genuine 2025 played rows now exercise the shared interpretation offline. Current-source stored interpretation still awaits the focused profile below. |
-| CP13-05: representative multiweek completion/correction | Genuine configured multiweek source example and separate native legs are retained. Simulated correction plus immutable stored history is the remaining targeted SQL check. A populated aggregate or generic series-link field is not required by this criterion; unproved joins remain unknown. |
+| CP13-04: source-supplied played bracket result | Eight genuine 2025 played rows now exercise the shared interpretation offline. The two selected synthetic-2026 stored cases passed at `6707ada9c2705db28d907bc84cf422855df91463` in run `38336934123`. |
+| CP13-05: representative multiweek completion/correction | Genuine configured multiweek source example and separate native legs are retained. The accepted targeted SQL cases separately qualify independent stored periods, simulated correction and immutable history. A populated aggregate or generic series-link field is not required by this criterion; unproved joins remain unknown. |
 
-**Remaining execution:** one closed `data-official-results-played-v1` profile,
-selecting the last two existing official-results cases. It verifies independent
-stored periods plus played bracket meaning, then ordinary initial/corrected
-composition and unchanged historical receipts. It collects eight names, executes
-two and reports six filtered. The existing module, fixtures, source digest,
-shared hooks and deadlines are unchanged; authored case/hook allowance is
-23 minutes within the existing 30-minute work phase. No paid run has started.
+**Accepted execution:** the user-authorized `data-official-results-played-v1` [run 38336934123](https://github.com/clawmachinejed/league-one-audit/actions/runs/38336934123) passed at exact source `6707ada9c2705db28d907bc84cf422855df91463`. Eight names were collected; two selected cases passed and six were deliberately filtered (also counted as skipped). There were zero failures, selected skips, retries, repeats or unhandled errors. One beforeAll/afterAll pair completed. These existing synthetic-2026 cases qualify independent stored score periods and played bracket meaning, followed by ordinary initial/corrected composition with unchanged historical receipts. The existing module, fixtures, source digest and deadlines stayed unchanged. Selected case durations were 0.890 and 972.519 seconds; supervisor lifecycle was 1048.577 seconds. The [detailed hosted record](#played-result-hosted-qualification--october-12-2026) binds the accepted artifacts and cleanup.
 
-This is targeted qualification of the changed interpretation. The separate
-retained-evidence module's duplicated played assertion is not rerun; its unchanged
-recovery mechanisms retain their original accepted binding at `e7977776`.
-Independent scope/code review confirmed the two selected cases cover the distinct
-changed stored paths. A passing, independently accepted run would complete the
-remaining bounded CP13 acceptance; full-season, fleet, installation and release
-remain with their existing later checkpoint owners. A failed run would identify
-the specific failed assertion rather than reopen all passed CP13 work.
+**CP13 is complete for its bounded acceptance scope.** Genuine 2025 acquisition/offline interpretation and synthetic 2026 SQL qualification remain distinct evidence; no native-2025 SQL run or observed historical provider correction is claimed. The separate retained-evidence module was not rerun; its unchanged recovery mechanics retain their original accepted binding at `e7977776`. Earlier standings/report qualifications retain their recorded sources. Unknown weekly tie/bye/finality and generic series joins remain explicit where source evidence does not support them. Full-season composition, fleet operation, installation and release remain with their existing later checkpoint owners. No production release or all-backend completion follows from this isolated run.
 
 Local verification passed 420 targeted tests (148 result/bracket/exact-value and
 272 profile/supervisor tests), with zero failures or selected test skips. Generated
@@ -781,3 +766,32 @@ Ignored raw evidence and independent audit remain in
 `apps/site/test-results/data-backend/cp13/sql-38319296004` and its `-metadata`
 sibling, with the original ZIP alongside them. Earlier qualifications retain
 their original source and scope.
+
+### Played-result hosted qualification — October 12, 2026
+
+The single authorized [run 38336934123](https://github.com/clawmachinejed/league-one-audit/actions/runs/38336934123), attempt 1, selected `data-official-results-played-v1` at `6707ada9c2705db28d907bc84cf422855df91463`. The independent audit accepted 16 checks covering exact source/profile binding, ordered full inventory, selected executions, shared hooks, immutable journal/terminal acknowledgment, original archive bytes and all extracted members, maintained qualification validation and cleanup.
+
+| Selected existing case | Passed duration (seconds) |
+| --- | ---: |
+| Stored native scores and reported bracket results | 0.890 |
+| Ordinary failed-core recovery and corrected immutable selected results | 972.519 |
+
+Two of eight collected cases passed; six deliberate exclusions appear as both filtered and skipped in the maintained validator. There were no selected skips, retries, repeats, failures or unhandled errors. The ordinary case asserted 15 admissions, 22 intercepted GET attempts plus its separate player-directory prerequisite, original recovery/settlement behavior, and source-free stored reads. Provider responses were synthetic; actual restricted PostgreSQL performed persistence/readback. Genuine 2025 retained-source evidence is separate and is not relabeled 2026. The source adds no generic series calculator.
+
+The supervisor lifecycle took 1048.577 seconds, within the unchanged 30-minute work and 40-minute lifecycle limits. The 20-second worker, 60-second admission, authored 23-minute case/hook allowance and 50-minute CI bounds remained intact. This measures one selected run, not worst-case, capacity, full-suite or fleet fit.
+
+Authenticated Neon inspection confirmed child `br-curly-rice-b76c7y5t` (`l1-integration-880f8db0-26e3-4d7a-bb18-f85a856a24e8`) under the exact permanent test parent, fixed minimum/maximum 0.25 CU, 300-second idle suspension, PostgreSQL major 18 and one-hour expiry. No settings were saved. Actual billed cost and PostgreSQL minor version were not verified; $1 was the authorization limit, not a provider-enforced billing cap.
+
+Process-group closure, guarded schema cleanup, generated credential revocation and owned-child deletion all passed. The terminal command acknowledgment at `2026-10-13T02:45:57.1040269Z` matches the retained final receipt. No failures or unresolved resources remained. Fresh post-acknowledgment provider inspection at `2026-10-13T02:47:53.5098381Z` showed only `integration-test-base` (`br-plain-bread-b7sgfdl8`); the disposable child was absent. No manual deletion or automatic retry occurred. The single-run authorization is consumed.
+
+Source and artifact bindings:
+
+- Tested root tree: `9e9f155d44beb94f8ce49d437bb752856dc33800`; site tree: `f1cf3ca3f72b9ac398cb03a316931bf9b0871ddf`.
+- Profile digest: `c88414cd674163022d262a63db83602fcb20ee84ce3e67b7624f57e755aaafed`; unchanged fixture LF digest: `592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479`.
+- GitHub artifact `11786110848`, 15 verified original members; archive SHA256: `88cea813ac81e54cf8c650c9509c33f750444a9562d1a5260b7b94d37da70a7b`.
+- Terminal `run-1791858508634-720f3ff3-f36b-48bb-b9c3-81bd591747a2-0012.json`; SHA256: `bc916ab17f0d3a2863b14beca9a4b2446f8c43f145dfd0aa5631b43ff32fb4b5`.
+- Qualification report SHA256: `43f4de2e6f31e6d04e9f3a520dc75d500f41915207f74219935efbceb9dc90d2`.
+- Normal source CI [38334236582](https://github.com/clawmachinejed/league-one-audit/actions/runs/38334236582) passed 7,363 unit tests in 318 files, lint, types, dependencies and build, plus 121 public and 20 separate account browser tests. The public pass's 20 account exclusions passed in the separate account run. Its tested merge tree exactly matches the candidate.
+- Ready exact-source Vercel preview `FYaSQyQtDB6xuEcaQ7jRgHZCpRJ3` was inspected for My Fantasy, both leagues' standings and league navigation. This proves existing UI compatibility, not DATA activation.
+
+Ignored original archive, extracted receipts and independent audit remain under `apps/site/test-results/data-backend/cp13/sql-38336934123` and its `-metadata` sibling. Earlier successful and failed qualifications keep their source bindings. PR #303 remains draft and unmerged; no retained installation, production release or DATA activation occurred.
