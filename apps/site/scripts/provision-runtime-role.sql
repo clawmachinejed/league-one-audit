@@ -814,3 +814,17 @@ DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPD
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC TRANSACTION INTAKE GRANTS
+-- BEGIN OPTIONAL PUBLIC TRANSACTION HISTORY GRANTS
+-- R052 reuses the R051 SELECT-only task tables and existing runtime entry points.
+DO $$ DECLARE helper text; BEGIN
+  IF EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+    AND attname='transaction_history' AND NOT attisdropped) THEN
+    FOREACH helper IN ARRAY ARRAY['public.canonical_public_data_transaction_history(jsonb,integer[])',
+      'public.public_data_transaction_periods(jsonb,text)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public transaction history helper'; END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC TRANSACTION HISTORY GRANTS

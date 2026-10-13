@@ -5,8 +5,8 @@ import { EXACT_MATCHUP_VALUES_VERSION, type ExactMatchupValuesRead } from '../ag
 import { normalizePublicWeeklyReports, normalizePublicPlayoffBrackets, type PublicPlayoffBrackets, normalizeStoredPublicPeriods, type PublicExactPeriod, type PublicPeriodInventory, type PublicIntakeReadOptions } from './public-intake-contracts';
 import { readPublicBrackets } from './public-bracket-reader';
 import { readPublicWeeklyReports } from './public-weekly-report-reader';
-import { readPublicTransactions } from './public-transaction-reader';
-import { normalizePublicTransactionPeriod, type PublicTransactionPeriod } from './public-intake-contracts';
+import { readPublicTransactions, readPublicTransactionHistory } from './public-transaction-reader';
+import { normalizePublicTransactionPeriod, normalizePublicTransactionHistory, type PublicTransactionHistory, type PublicTransactionPeriod } from './public-intake-contracts';
 import { readPublicOfficialStandings } from './public-official-results-reader';
 import { composeOfficialResults, type OfficialResultsRead } from '../aggregator/official-results';
 import type { AcceptedBracketRead } from '../aggregator/playoff-brackets';
@@ -128,6 +128,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       to_jsonb(request)->'playoff_brackets' AS selected_playoff_brackets,
       to_jsonb(request)->'weekly_reports' AS selected_weekly_reports,
       to_jsonb(request)->'transaction_period' AS selected_transaction_period,
+      to_jsonb(request)->'transaction_history' AS selected_transaction_history,
       request.failure_count,request.next_attempt_at,identity.source_manager_account_id,account.external_manager_id,
       identity.username,identity.display_name,identity.avatar_url,identity.request_started_at,identity.request_completed_at
     FROM public.public_data_intakes request
@@ -135,13 +136,16 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     LEFT JOIN public.league_source_manager_accounts account ON account.id=identity.source_manager_account_id AND account.provider='sleeper'
     WHERE request.id=$1::uuid`, [requestId]);
   if (requests.length !== 1) return { status: 'missing' } as const;
-  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, ...storedHeader } = requests[0];
+  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, ...storedHeader } = requests[0];
   const { exactPeriods: selection, periodInventory: mode } = normalizeStoredPublicPeriods(selectedPeriods,
     Array.isArray(storedHeader.seasons) ? storedHeader.seasons : [], selectedInventory);
   const playoffBrackets = normalizePublicPlayoffBrackets(selectedBrackets ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
   const reportSelection = normalizePublicWeeklyReports(selectedReports ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
   const transactionPeriod = normalizePublicTransactionPeriod(selectedTransaction ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
-  const header: DatabaseRow & { transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
+  const transactionHistory = normalizePublicTransactionHistory(selectedTransactionHistory ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
+  if (transactionHistory && transactionPeriod) throw new Error('Stored transaction scopes are mutually exclusive.');
+  if (!transactionHistory && options.transactionHistoryPage !== undefined) throw new Error('Transaction history page requires selected history.');
+  const header: DatabaseRow & { transactionHistory?: PublicTransactionHistory; transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(transactionHistory ? { transactionHistory } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
@@ -235,8 +239,12 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     && candidates.filter(candidate => candidate.stage !== 'capacity')
       .every(candidate => reportSelection.every(period => weeklyReports.some(task => task.season === candidate.season
         && task.externalLeagueId === candidate.external_league_id && task.nativeWeek === period.nativeWeek)));
-  const transactions = transactionPeriod ? await readPublicTransactions(client, administration, requestId, candidates, transactionPeriod) : undefined;
-  const completeTransactions = !transactions || transactions.every(task => task.resource.status === 'available')
+  const transactionHistoryRead = transactionHistory ? await readPublicTransactionHistory(client, administration, requestId,
+    candidates, lists, options.transactionHistoryPage, storedHeader.terminal === true) : undefined;
+  const transactions = transactionHistoryRead?.transactions ?? (transactionPeriod ? await readPublicTransactions(client, administration, requestId, candidates, transactionPeriod) : undefined);
+  const completeTransactions = transactionHistoryRead ? transactionHistoryRead.inventory.collection === 'complete'
+    && transactionHistoryRead.inventory.readCoverage === 'complete' && transactions!.every(task => task.resource.status === 'available')
+    : !transactions || transactions.every(task => task.resource.status === 'available')
     && candidates.filter(candidate => candidate.stage !== 'capacity')
       .every(candidate => transactions.some(task => task.season === candidate.season
         && task.externalLeagueId === candidate.external_league_id && task.nativeWeek === transactionPeriod?.nativeWeek));
@@ -280,9 +288,12 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   const allSeasons = Array.isArray(header.seasons) && lists.length === header.seasons.length;
   const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
     : completeResources && completePeriods && completeBrackets && completeReports && completeTransactions ? 'available'
-      : header.terminal || completeResources && inventoryRead?.inventory.collection === 'complete' ? 'partial' : 'pending';
+      : header.terminal || completeResources && (inventoryRead?.inventory.collection === 'complete'
+        || transactionHistoryRead?.inventory.collection === 'complete') ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
     ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}), ...(weeklyReports ? { weeklyReports } : {}), ...(transactions ? { transactions } : {}), ...(officialResults ? { officialResults } : {}),
+    ...(transactionHistoryRead ? { transactionHistory: transactionHistoryRead.inventory,
+      ...(transactionHistoryRead.inventory.readCoverage === 'page' ? { reason: 'transaction-history-page-not-fully-verified' as const } : {}) } : {}),
     ...(inventoryRead ? { periodInventory: inventoryRead.inventory,
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',

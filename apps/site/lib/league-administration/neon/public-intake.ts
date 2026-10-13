@@ -67,6 +67,16 @@ async function requireTransactionCapability(client: DatabaseClient): Promise<voi
         AND attname='transaction_period' AND NOT attisdropped) AS supported`);
   if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public transaction intake requires installed R051.');
 }
+async function requireTransactionHistoryCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:transaction-history-capability */
+    SELECT to_regclass('public.public_data_transaction_tasks') IS NOT NULL
+      AND to_regclass('public.public_data_transaction_checkpoints') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='transaction_history' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='transaction_history' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public transaction history requires installed R052.');
+}
 
 export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
@@ -77,6 +87,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
+      if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
       if (validated.transactionPeriod) await requireTransactionCapability(client);
       if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
       if (validated.playoffBrackets) await requireBracketCapability(client);
@@ -205,6 +216,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
+      if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
       if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
       if (validated.playoffBrackets) await requireBracketCapability(client);
       if (validated.periodInventory) await requirePeriodInventoryCapability(client);

@@ -11,6 +11,8 @@ export const PUBLIC_PLAYOFF_BRACKETS = 'sleeper-2026-playoff-brackets-v1' as con
 export type PublicPlayoffBrackets = typeof PUBLIC_PLAYOFF_BRACKETS;
 export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
 export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage;
+  /** Full transaction history metadata is complete; detailed receipts are bounded to this page. */
+  transactionHistoryPage?: PublicPeriodInventoryPage;
   /** Optional evidence context for only the selected detailed period page. */
   periodContextVersion?: 'v1';
   /** Optional typed native lineup and point evidence for the same detailed period page. */
@@ -20,9 +22,11 @@ export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; 
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 /** One explicit 2026 transaction period; full history and refresh remain separate. */
 export type PublicTransactionPeriod = Readonly<{ season: 2026; nativeWeek: number }>;
+export const PUBLIC_TRANSACTION_HISTORY = 'sleeper-2026-transaction-history-v1' as const;
+export type PublicTransactionHistory = typeof PUBLIC_TRANSACTION_HISTORY;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
   exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets;
-  weeklyReports?: readonly PublicExactPeriod[]; transactionPeriod?: PublicTransactionPeriod }>;
+  weeklyReports?: readonly PublicExactPeriod[]; transactionPeriod?: PublicTransactionPeriod; transactionHistory?: PublicTransactionHistory }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -143,6 +147,16 @@ export function normalizePublicTransactionPeriod(value: unknown, seasons: readon
   }
   return { season: 2026, nativeWeek: Number(period.nativeWeek) };
 }
+export function normalizePublicTransactionHistory(value: unknown, seasons: readonly number[]): PublicTransactionHistory | undefined {
+  if (value === undefined) return undefined;
+  if (value !== PUBLIC_TRANSACTION_HISTORY || seasons.length !== 1 || seasons[0] !== 2026) {
+    throw new Error('Invalid public transaction-history scope.');
+  }
+  return PUBLIC_TRANSACTION_HISTORY;
+}
+export function publicTransactionHistoryPeriods(): readonly PublicTransactionPeriod[] {
+  return Array.from({ length: 19 }, (_, nativeWeek) => ({ season: 2026 as const, nativeWeek }));
+}
 export function publicInventoryPeriods(): readonly PublicExactPeriod[] {
   return Array.from({ length: 18 }, (_, index) => ({ season: 2026, nativeWeek: index + 1 }));
 }
@@ -167,10 +181,12 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
   const weeklyReports = normalizePublicWeeklyReports(input.weeklyReports, input.seasons);
   const transactionPeriod = normalizePublicTransactionPeriod(input.transactionPeriod, input.seasons);
+  const transactionHistory = normalizePublicTransactionHistory(input.transactionHistory, input.seasons);
+  if (transactionHistory && input.transactionPeriod !== undefined) throw new Error('Public transaction scopes are mutually exclusive.');
   const playoffBrackets = normalizePublicPlayoffBrackets(input.playoffBrackets, input.seasons);
   const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
   if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), username: input.username, seasons: [...input.seasons].sort((a, b) => a - b),
-    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionPeriod ? { transactionPeriod } : {}) };
+    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(transactionHistory ? { transactionHistory } : {}) };
 }

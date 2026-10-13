@@ -11,6 +11,9 @@ on:
           - full
           - data-official-results-v1
           - data-official-results-played-v1
+          - data-transaction-history-intake-v1
+          - data-transaction-history-refresh-v1
+          - data-transaction-history-recovery-v1
           - data-transaction-period-intake-v1
           - data-weekly-reports-v1
           - data-official-results-evidence-v1
@@ -81,6 +84,15 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-transaction-history-intake-v1)
+              pnpm test:integration --profile=data-transaction-history-intake-v1
+              ;;
+            workflow_dispatch:data-transaction-history-refresh-v1)
+              pnpm test:integration --profile=data-transaction-history-refresh-v1
+              ;;
+            workflow_dispatch:data-transaction-history-recovery-v1)
+              pnpm test:integration --profile=data-transaction-history-recovery-v1
               ;;
             workflow_dispatch:data-transaction-period-intake-v1)
               pnpm test:integration --profile=data-transaction-period-intake-v1
