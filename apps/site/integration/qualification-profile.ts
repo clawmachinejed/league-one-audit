@@ -35,7 +35,7 @@ export const OFFICIAL_RESULTS_PLAYED_PATTERN = closedPattern(OFFICIAL_RESULTS_PL
 export const DRAFT_METADATA_PROFILE = 'data-draft-metadata-v1';
 export const DRAFT_METADATA_MODULE = 'integration/draft-metadata.integration-case.ts';
 // Authored source binding; actual restricted PostgreSQL qualification requires separate authorization.
-export const DRAFT_METADATA_SOURCE_DIGEST = 'b380c20ea540794d739e6d0092de9da2f5471fa539beb5490e6ff0b2f524fe25';
+export const DRAFT_METADATA_SOURCE_DIGEST = 'ad02626bdd113ead7d71a2f7365238f407f8eb8116b95da0f78f3e413c0fe4da';
 export const DRAFT_METADATA_SUITE = 'official draft metadata through restricted PostgreSQL';
 export const DRAFT_METADATA_TESTS = [
   'stores multiple native draft identities settings order and status through the fixture HTTP adapter and restricted reader',

@@ -205,9 +205,11 @@ describe.sequential('official draft metadata through restricted PostgreSQL', () 
     // not turn missing selections/trades into new legacy completeness.
     const legacyInput = await observation(f, [{ catalog: row, draft: row, picks: [], traded_picks: [] }]);
     expect(legacyInput.status).toBe('accepted');
-    expect((await administration.recordObservation(legacyInput, undefined, f.mapping)).status).toBe('changed');
+    expect((await administration.recordObservation(legacyInput)).status).toBe('changed');
     const legacyBefore = await administration.readSource({ ...f.mapping.scope, family: 'drafts', week: null });
     expect(legacyBefore.status).toBe('available');
+    if (legacyBefore.status !== 'available') throw new Error('Missing legacy fixture.');
+    expect(legacyBefore.generation).toBe(1);
     const source = await sourceCapture(f, [row]), value = source.captures[1].value;
     expect(value).toMatchObject({ status: 'available', value: { complete: true, picks: 'not-requested', tradedPicks: 'not-requested', detail: {
       status: { state: 'supplied', value: 'pre_draft' }, settings: { state: 'empty', raw: {}, value: {} }, metadata: { state: 'null' },
@@ -218,10 +220,11 @@ describe.sequential('official draft metadata through restricted PostgreSQL', () 
       status: { state: 'empty', raw: '', value: '' }, userSlots: [{ slot: { state: 'invalid', raw: 0 } }],
       slotRosters: [{ externalRosterId: { state: 'invalid', raw: false } }] } } });
     expect(source.captures.every(capture => capture.result.status === 'rejected')).toBe(true);
-    expect(await administration.readSource({ ...f.mapping.scope, family: 'drafts', week: null })).toEqual(legacyBefore);
+    // Rejected metadata captures advance the observation counter while preserving the accepted legacy read.
+    expect(await administration.readSource({ ...f.mapping.scope, family: 'drafts', week: null })).toEqual({ ...legacyBefore, generation: legacyBefore.generation + 3 });
     const partial = await capture(f, row, 'partial'); expect(partial.result.draftMetadataAcceptance?.status).toBe('preserved');
     expect((await read(f.mapping, partial.resource)).receiptId).toBe(invalidOptional.value.receiptId);
-    expect(await administration.readSource({ ...f.mapping.scope, family: 'drafts', week: null })).toEqual(legacyBefore);
+    expect(await administration.readSource({ ...f.mapping.scope, family: 'drafts', week: null })).toEqual({ ...legacyBefore, generation: legacyBefore.generation + 4 });
     // The old full-bundle adapter still requests and retains selections/trades.
     const urls: string[] = [], fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = String(input); urls.push(url);
