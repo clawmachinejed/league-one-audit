@@ -1,4 +1,6 @@
 import { bracketMethods } from './brackets';
+import { draftMetadataMethods } from './draft-metadata';
+import { DRAFT_METADATA_LIMITS, projectDraftMetadata } from '../../aggregator/draft-metadata';
 import { weeklyReportMethods } from './weekly-reports';
 import { projectWeeklyReport } from '../../aggregator/weekly-reports';
 import { officialStandingsMethods } from './official-standings';
@@ -128,6 +130,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
   return {
     ...transactionMethods(client),
     ...bracketMethods(client),
+    ...draftMetadataMethods(client),
     ...weeklyReportMethods(client),
     ...currentRosterMethods(client),
     ...rosterPlayerLinkMethods(client),
@@ -171,10 +174,9 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance, weeklyReportAcceptance) {
-      const rows = await client.query(`/* league-administration:record-observation */
-        SELECT public.record_league_administration_observation($1::jsonb) AS result`,
-      [JSON.stringify({ ...input, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance, weeklyReportAcceptance, draftMetadataAcceptance) {
+      const draftAddition = draftMetadataAcceptance ? { draftMetadataAcceptance, draftMetadataProjection: projectDraftMetadata(input) } : {};
+      const submission = JSON.stringify({ ...input, ...draftAddition, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
         ...(acceptance ? { rosterAcceptance: acceptance } : {}),
         ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
         ...(managerEvidenceAcceptance ? { teamManagerEvidenceAcceptance: managerEvidenceAcceptance } : {}),
@@ -185,7 +187,20 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
         ...(weeklyReportAcceptance ? { weeklyReportAcceptance, weeklyReportProjection: projectWeeklyReport(input) } : {}),
         ...(acceptance && input.envelope.family === 'rosters' && input.envelope.scope.season === 2026
           && input.envelope.provenance.acquisition?.work.kind === 'core'
-          ? { officialStandings: projectOfficialStandings(input) } : {}) })]);
+          ? { officialStandings: projectOfficialStandings(input) } : {}) });
+      if (draftMetadataAcceptance) {
+        const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
+        // Compact relational entries/links are no larger than their projection.
+        // Reserve fixed receipt/header/UUID framing for at most eight facts, plus
+        // every possible duplicate of the otherwise unbounded native league ID.
+        const readAllowance = bytes(input.envelope.payload) + bytes(draftAddition.draftMetadataProjection?.value)
+          + bytes(mapping) + bytes(input.envelope.provenance) + DRAFT_METADATA_LIMITS.framingBytes
+          + DRAFT_METADATA_LIMITS.drafts * bytes(input.envelope.scope.externalLeagueId);
+        if (Buffer.byteLength(submission, 'utf8') > DRAFT_METADATA_LIMITS.persistedBytes
+          || readAllowance > DRAFT_METADATA_LIMITS.persistedBytes) throw new Error('Draft metadata persistence budget exceeded.');
+      }
+      const rows = await client.query(`/* league-administration:record-observation */
+        SELECT public.record_league_administration_observation($1::jsonb) AS result`, [submission]);
       if (rows.length !== 1) throw new Error('Administration observation did not return one result.');
       const result = object(rows[0].result);
       if (!['changed', 'unchanged', 'replayed', 'stale', 'rejected'].includes(String(result.status))) {

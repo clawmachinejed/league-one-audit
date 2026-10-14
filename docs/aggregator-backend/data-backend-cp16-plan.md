@@ -1,0 +1,39 @@
+# CP16 draft metadata candidate
+
+This local candidate starts at `ded70b9829df324c250b6f89a2c92dc2e071c87f`. Authoring, local checks, a draft stacked PR and its preview are authorized. Paid SQL, provisioning, credentials, retained migration installation, DATA activation, merge and production release are not authorized. CP17 picks, CP18 ownership/traded picks and CP19 ordinary intake/refresh remain deferred. CP1/2 and row 16 remain unchanged.
+
+## Four scope fields
+
+1. **Data resource:** exact 2026 Sleeper draft catalog and per-draft identity, settings, order, provider status and native field presence. Keep multiple drafts, incomplete/pre-draft states and unknown native fields. At most eight detail GETs follow one bounded catalog GET; picks, trades and brackets are unrequested.
+2. **Existing path:** `sleeper.ts:getOfficialDraftAdministration` explicit metadata-only option → unchanged administration v1 observation/normalizer → shared administration writer and existing resource scopes, attempts, receipts, acceptances and heads → additive `053_draft_metadata.sql` typed rows → `neon/draft-metadata.ts` stored current/exact-receipt reader. `aggregator/draft-metadata.ts` owns the independent metadata projection; legacy full-bundle rejection does not veto qualified metadata.
+3. **Persisted result:** immutable native catalog/detail evidence with separate endpoint clocks and capture receipts; typed identity/settings/status/order/native presence; distinct user-to-slot and slot-to-roster rows. Retain whole bounded catalog, valid/invalid identities and attempted/succeeded/failed/unrequested counts. Transport-overflow totals are unknown; a successfully bounded catalog exceeding eight drafts retains its known observed total and identities. Partial/capped captures preserve prior accepted heads, and each detail is independently accepted. Provider timestamps never become acquisition or acceptance clocks.
+4. **Real evidence and gaps:** source inspection and independent pre-edit scope confirmation are recorded below. Focused implementation checks passed 66/66, reader/profile checks passed 174/174, the final-pin profile rerun passed 100/100, and nonincremental TypeScript passed. Independent final source review DATA-CP16-2026-10-14-FINAL-SOURCE-REVIEW and its separate 254-test run cover the repaired behavior; the complete local workflow passed on unchanged source with the process-only CI=1 one-worker rerun after the preserved first browser failure. Units passed 7,618 with one host-conditional skip across 324 files; public browser passed 120 with 21 disclosed skips, and account browser passed 20/20. SQL was skipped/unverified and no database command ran. Independent result-overlay documentation review is complete under DATA-CP16-2026-10-14-DOCS-SOURCE-REVIEW; exact-commit publication/hosted CI/preview remain pending. Detailed development failures and source-only proof limits are retained in data-backend-evidence.md. No hosted PostgreSQL, restricted LOGIN, live provider parity, retained installation, natural cadence, capacity, crash/restore or production qualification follows from authoring.
+
+## Approved exact-path purposes
+
+Independent reference `DATA-CP16-2026-10-14-IMPLEMENTATION-SCOPE` confirms:
+
+- `apps/site/lib/aggregator/contracts.ts`: bounded draft resource-family addition only.
+- `apps/site/lib/aggregator/validation.ts`: independently confirmed scope extension for exactly the `drafts` literal in the shared source-scope family allowlist; every other validation rule is preserved.
+- `apps/site/lib/aggregator/draft-metadata.ts` and `.test.ts`: independent versioned metadata projection, native presence, scope and parity.
+- `apps/site/lib/sleeper.ts` and `sleeper-draft-metadata.test.ts`: opt-in existing metadata entry, shared bounded transport, whole catalog and detail accounting, unchanged omitted-option behavior.
+- `apps/site/lib/league-administration/store-contracts.ts` and `store.ts`: optional metadata reservation/read, final writer acceptance argument and disabled no-I/O compatibility.
+- `apps/site/lib/league-administration/neon/administration.ts`: wire the metadata addition into the sole shared writer.
+- `apps/site/lib/league-administration/neon/draft-metadata.ts` and `.test.ts`: strict stored-only current/exact receipt lineage and persisted native parity.
+- `apps/site/migrations/053_draft_metadata.sql` and `apps/site/lib/league-administration/draft-metadata-migration.test.ts`: one additive typed schema and narrow existing writer/receipt/role extensions plus source contract checks.
+- This plan and `data-backend-scope.json`: exact scope and proof boundaries.
+- `apps/site/scripts/provision-runtime-role.sql`: separately confirmed by the same independent scope reviewer for fresh-role parity; CP16 table SELECT, reservation EXECUTE, private helper/prior-writer revocation and matching postconditions only. Authoring does not provision a role.
+
+Independent reference `DATA-CP16-2026-10-14-QUALIFICATION-SCOPE` confirms:
+
+- `apps/site/integration/draft-metadata.integration-case.ts`: eight ordered restricted-role cases, each allowing 60 seconds, with two 120-second hooks.
+- `apps/site/integration/qualification-profile.ts`: closed manual selector, source digest and exact inventory.
+- `apps/site/integration/qualification-profile.test.ts`: offline profile/report/source/budget validation and unchanged older pins.
+- `.github/workflows/integration.yml`: literal manual profile choice and exact command only; no execution authorization.
+- `apps/site/integration/README.md` and `docs/aggregator-backend/data-backend-evidence.md`: separately confirmed source-only profile/budget documentation and dated completed-check/pending-proof evidence; preserve previous records.
+
+## Boundaries
+
+The shared transport retains its per-response 8 MiB decoded-body, 250,000-value and depth-64 limits, redirect refusal and cancellation. One original 20-second work deadline covers the catalog, per-detail reservations and sequential detail reads. Retained native source bodies share an 8 MiB aggregate allowance; total downloaded/decoded bytes may be greater because each response is bounded before its retention budget is checked (at most nine responses). Persisted submissions have a separate 32 MiB compact-JSON guard. A second guard sums raw payload, projected value, mapping and provenance with 64 KiB reserved for fixed receipt/header framing and eight encoded native league IDs; compact relational entry/link tuples are no larger than their projected counterparts. PostgreSQL independently applies that allowance using conservative expanded JSON text, with an 8 MiB plus 64 KiB payload ceiling and 32 MiB minus 64 KiB projection/submission ceilings. The TypeScript framing guard refuses before query submission, and the SQL framing guard precedes legacy writer delegation; other SQL native-payload expansion rejection can roll back delegated work. Pathological overflow retains no new writes or receipt and preserves the previous head. This differs from ordinary partial, malformed and capped captures, which retain diagnostic native receipts. These source inequalities are not measured SQL latency or capacity guarantees. A catalog above eight retains the entire bounded native catalog and typed identities/counts without duplicating its optional metadata into typed facts. The catalog and details are a sequence of observations, never an atomic source snapshot. Catalog/detail status or order drift is retained as ordinary provider change, not mislabeled identity conflict.
+
+Unrequested picks and traded picks stay explicitly unrequested. Complete-empty catalog evidence is meaningful; a partial or capped inventory cannot erase previous accepted state. The metadata reader validates its own receipt acceptance, mapping revision, generation, source scope and typed/native parity, independently of the legacy full-bundle accepted flag.
