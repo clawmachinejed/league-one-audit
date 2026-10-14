@@ -19,6 +19,8 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   OFFICIAL_RESULTS_PROFILE, OFFICIAL_RESULTS_MODULE, OFFICIAL_RESULTS_SOURCE_DIGEST, OFFICIAL_RESULTS_SUITE,
   OFFICIAL_RESULTS_TESTS, OFFICIAL_RESULTS_FULL_NAMES, OFFICIAL_RESULTS_PATTERN,
   OFFICIAL_RESULTS_PLAYED_PROFILE, OFFICIAL_RESULTS_PLAYED_FULL_NAMES, OFFICIAL_RESULTS_PLAYED_PATTERN,
+  DRAFT_SELECTIONS_PROFILE, DRAFT_SELECTIONS_MODULE, DRAFT_SELECTIONS_SOURCE_DIGEST, DRAFT_SELECTIONS_SUITE,
+  DRAFT_SELECTIONS_TESTS, DRAFT_SELECTIONS_FULL_NAMES, DRAFT_SELECTIONS_PATTERN,
   DRAFT_METADATA_PROFILE, DRAFT_METADATA_MODULE, DRAFT_METADATA_SOURCE_DIGEST, DRAFT_METADATA_SUITE,
   DRAFT_METADATA_TESTS, DRAFT_METADATA_FULL_NAMES, DRAFT_METADATA_PATTERN,
   TRANSACTION_HISTORY_INTAKE_PROFILE, TRANSACTION_HISTORY_INTAKE_MODULE, TRANSACTION_HISTORY_INTAKE_SOURCE_DIGEST,
@@ -321,7 +323,7 @@ it.each([OFFICIAL_PROFILE, GUARDS_PROFILE, CONCURRENCY_PROFILE, LATE_WRITE_PROFI
   expect(context.modules).toEqual([{ path: SELECTED_MODULE, sourceDigest: SELECTED_SOURCE_DIGEST }]);
   expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
     PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual(['integration/**/*.integration-case.ts']);
-  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(64);
+  expect((await createQualificationContext(site, 'a'.repeat(40), randomUUID())).modules).toHaveLength(65);
 });
 it('excludes live source from generated full inventory and default discovery, requiring the exact bound opt-in', async () => {
   const binding = await fixture();
@@ -887,7 +889,7 @@ it('requires a closed bound live directory profile while preserving default55 di
   expect(() => requireLivePlayerDirectoryQualification({})).toThrow('Explicit bound');
   expect(qualificationIncludes({})).toEqual(['integration/**/*.integration-case.ts']);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
-  expect(full.modules).toHaveLength(64);
+  expect(full.modules).toHaveLength(65);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   for (const profile of [PLAYER_DIRECTORY_PROFILE, SELECTED_PROFILE, INGESTION_PROFILE, LIVE_PROFILE, JOURNEY_PROFILE] as const) {
     const older = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), profile);
@@ -1899,8 +1901,8 @@ it('binds the official results evidence profile to two exact cases and original 
     'integration/typed-brackets.integration-case.ts',
     'integration/website-auth.integration-case.ts',
   ];
-  expect(full.modules.map(module => module.path)).toEqual([...previousModules, DRAFT_METADATA_MODULE, OFFICIAL_RESULTS_EVIDENCE_MODULE, WEEKLY_REPORTS_MODULE, TRANSACTION_PERIOD_INTAKE_MODULE, TRANSACTION_HISTORY_INTAKE_MODULE, TRANSACTION_HISTORY_REFRESH_MODULE, TRANSACTION_HISTORY_RECOVERY_MODULE].sort());
-  expect(full.modules).toHaveLength(64);
+  expect(full.modules.map(module => module.path)).toEqual([...previousModules, DRAFT_SELECTIONS_MODULE, DRAFT_METADATA_MODULE, OFFICIAL_RESULTS_EVIDENCE_MODULE, WEEKLY_REPORTS_MODULE, TRANSACTION_PERIOD_INTAKE_MODULE, TRANSACTION_HISTORY_INTAKE_MODULE, TRANSACTION_HISTORY_REFRESH_MODULE, TRANSACTION_HISTORY_RECOVERY_MODULE].sort());
+  expect(full.modules).toHaveLength(65);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   const original = await officialResultsFixture();
   expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479');
@@ -2512,4 +2514,121 @@ it('keeps CP15 module bytes and predecessor pins unchanged for the CP16 selector
   }
   expect(TYPED_BRACKETS_SOURCE_DIGEST).toBe('edab995ff8e046b4a3c6dcab40a22f1bebb76e3d3f7a59dc7e3f1cd7bb3c06fe');
   expect(TRANSACTION_PERIOD_INTAKE_SOURCE_DIGEST).toBe('a16903ff701c386f2f9d2f2032e6920534139015e83bc1ed6b9d675ceea682f1');
+});
+
+async function draftSelectionsFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), DRAFT_SELECTIONS_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: DRAFT_SELECTIONS_MODULE, pattern: DRAFT_SELECTIONS_PATTERN, otherFilters: false }];
+  evidence.collected = [DRAFT_SELECTIONS_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: DRAFT_SELECTIONS_MODULE,
+    suites: [{ id: 'suite', name: DRAFT_SELECTIONS_SUITE, mode: 'run', errors: 0 }],
+    cases: DRAFT_SELECTIONS_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('binds the draft selections profile to eight exact source ordered cases and unchanged cleanup requirements', async () => {
+  expect(parseQualificationArguments(['--profile=' + DRAFT_SELECTIONS_PROFILE])).toBe(DRAFT_SELECTIONS_PROFILE);
+  expect(qualificationArguments(DRAFT_SELECTIONS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', DRAFT_SELECTIONS_MODULE, '--testNamePattern', DRAFT_SELECTIONS_PATTERN]);
+  for (const args of [['--profile=data-draft-selections-v2'], ['--profile', DRAFT_SELECTIONS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + DRAFT_SELECTIONS_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + DRAFT_SELECTIONS_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+  const { binding, evidence } = await draftSelectionsFixture();
+  const env = { [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory };
+  expect(qualificationIncludes(env)).toEqual([DRAFT_SELECTIONS_MODULE]);
+  expect(DRAFT_SELECTIONS_FULL_NAMES).toHaveLength(8);
+  const pattern = new RegExp(DRAFT_SELECTIONS_PATTERN);
+  for (const name of DRAFT_SELECTIONS_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect([...DRAFT_METADATA_FULL_NAMES, ...OFFICIAL_RESULTS_FULL_NAMES, ...OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES].some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence); await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: DRAFT_SELECTIONS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479');
+  expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
+});
+it('rejects draft selections profile inventory hook retry source substitution and cleanup evidence drift', async () => {
+  const { binding, evidence } = await draftSelectionsFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].cases[1].id = r.modules[0].cases[0].id; }, r => { r.modules[0].suites = []; },
+    r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; }, r => { r.hooks[0].ends = 0; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; }, r => { r.starts = 2; }, r => { r.ends = 0; },
+    r => { r.contextDigest = 'f'.repeat(64); }, r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.flaky = true; }, r => { r.collected.push(OFFICIAL_RESULTS_MODULE); },
+  ];
+  for (const change of changes) { const changed = structuredClone(evidence); change(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+  const original = await officialResultsEvidenceFixture();
+  expect(() => validateQualificationReport(original.binding.context, { ...evidence, contextDigest: qualificationDigest(original.binding.context) })).toThrow();
+  expect(() => validateQualificationReport(binding.context, { ...original.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  for (const change of [(context: typeof binding.context) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: typeof binding.context) => { context.modules[0].path = OFFICIAL_RESULTS_MODULE; },
+    (context: typeof binding.context) => { context.profileDigest = original.binding.context.profileDigest; },
+    (context: typeof binding.context) => { context.modules.push({ ...context.modules[0] }); }]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  await writeFile(join(binding.directory, DRAFT_SELECTIONS_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), DRAFT_SELECTIONS_PROFILE)).rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories draft selections source hooks budgets and manual workflow without importing SQL execution', async () => {
+  const path = fileURLToPath(new URL('../' + DRAFT_SELECTIONS_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(DRAFT_SELECTIONS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default'); }
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(suites).toEqual([DRAFT_SELECTIONS_SUITE]); expect(names).toEqual(DRAFT_SELECTIONS_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']); expect(budgets).toEqual(Array<string>(8).fill('60_000')); expect(hookBudgets).toEqual(['120_000', '120_000']);
+  // Planning only: 12 minutes suite, 8 minutes setup, 3 minutes reporting/cleanup, 7 minutes margin.
+  expect(8 * 60_000 + 2 * 120_000).toBe(720_000);
+  expect(720_000 + 8 * 60_000 + 3 * 60_000 + 7 * 60_000).toBe(30 * 60_000);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow.match(/^\s+- data-draft-selections-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-draft-selections-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-draft-selections-v1$/gmu)).toHaveLength(1);
+});
+
+it('preserves CP16 and CP15 source pins and rejects predecessor report substitution for CP17', async () => {
+  const current = await draftSelectionsFixture(), previous = await draftMetadataFixture();
+  expect(DRAFT_METADATA_SOURCE_DIGEST).toBe('ad02626bdd113ead7d71a2f7365238f407f8eb8116b95da0f78f3e413c0fe4da');
+  expect(qualificationSourceDigest(await readFile(new URL('../' + DRAFT_METADATA_MODULE, import.meta.url), 'utf8'))).toBe(DRAFT_METADATA_SOURCE_DIGEST);
+  expect(() => validateQualificationReport(current.binding.context,
+    { ...previous.evidence, contextDigest: qualificationDigest(current.binding.context) })).toThrow();
+  expect(() => validateQualificationReport(previous.binding.context,
+    { ...current.evidence, contextDigest: qualificationDigest(previous.binding.context) })).toThrow();
+  for (const selection of historyProfiles)
+    expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(65);
+  expect(full.modules.filter(module => module.path === DRAFT_SELECTIONS_MODULE)).toHaveLength(1);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
 });

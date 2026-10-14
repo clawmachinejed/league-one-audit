@@ -862,3 +862,28 @@ DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPD
   END IF;
 END; $$;
 -- END OPTIONAL DRAFT METADATA GRANTS
+
+-- BEGIN OPTIONAL DRAFT SELECTIONS GRANTS
+DO $$
+DECLARE value_table text; helper text;
+BEGIN
+  IF to_regclass('public.league_draft_selection_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_draft_selections','league_draft_selection_contents','league_draft_selection_catalog_entries','league_draft_selection_entries','league_draft_selection_link_receipts','league_draft_selection_player_links'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR has_table_privilege('league_one_runtime','public.'||value_table,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect draft selections privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.draft_selection_field(jsonb,text,text)','public.draft_selection_facts(jsonb,integer,text,text,boolean)','public.project_draft_selections_native(jsonb,text,boolean)','public.draft_selections_typed_value(uuid)','public.capture_draft_selections_typed(uuid,uuid,jsonb)','public.validate_draft_selections_typed_lineage()','public.guard_draft_selections_child_insert()','public.validate_draft_selections_fence()','public.validate_draft_selection_link_lineage()','public.validate_draft_selection_link_counts()','public.capture_draft_selection_player_links()','public.record_league_administration_observation_v53(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private draft selections helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_draft_selections_attempt(jsonb,jsonb,uuid,jsonb),public.record_league_administration_observation(jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_draft_selections_attempt(jsonb,jsonb,uuid,jsonb)','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime','public.record_league_administration_observation(jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot execute draft selections entry point'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL DRAFT SELECTIONS GRANTS
