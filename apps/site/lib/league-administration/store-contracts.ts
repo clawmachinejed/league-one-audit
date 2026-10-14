@@ -1,5 +1,6 @@
 import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { DraftMetadataResource, DraftMetadataSelection, DraftMetadataRead } from '../aggregator/draft-metadata';
+import type { DraftSelectionsResource, DraftSelectionsSelection, DraftSelectionsRead } from '../aggregator/draft-selections';
 import type { BracketFamily, BracketSelection, AcceptedBracketRead } from '../aggregator/playoff-brackets';
 import type { WeeklyReportSelection, AcceptedWeeklyReportRead } from '../aggregator/weekly-reports';
 import type { RosterPlayerLinksSelection, RosterPlayerLinksRead } from '../aggregator/roster-player-links';
@@ -48,6 +49,7 @@ export type AdministrationWriteResult = Readonly<{
   bracketAcceptance?: RosterAcceptanceResult;
   weeklyReportAcceptance?: RosterAcceptanceResult;
   draftMetadataAcceptance?: RosterAcceptanceResult;
+  draftSelectionsAcceptance?: RosterAcceptanceResult;
   calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
   calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
@@ -79,7 +81,10 @@ export type LeagueAdministrationStore = Readonly<{
     matchupAcceptance?: RosterAcceptanceInput, calendarEvidence?: SleeperCalendarEvidence,
     calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>,
-    weeklyReportAcceptance?: Readonly<{ attempt: RosterAttempt }>, draftMetadataAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    weeklyReportAcceptance?: Readonly<{ attempt: RosterAttempt }>, draftMetadataAcceptance?: Readonly<{ attempt: RosterAttempt }>,
+    draftSelectionsAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginDraftSelectionsAttempt?: (mapping: AdministrationSourceMapping, resource: DraftSelectionsResource, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readDraftSelections?: (mapping: AdministrationSourceMapping, selection: DraftSelectionsSelection) => Promise<DraftSelectionsRead>;
   beginDraftMetadataAttempt?: (mapping: AdministrationSourceMapping, resource: DraftMetadataResource, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readDraftMetadata?: (mapping: AdministrationSourceMapping, selection: DraftMetadataSelection) => Promise<DraftMetadataRead>;
   beginWeeklyReportAttempt?: (mapping: AdministrationSourceMapping, nativeWeek: number, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
