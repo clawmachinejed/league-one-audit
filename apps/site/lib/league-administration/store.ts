@@ -27,6 +27,8 @@ export function createLeagueAdministrationStore(database: Database): LeagueAdmin
     readSourceMapping: async () => null,
     beginDraftMetadataAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     readDraftMetadata: async () => ({ status: 'disabled' }),
+    beginTradedPicksAttempt: async () => { throw new Error('Administration persistence disabled.'); },
+    readTradedPicks: async () => ({ status: 'disabled' }),
     beginDraftSelectionsAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     readDraftSelections: async () => ({ status: 'disabled' }),
     beginBracketAttempt: async () => { throw new Error('Administration persistence disabled.'); },

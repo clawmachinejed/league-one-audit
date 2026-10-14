@@ -1,3 +1,4 @@
+import type { TradedPicksResource, TradedPicksSelection, TradedPicksRead } from '../aggregator/traded-picks';
 import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { DraftMetadataResource, DraftMetadataSelection, DraftMetadataRead } from '../aggregator/draft-metadata';
 import type { DraftSelectionsResource, DraftSelectionsSelection, DraftSelectionsRead } from '../aggregator/draft-selections';
@@ -50,6 +51,7 @@ export type AdministrationWriteResult = Readonly<{
   weeklyReportAcceptance?: RosterAcceptanceResult;
   draftMetadataAcceptance?: RosterAcceptanceResult;
   draftSelectionsAcceptance?: RosterAcceptanceResult;
+  tradedPicksAcceptance?: RosterAcceptanceResult;
   calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
   calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
 }>;
@@ -82,7 +84,9 @@ export type LeagueAdministrationStore = Readonly<{
     calculationCapture?: CalculationSourceCapture, transactionAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     managerEvidenceAcceptance?: RosterAcceptanceInput, bracketAcceptance?: Readonly<{ attempt: RosterAttempt }>,
     weeklyReportAcceptance?: Readonly<{ attempt: RosterAttempt }>, draftMetadataAcceptance?: Readonly<{ attempt: RosterAttempt }>,
-    draftSelectionsAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+    draftSelectionsAcceptance?: Readonly<{ attempt: RosterAttempt }>, tradedPicksAcceptance?: Readonly<{ attempt: RosterAttempt }>) => Promise<AdministrationWriteResult>;
+  beginTradedPicksAttempt?: (mapping: AdministrationSourceMapping, resource: TradedPicksResource, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
+  readTradedPicks?: (mapping: AdministrationSourceMapping, selection: TradedPicksSelection) => Promise<TradedPicksRead>;
   beginDraftSelectionsAttempt?: (mapping: AdministrationSourceMapping, resource: DraftSelectionsResource, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
   readDraftSelections?: (mapping: AdministrationSourceMapping, selection: DraftSelectionsSelection) => Promise<DraftSelectionsRead>;
   beginDraftMetadataAttempt?: (mapping: AdministrationSourceMapping, resource: DraftMetadataResource, id: string, fence?: AdministrationWriteFence) => Promise<RosterAttempt>;
