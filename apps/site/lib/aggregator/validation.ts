@@ -89,7 +89,7 @@ export function assertSourceScope(value: unknown): asserts value is SourceScope 
   for (const field of ['connectionId', 'leagueSeasonId', 'audienceId', 'coverageSpecId']) text(value[field], field);
   for (const field of ['entityId', 'scoringPeriodId']) nullableText(value[field], field);
   choice(value.family, ['league-season', 'settings', 'teams', 'standings', 'matchups', 'roster-membership',
-    'lineup', 'player-points', 'transactions', 'playoff-brackets', 'history'], 'scope.family');
+    'lineup', 'player-points', 'transactions', 'playoff-brackets', 'drafts', 'history'], 'scope.family');
   requireValue(!('accessContextId' in value), 'source scope discovery identity');
 }
 

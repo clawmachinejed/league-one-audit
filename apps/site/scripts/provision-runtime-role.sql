@@ -828,3 +828,37 @@ DO $$ DECLARE helper text; BEGIN
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC TRANSACTION HISTORY GRANTS
+-- BEGIN OPTIONAL DRAFT METADATA GRANTS
+-- CP16 metadata uses the existing public writer; private materialization and
+-- validation helpers stay inaccessible after fresh runtime-role provisioning.
+DO $$ DECLARE value_table text; helper text; denied_privileges text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied_privileges:=denied_privileges||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_draft_metadata_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_season_drafts','league_draft_metadata_contents','league_draft_metadata_entries',
+      'league_draft_metadata_facts','league_draft_metadata_user_slots','league_draft_metadata_slot_rosters'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF has_table_privilege('league_one_runtime','public.'||value_table,denied_privileges)
+        OR NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT')
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||value_table)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'league_one_runtime has incorrect draft metadata privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.draft_metadata_owns(jsonb,text,text)',
+      'public.draft_metadata_field(jsonb,text,text)','public.draft_metadata_facts(jsonb)',
+      'public.project_draft_metadata_native(jsonb,text,boolean)','public.draft_metadata_stored_facts(uuid,text,text)',
+      'public.draft_metadata_typed_value(uuid)','public.capture_draft_metadata_typed(uuid,uuid,jsonb)',
+      'public.validate_draft_metadata_typed_lineage()','public.guard_draft_metadata_child_insert()',
+      'public.validate_draft_metadata_fence()','public.record_league_administration_observation_v52(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private draft metadata helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_draft_metadata_attempt(jsonb,jsonb,uuid,jsonb) TO league_one_runtime;
+    GRANT EXECUTE ON FUNCTION public.record_league_administration_observation(jsonb) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.begin_draft_metadata_attempt(jsonb,jsonb,uuid,jsonb)','EXECUTE')
+      OR NOT has_function_privilege('league_one_runtime','public.record_league_administration_observation(jsonb)','EXECUTE') THEN
+      RAISE EXCEPTION 'runtime cannot execute draft metadata entry point'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL DRAFT METADATA GRANTS
