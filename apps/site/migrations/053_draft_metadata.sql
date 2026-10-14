@@ -15,7 +15,7 @@ BEGIN
   IF raw='null'::jsonb THEN RETURN jsonb_build_object('state','null','raw',NULL,'value',NULL); END IF;
   IF p_kind='text' AND jsonb_typeof(raw)='string' OR p_kind='object' AND jsonb_typeof(raw)='object' THEN parsed:=raw;
   ELSIF p_kind IN ('timestamp','slot') AND jsonb_typeof(raw)='number' THEN
-    IF (raw#>>'{}')::numeric=trunc((raw#>>'{}')::numeric) AND (raw#>>'{}')::numeric BETWEEN CASE WHEN p_kind='slot' THEN 1 ELSE 0 END AND 9007199254740991 THEN parsed:=raw; END IF;
+    IF (raw#>>'{}')::numeric=trunc((raw#>>'{}')::numeric) AND (raw#>>'{}')::numeric BETWEEN (CASE WHEN p_kind='slot' THEN 1 ELSE 0 END) AND 9007199254740991 THEN parsed:=raw; END IF;
   ELSIF p_kind='roster' THEN
     IF jsonb_typeof(raw)='string' AND raw#>>'{}' ~ '^[1-9][0-9]{0,31}$' THEN parsed:=raw;
     ELSIF jsonb_typeof(raw)='number' AND (raw#>>'{}')::numeric=trunc((raw#>>'{}')::numeric)
