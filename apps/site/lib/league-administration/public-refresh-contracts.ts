@@ -1,10 +1,11 @@
 import type { AdministrationWriteFence } from './store-contracts';
-import { normalizePublicTransactionHistory, type PublicTransactionHistory } from './public-intake-contracts';
+import { normalizePublicTransactionHistory, type PublicTransactionHistory, normalizePublicDraftPicks, type PublicDraftPicks } from './public-intake-contracts';
 import { normalizePublicWeeklyReports, normalizePublicExactPeriods, normalizePublicPeriodInventory, normalizePublicPlayoffBrackets, type PublicPlayoffBrackets, type PublicPeriodInventory, type PublicExactPeriod, type PublicIntakeOutcome } from './public-intake-contracts';
 
 export type PublicDataRefreshConfiguration = Readonly<{
   id: string; expectedRevision: number; identityRequestId: string; seasons: readonly number[];
   cadenceSeconds: number; expiresAt: string; paused: boolean; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets; weeklyReports?: readonly PublicExactPeriod[]; transactionHistory?: PublicTransactionHistory;
+  draftPicks?: PublicDraftPicks;
 }>;
 export type PublicDataRefreshConfigured = Readonly<{
   status: 'configured' | 'replayed'; targetId: string; configurationRevision: number;
@@ -46,6 +47,7 @@ export function validatePublicDataRefresh(input: PublicDataRefreshConfiguration,
     || !Number.isFinite(now.getTime()) || !Number.isFinite(expiry) || expiry <= now.getTime()
     || expiry > now.getTime() + 90 * 86_400_000) throw new Error('Invalid public DATA refresh configuration.');
   const weeklyReports = normalizePublicWeeklyReports(input.weeklyReports, input.seasons);
+  const draftPicks = normalizePublicDraftPicks(input.draftPicks, input.seasons);
   const transactionHistory = normalizePublicTransactionHistory(input.transactionHistory, input.seasons);
   if (transactionHistory && Object.hasOwn(input, 'transactionPeriod')) throw new Error('Public transaction scopes are mutually exclusive.');
   const playoffBrackets = normalizePublicPlayoffBrackets(input.playoffBrackets, input.seasons);
@@ -54,5 +56,5 @@ export function validatePublicDataRefresh(input: PublicDataRefreshConfiguration,
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), expectedRevision: input.expectedRevision, identityRequestId: input.identityRequestId.toLowerCase(),
     seasons: [...input.seasons].sort((left, right) => left - right), cadenceSeconds: input.cadenceSeconds,
-    expiresAt: new Date(expiry).toISOString(), paused: input.paused, ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionHistory ? { transactionHistory } : {}) };
+    expiresAt: new Date(expiry).toISOString(), paused: input.paused, ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionHistory ? { transactionHistory } : {}), ...(draftPicks ? { draftPicks } : {}) };
 }

@@ -33,8 +33,10 @@ export function parsePublicCaptureWitness(value: unknown): PublicCaptureWitness 
   const work = value.work, kind = work.kind;
   const workKeys = ['requestId', 'revision', 'kind', ...(kind === 'identity' ? ['username']
     : kind === 'leagues' ? ['userId', 'season'] : ['externalLeagueId', 'season']),
-  ...((kind === 'exact-matchups' || kind === 'weekly-report' || kind === 'transactions') ? ['nativeWeek'] : [])];
-  if (!['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions'].includes(String(kind))
+  ...((kind === 'exact-matchups' || kind === 'weekly-report' || kind === 'transactions') ? ['nativeWeek'] : []),
+  ...(kind === 'drafts' ? ['resource', ...(['detail', 'selections', 'draft-trades'].includes(String(work.resource))
+    ? ['externalDraftId', 'catalogReceiptId'] : [])] : [])];
+  if (!['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions', 'drafts'].includes(String(kind))
     || !keys(work, workKeys)
     || (kind === 'identity' ? typeof work.username !== 'string' || !/^[a-zA-Z0-9_]{1,100}$/u.test(work.username)
       : !Number.isInteger(work.season) || Number(work.season) < 1920 || Number(work.season) > 2200
@@ -42,10 +44,13 @@ export function parsePublicCaptureWitness(value: unknown): PublicCaptureWitness 
         || !/^[1-9][0-9]{0,31}$/u.test(String(work[kind === 'leagues' ? 'userId' : 'externalLeagueId'])))
     || ((kind === 'exact-matchups' || kind === 'weekly-report') && (!Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18))
     || (kind === 'transactions' && (!Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 0 || Number(work.nativeWeek) > 18))
-    || ((kind === 'playoff-brackets' || kind === 'weekly-report' || kind === 'transactions') && work.season !== 2026)) {
+    || ((kind === 'playoff-brackets' || kind === 'weekly-report' || kind === 'transactions' || kind === 'drafts') && work.season !== 2026)
+    || (kind === 'drafts' && (!['catalog', 'detail', 'selections', 'league-trades', 'draft-trades'].includes(String(work.resource))
+      || ['detail', 'selections', 'draft-trades'].includes(String(work.resource)) && (typeof work.externalDraftId !== 'string'
+        || !/^[A-Za-z0-9_-]{1,128}$/u.test(work.externalDraftId) || !uuid(work.catalogReceiptId))))) {
     throw new Error('Invalid public capture work.');
   }
-  const mapped = ['core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions'].includes(String(kind));
+  const mapped = ['core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions', 'drafts'].includes(String(kind));
   if (mapped ? !isAdministrationSourceMapping(value.mapping)
     || value.mapping.scope.externalLeagueId !== work.externalLeagueId || value.mapping.scope.season !== work.season
     : value.mapping !== null) throw new Error('Invalid public capture mapping.');
@@ -53,7 +58,9 @@ export function parsePublicCaptureWitness(value: unknown): PublicCaptureWitness 
     ...(Object.hasOwn(value.attempts, 'managersV2') ? ['managersV2'] : [])]
     : kind === 'exact-matchups' ? ['settings', 'matchups']
       : kind === 'playoff-brackets' ? ['winners_bracket', 'losers_bracket']
-        : kind === 'weekly-report' ? ['weekly_report'] : kind === 'transactions' ? ['transactions'] : [];
+        : kind === 'weekly-report' ? ['weekly_report'] : kind === 'transactions' ? ['transactions']
+          : kind === 'drafts' ? [work.resource === 'catalog' || work.resource === 'detail' ? 'draftMetadata'
+            : work.resource === 'selections' ? 'draftSelections' : 'tradedPicks'] : [];
   if (!keys(value.attempts, roles)) throw new Error('Invalid public capture group.');
   const ids = new Set<string>(), nonces = new Set<string>();
   for (const attempt of Object.values(value.attempts)) {
@@ -109,7 +116,7 @@ export function validateRequestedPublicCaptureWitness(value: unknown, work: Publ
 
 /** Called at the actual transport entry, before starting the provider request. */
 export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
-  family: 'identity' | 'leagues' | 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket' | 'weekly_report' | 'transactions', identity: string,
+  family: 'identity' | 'leagues' | 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket' | 'weekly_report' | 'transactions' | 'drafts', identity: string,
   period: number | null = null): PublicCaptureWitness | undefined {
   if (value === undefined) return undefined;
   const witness = parsePublicCaptureWitness(value), work = witness.work;
@@ -122,7 +129,29 @@ export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
               : family === 'matchups' ? work.kind === 'exact-matchups' && work.nativeWeek === period
                 : family === 'weekly_report' ? work.kind === 'weekly-report' && work.nativeWeek === period
                   : family === 'transactions' ? work.kind === 'transactions' && work.nativeWeek === period
+                    : family === 'drafts' ? work.kind === 'drafts' && period === null
                   : (family === 'winners_bracket' || family === 'losers_bracket') && work.kind === 'playoff-brackets' && period === null);
   if (!matches) throw new Error('Public capture request scope mismatch.');
+  return witness;
+}
+
+/** Only the exact ordinary endpoint may add acquisition to the established CP16–18 envelopes. */
+export function publicDraftCaptureForPayload(value: PublicCaptureWitness | undefined, leagueId: string,
+  season: number, payload: unknown): PublicCaptureWitness | undefined {
+  if (value === undefined) return undefined;
+  const witness = publicCaptureForRequest(value, 'drafts', leagueId);
+  if (!witness || witness.work.kind !== 'drafts' || season !== 2026 || !object(payload)) {
+    throw new Error('Invalid public draft acquisition.');
+  }
+  const work = witness.work;
+  const metadata = work.resource === 'catalog' || work.resource === 'detail';
+  const expectedKind = metadata ? work.resource : work.resource === 'selections' ? 'selections'
+    : work.resource === 'league-trades' ? 'league' : 'draft';
+  const version = metadata ? payload.metadataVersion : work.resource === 'selections' ? payload.selectionsVersion : payload.tradedPicksVersion;
+  if (payload.kind !== expectedKind || version !== (metadata ? 'sleeper-draft-metadata-v1'
+    : work.resource === 'selections' ? 'sleeper-draft-selections-v1' : 'sleeper-traded-picks-v1')
+    || ('externalDraftId' in work ? payload.externalDraftId !== work.externalDraftId : Object.hasOwn(payload, 'externalDraftId'))) {
+    throw new Error('Public draft endpoint mismatch.');
+  }
   return witness;
 }

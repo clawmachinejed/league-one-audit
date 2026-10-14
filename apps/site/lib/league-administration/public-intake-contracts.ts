@@ -9,10 +9,14 @@ export const PUBLIC_PERIOD_INVENTORY = 'sleeper-2026-native-period-inventory-v1'
 export type PublicPeriodInventory = typeof PUBLIC_PERIOD_INVENTORY;
 export const PUBLIC_PLAYOFF_BRACKETS = 'sleeper-2026-playoff-brackets-v1' as const;
 export type PublicPlayoffBrackets = typeof PUBLIC_PLAYOFF_BRACKETS;
+export const PUBLIC_DRAFT_PICKS = 'sleeper-2026-draft-picks-v1' as const;
+export type PublicDraftPicks = typeof PUBLIC_DRAFT_PICKS;
 export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
 export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage;
   /** Full transaction history metadata is complete; detailed receipts are bounded to this page. */
   transactionHistoryPage?: PublicPeriodInventoryPage;
+  /** Complete task metadata, with at most twenty detailed immutable draft receipts per page. */
+  draftPicksPage?: PublicPeriodInventoryPage;
   /** Optional evidence context for only the selected detailed period page. */
   periodContextVersion?: 'v1';
   /** Optional typed native lineup and point evidence for the same detailed period page. */
@@ -26,7 +30,8 @@ export const PUBLIC_TRANSACTION_HISTORY = 'sleeper-2026-transaction-history-v1' 
 export type PublicTransactionHistory = typeof PUBLIC_TRANSACTION_HISTORY;
 export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons: readonly number[];
   exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets;
-  weeklyReports?: readonly PublicExactPeriod[]; transactionPeriod?: PublicTransactionPeriod; transactionHistory?: PublicTransactionHistory }>;
+  weeklyReports?: readonly PublicExactPeriod[]; transactionPeriod?: PublicTransactionPeriod; transactionHistory?: PublicTransactionHistory;
+  draftPicks?: PublicDraftPicks }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -81,6 +86,12 @@ export type PublicIntakeStore = Readonly<{
   /** R051 optional exact transaction period, bound to its original receipt. */
   completeTransactions?: (work: Extract<PublicIntakeWork, { kind: 'transactions' }>, mapping: AdministrationSourceMapping,
     checkpoint: PublicTransactionCheckpoint, fence: AdministrationWriteFence) => Promise<void>;
+  /** R056 returns only the immutable catalog row bound to this admitted endpoint task. */
+  draftCatalog?: (work: Extract<PublicIntakeWork, { kind: 'drafts' }>, mapping: AdministrationSourceMapping,
+    fence: AdministrationWriteFence) => Promise<unknown>;
+  completeDraft?: (work: Extract<PublicIntakeWork, { kind: 'drafts' }>, mapping: AdministrationSourceMapping,
+    checkpoint: Readonly<{ observations: Readonly<{ drafts: string }>; receipts: Readonly<{ drafts: string }> }>,
+    fence: AdministrationWriteFence) => Promise<void>;
   fail: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<void>;
 }>;
 
@@ -154,6 +165,13 @@ export function normalizePublicTransactionHistory(value: unknown, seasons: reado
   }
   return PUBLIC_TRANSACTION_HISTORY;
 }
+export function normalizePublicDraftPicks(value: unknown, seasons: readonly number[]): PublicDraftPicks | undefined {
+  if (value === undefined) return undefined;
+  if (value !== PUBLIC_DRAFT_PICKS || seasons.length !== 1 || seasons[0] !== 2026) {
+    throw new Error('Invalid public draft/pick scope.');
+  }
+  return PUBLIC_DRAFT_PICKS;
+}
 export function publicTransactionHistoryPeriods(): readonly PublicTransactionPeriod[] {
   return Array.from({ length: 19 }, (_, nativeWeek) => ({ season: 2026 as const, nativeWeek }));
 }
@@ -180,6 +198,7 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
     || input.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
   const weeklyReports = normalizePublicWeeklyReports(input.weeklyReports, input.seasons);
+  const draftPicks = normalizePublicDraftPicks(input.draftPicks, input.seasons);
   const transactionPeriod = normalizePublicTransactionPeriod(input.transactionPeriod, input.seasons);
   const transactionHistory = normalizePublicTransactionHistory(input.transactionHistory, input.seasons);
   if (transactionHistory && input.transactionPeriod !== undefined) throw new Error('Public transaction scopes are mutually exclusive.');
@@ -188,5 +207,5 @@ export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInpu
   if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');
   const exactPeriods = normalizePublicExactPeriods(input.exactPeriods, input.seasons);
   return { id: input.id.toLowerCase(), username: input.username, seasons: [...input.seasons].sort((a, b) => a - b),
-    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(transactionHistory ? { transactionHistory } : {}) };
+    ...(exactPeriods.length ? { exactPeriods } : {}), ...(periodInventory ? { periodInventory } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(weeklyReports.length ? { weeklyReports } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(transactionHistory ? { transactionHistory } : {}), ...(draftPicks ? { draftPicks } : {}) };
 }

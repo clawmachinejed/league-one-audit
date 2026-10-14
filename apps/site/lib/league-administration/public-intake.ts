@@ -1,6 +1,8 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { capturePublicSleeperCore, capturePublicSleeperWeeklyReport, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
+import { capturePublicSleeperCore, capturePublicSleeperWeeklyReport, capturePublicSleeperIdentity, capturePublicSleeperLeagueList, getOfficialDraftAdministration } from '../sleeper';
+import { ownsDraft, DRAFT_METADATA_VERSION } from '../aggregator/draft-metadata';
+import { compatibleRevision } from '../projections/shared/revision-compatibility';
 import type { ProjectionStore } from '../projection-store';
 import type { LeagueAdministrationStore } from './store-contracts';
 import type { CapturedAdministrationDocument } from './contracts';
@@ -22,6 +24,7 @@ export type PublicIntakeDependencies = Readonly<{
   source?: Readonly<{ identity: typeof capturePublicSleeperIdentity; leagues: typeof capturePublicSleeperLeagueList;
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     weeklyReport?: typeof capturePublicSleeperWeeklyReport;
+    drafts?: typeof getOfficialDraftAdministration;
     transactions?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     bracket?: (leagueId: string, family: BracketFamily, signal: AbortSignal, witness: PublicCaptureWitness) => Promise<CapturedAdministrationDocument>;
     exactPeriod?: (leagueId: string, nativeWeek: number, signal: AbortSignal, witness?: PublicCaptureWitness) => Promise<CapturedAdministrationDocument> }>;
@@ -65,7 +68,7 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
   const phaseIntake = phase?.intake ?? intake;
   const now = dependencies.now ?? (() => new Date());
   const source: NonNullable<PublicIntakeDependencies['source']> = dependencies.source ?? { identity: capturePublicSleeperIdentity,
-    leagues: capturePublicSleeperLeagueList, weeklyReport: capturePublicSleeperWeeklyReport,
+    leagues: capturePublicSleeperLeagueList, weeklyReport: capturePublicSleeperWeeklyReport, drafts: getOfficialDraftAdministration,
     transactions: (leagueId: string, nativeWeek: number, captureSignal: AbortSignal, witness: PublicCaptureWitness) =>
       capturePublicSleeperCore(leagueId, 'transactions', captureSignal, nativeWeek, witness),
     core: (leagueId: string, family: 'league' | 'rosters' | 'users', captureSignal: AbortSignal, witness?: PublicCaptureWitness) =>
@@ -180,7 +183,49 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
         throw new Error('Intake mapping unavailable.');
       }
       const observations: { league?: string; rosters?: string; users?: string } = {};
-      if (work.kind === 'transactions') {
+      if (work.kind === 'drafts') {
+        if (work.season !== 2026 || !source.drafts || !administration.beginDraftMetadataAttempt
+          || !administration.beginDraftSelectionsAttempt || !administration.beginTradedPicksAttempt
+          || !intake.completeDraft || !intake.draftCatalog || !intake.captureWitness) {
+          throw new Error('Witnessed draft intake is unsupported.');
+        }
+        let catalog: unknown = null;
+        if ('externalDraftId' in work) {
+          const selectedDraft = work;
+          const retained = await intake.draftCatalog(work, mapping, fence);
+          if (!retained || typeof retained !== 'object' || Array.isArray(retained)) throw new Error('Draft catalog unavailable.');
+          const evidence = retained as Record<string, unknown>;
+          const payload = evidence.payload as Record<string, unknown> | null;
+          if (evidence.receiptId !== work.catalogReceiptId || compatibleRevision(evidence.sourceMapping) !== compatibleRevision(mapping)
+            || !payload || payload.metadataVersion !== DRAFT_METADATA_VERSION || payload.kind !== 'catalog'
+            || !Array.isArray(payload.catalog) || payload.catalog.length > 8) throw new Error('Draft catalog receipt mismatch.');
+          const rows = payload.catalog.filter(row => ownsDraft(row, selectedDraft.externalLeagueId, selectedDraft.externalDraftId));
+          if (rows.length !== 1) throw new Error('Draft catalog identity mismatch.');
+          catalog = rows[0];
+        }
+        const kind = work.resource === 'catalog' || work.resource === 'detail' ? 'metadata' as const
+          : work.resource === 'selections' ? 'selections' as const : 'trades' as const;
+        const attempt = kind === 'metadata' ? await administration.beginDraftMetadataAttempt(mapping,
+          work.resource === 'catalog' ? { kind: 'catalog' } : { kind: 'detail', externalDraftId: (work as Extract<typeof work, { externalDraftId: string }>).externalDraftId }, randomUUID(), fence)
+          : kind === 'selections' ? await administration.beginDraftSelectionsAttempt(mapping,
+            { kind: 'selections', externalDraftId: (work as Extract<typeof work, { externalDraftId: string }>).externalDraftId }, randomUUID(), fence)
+            : await administration.beginTradedPicksAttempt(mapping, work.resource === 'league-trades' ? { kind: 'league' }
+              : { kind: 'draft', externalDraftId: (work as Extract<typeof work, { externalDraftId: string }>).externalDraftId }, randomUUID(), fence);
+        const witness = await captureWitness(mapping, { [kind === 'metadata' ? 'draftMetadata' : kind === 'selections' ? 'draftSelections' : 'tradedPicks']: attempt.id });
+        if (!witness) throw new Error('Draft intake requires its database acquisition witness.');
+        signal.throwIfAborted();
+        requests++;
+        const captured = await source.drafts(work.externalLeagueId, work.season, { signal, maxRequests: 1, publicDraft: { witness, catalog } });
+        if (captured.providerRequests !== 1 || captured.observations.length !== 1) throw new Error('Draft endpoint budget mismatch.');
+        const document = captured.observations[0];
+        if (document.family !== 'drafts' || document.week !== null || document.origin !== 'network') throw new Error('Draft endpoint scope mismatch.');
+        const written = await recordCapturedAdministration(mapping.scope, [document], { store: administration, signal, fence, mapping, now,
+          draftAttempt: { kind, attempt }, expectedAcquisition: witness });
+        const result = written.results[0]?.result;
+        const acceptance = kind === 'metadata' ? result?.draftMetadataAcceptance : kind === 'selections' ? result?.draftSelectionsAcceptance : result?.tradedPicksAcceptance;
+        if (!result?.observationId || acceptance?.status !== 'accepted') throw new Error('Draft typed capture remains incomplete.');
+        await intake.completeDraft(work, mapping, { observations: { drafts: result.observationId }, receipts: { drafts: acceptance.receiptId } }, fence);
+      } else if (work.kind === 'transactions') {
         if (work.season !== 2026 || !source.transactions || !administration.beginTransactionAttempt
           || !intake.completeTransactions || !intake.captureWitness) throw new Error('Witnessed transaction intake is unsupported.');
         const attempt = await administration.beginTransactionAttempt(mapping, work.nativeWeek, randomUUID(), fence);

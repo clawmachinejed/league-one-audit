@@ -4,6 +4,7 @@ import type { AdministrationSourceMapping } from '../league-administration/sourc
 import { isAdministrationSourceMapping } from '../league-administration/source-mapping';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
+import { publicDraftCaptureForPayload } from '../league-administration/public-capture-witness';
 import { PUBLIC_CAPTURE_LIMITS } from '../sleeper-public-response';
 import { DRAFT_METADATA_LIMITS, ownsDraft, validDraftId, type DraftField } from './draft-metadata';
 import type { RosterPlayerKindEvidence, RosterPlayerMappingProof } from './roster-player-links';
@@ -86,11 +87,12 @@ const reject = (code: string): DraftSelectionsProjection => ({ status: 'rejected
 export function projectDraftSelections(normalized: NormalizedAdministrationObservation): DraftSelectionsProjection {
   try {
     const { envelope } = normalized, payload = envelope.payload, provenance = envelope.provenance;
+    publicDraftCaptureForPayload(provenance.acquisition, envelope.scope.externalLeagueId, envelope.scope.season, payload);
     const instant = (value: unknown) => typeof value === 'string' ? Date.parse(value) : NaN;
     const started = instant(provenance.requestStartedAt), completed = instant(provenance.requestCompletedAt), checkedAt = instant(provenance.checkedAt);
     const observed = provenance.sourceObservedAt === null ? null : instant(provenance.sourceObservedAt);
     if (envelope.schemaVersion !== 'league-administration-v1' || envelope.normalizerVersion !== 'sleeper-administration-v1'
-      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network' || provenance.acquisition !== undefined
+      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network'
       || !Number.isFinite(started) || !Number.isFinite(completed) || !Number.isFinite(checkedAt) || started > completed || completed > checkedAt
       || observed !== null && (!Number.isFinite(observed) || observed < started || observed > completed)
       || envelope.completeness === 'complete' && observed === null || !['complete', 'partial'].includes(envelope.completeness)

@@ -58,6 +58,8 @@ export async function recordCapturedAdministration(
     bracketAttempts?: Readonly<Record<BracketFamily, RosterAttempt>>;
     /** Exact report reservation, made before its original network request. */
     weeklyReportAttempt?: Readonly<{ week: number; attempt: RosterAttempt }>;
+    /** One original ordinary draft endpoint, routed through the existing typed receipt writer. */
+    draftAttempt?: Readonly<{ kind: 'metadata' | 'selections' | 'trades'; attempt: RosterAttempt }>;
     populationEvidence?: RosterPopulationEvidence;
     calendarEvidence?: SleeperCalendarEvidence;
     calculationCapture?: Readonly<{ week: number; reservation: CalculationSourceCapture }>;
@@ -75,6 +77,12 @@ export async function recordCapturedAdministration(
     throw new Error('Administration capture mapping does not match the requested scope.');
   }
   const now = options.now ?? (() => new Date());
+  if (options.draftAttempt && (!options.mapping || !options.fence || options.expectedAcquisition?.work.kind !== 'drafts'
+    || options.expectedAcquisition.attempts[options.draftAttempt.kind === 'metadata' ? 'draftMetadata'
+      : options.draftAttempt.kind === 'selections' ? 'draftSelections' : 'tradedPicks']?.id !== options.draftAttempt.attempt.id
+    || documents.length !== 1 || documents[0].family !== 'drafts' || documents[0].origin !== 'network')) {
+    throw new Error('Draft capture requires its original reserved endpoint.');
+  }
   if (options.retainIndependentCoreCaptures && (!options.mapping || !options.fence
     || options.expectedAcquisition?.work.kind !== 'core' || options.expectedAcquisition.work.season !== 2026
     || options.mapping.scope.season !== 2026 || options.populationEvidence !== undefined
@@ -124,7 +132,8 @@ export async function recordCapturedAdministration(
       ? options.bracketAttempts?.[document.family] : undefined;
     const weeklyReportAttempt = origin === 'network' && document.family === 'weekly_report'
       && options.weeklyReportAttempt?.week === document.week ? options.weeklyReportAttempt.attempt : undefined;
-    let mapping = Boolean(bracketAttempt) || Boolean(weeklyReportAttempt) || ['rosters', 'league'].includes(document.family)
+    const draftAttempt = origin === 'network' && document.family === 'drafts' ? options.draftAttempt : undefined;
+    let mapping = Boolean(draftAttempt) || Boolean(bracketAttempt) || Boolean(weeklyReportAttempt) || ['rosters', 'league'].includes(document.family)
       || document.family === 'transactions' && options.transactionAttempt?.week === document.week
       || (document.family === 'matchups' && (options.matchupAttempt?.week === document.week
         || options.calculationCapture?.week === document.week))
@@ -152,7 +161,13 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => weeklyReportAttempt
+    const write = () => draftAttempt
+      ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        draftAttempt.kind === 'metadata' ? { attempt: draftAttempt.attempt } : undefined,
+        draftAttempt.kind === 'selections' ? { attempt: draftAttempt.attempt } : undefined,
+        draftAttempt.kind === 'trades' ? { attempt: draftAttempt.attempt } : undefined)
+      : weeklyReportAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined, { attempt: weeklyReportAttempt })
       : bracketAttempt

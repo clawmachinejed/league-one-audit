@@ -906,3 +906,23 @@ DO $$ DECLARE value_table text; helper text; denied text:='INSERT,UPDATE,DELETE,
   END IF;
 END; $$;
 -- END OPTIONAL TRADED PICKS GRANTS
+
+-- BEGIN OPTIONAL PUBLIC DRAFT INTAKE GRANTS
+DO $$ DECLARE value_table text; helper text; denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.public_data_draft_tasks') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['public_data_draft_tasks','public_data_draft_checkpoints'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC,league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT') OR has_table_privilege('league_one_runtime','public.'||value_table,denied) THEN
+        RAISE EXCEPTION 'runtime has incorrect public draft privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.canonical_public_data_draft_picks(jsonb,integer[])','public.public_data_draft_work(public.public_data_draft_tasks,integer)','public.public_data_draft_identity(jsonb,jsonb)','public.validate_public_data_draft_task()','public.fail_public_data_draft_work(jsonb,jsonb)','public.assert_public_draft_capture(jsonb,text)','public.validate_public_data_draft_checkpoint()','public.validate_public_data_draft_checkpoint_fence()','public.checkpoint_public_data_intake_v55(jsonb,jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private public draft helper'; END IF;
+    END LOOP;
+    REVOKE ALL ON FUNCTION public.read_public_data_draft_catalog(jsonb,jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.read_public_data_draft_catalog(jsonb,jsonb,jsonb),public.checkpoint_public_data_intake(jsonb,jsonb,jsonb) TO league_one_runtime;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DRAFT INTAKE GRANTS
