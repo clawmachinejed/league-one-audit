@@ -1216,7 +1216,8 @@ export type AdministrationMetadataCollection = Readonly<{
 }>;
 type AdministrationMetadataOptions = Readonly<{ signal?: AbortSignal; maxRequests: number; maxDrafts?: number;
   /** Explicit CP16 opt-in. The existing full-bundle acquisition remains the default. */
-  metadataOnly?: boolean; selectionsOnly?: boolean; beforeDetail?: (externalDraftId: string, signal: AbortSignal) => Promise<void> }>;
+  metadataOnly?: boolean; selectionsOnly?: boolean; tradedPicksOnly?: boolean;
+  beforeDetail?: (externalDraftId: string, signal: AbortSignal) => Promise<void> }>;
 
 function validateMetadataRequest(leagueId: string, season: number, options: AdministrationMetadataOptions) {
   if (!leagueId.trim() || !Number.isInteger(season) || season < 1920 || season > 2200
@@ -1238,7 +1239,9 @@ async function collectDraftMetadata(leagueId: string, season: number, options: A
   if (season !== 2026 || !/^[1-9][0-9]{0,31}$/u.test(leagueId)) throw new Error('Draft metadata supports an exact current-season source.');
   const { DRAFT_METADATA_VERSION, DRAFT_METADATA_LIMITS, ownsDraft } = await import('./aggregator/draft-metadata');
   const { DRAFT_SELECTIONS_VERSION, DRAFT_SELECTIONS_LIMITS } = await import('./aggregator/draft-selections');
+  const { TRADED_PICKS_VERSION, TRADED_PICKS_LIMITS } = await import('./aggregator/traded-picks');
   const selections = options.selectionsOnly === true;
+  const trades = options.tradedPicksOnly === true;
   const deadline = AbortSignal.timeout(20_000);
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   signal.throwIfAborted();
@@ -1247,23 +1250,43 @@ async function collectDraftMetadata(leagueId: string, season: number, options: A
   const details: { externalDraftId: string; state: 'succeeded' | 'failed' | 'unrequested' }[] = [];
   const observations: CapturedAdministrationDocument[] = [];
   let catalog: unknown = null, requests = 0, reason: AdministrationMetadataCollection['reason'];
+  let leagueBytes = 0, leagueReason: AdministrationMetadataCollection['reason'];
+  let leagueDocument: CapturedAdministrationDocument | undefined;
+  if (trades) {
+    let body: unknown = null, complete = false;
+    if (options.maxRequests < 1) leagueReason = 'metadata-request-budget-exceeded';
+    else {
+      requests++;
+      try { body = await fetchJson(`/league/${leagueId}/traded_picks`, 0, signal, policy);
+        complete = Array.isArray(body) && body.length <= TRADED_PICKS_LIMITS.rows;
+      } catch { signal.throwIfAborted(); }
+      if (!complete) leagueReason = 'metadata-source-partial';
+    }
+    leagueBytes = Buffer.byteLength(JSON.stringify(body), 'utf8');
+    leagueDocument = metadataDocument('drafts', { tradedPicksVersion: TRADED_PICKS_VERSION, kind: 'league', tradedPicks: body }, started, complete);
+  }
+  const catalogStarted = trades ? new Date().toISOString() : started;
   let catalogComplete = false;
-  if (options.maxRequests < 1) reason = 'metadata-request-budget-exceeded';
+  if (options.maxRequests < requests + 1) reason = 'metadata-request-budget-exceeded';
   else {
     requests++;
-    try { catalog = await fetchJson(`/league/${leagueId}/drafts`, 0, signal, policy); catalogComplete = Array.isArray(catalog); }
+    try { const body = await fetchJson(`/league/${leagueId}/drafts`, 0, signal, policy);
+      if (!trades || Buffer.byteLength(JSON.stringify(body), 'utf8') <= DRAFT_METADATA_LIMITS.nativeBytes - leagueBytes) {
+        catalog = body; catalogComplete = Array.isArray(catalog);
+      }
+    }
     catch { signal.throwIfAborted(); reason = 'metadata-source-partial'; }
   }
   // This clock belongs to the catalog endpoint, never to the later detail sequence.
-  const catalogDocument = metadataDocument('drafts', null, started, catalogComplete);
+  const catalogDocument = metadataDocument('drafts', null, catalogStarted, catalogComplete);
   const entries = Array.isArray(catalog) ? catalog : [];
-  let nativeBytes = Buffer.byteLength(JSON.stringify(catalog), 'utf8');
+  let nativeBytes = leagueBytes + Buffer.byteLength(JSON.stringify(catalog), 'utf8');
   const frequencies = new Map<string, number>();
   for (const row of entries) if (ownsDraft(row, leagueId)) frequencies.set(row.draft_id as string, (frequencies.get(row.draft_id as string) ?? 0) + 1);
   const valid = entries.filter(row => ownsDraft(row, leagueId) && frequencies.get(row.draft_id as string) === 1);
   if (!catalogComplete || valid.length !== entries.length) { catalogComplete = false; reason ??= 'metadata-source-partial'; }
   if (entries.length > (options.maxDrafts ?? 8)) { catalogComplete = false; reason = 'draft-inventory-limit'; }
-  else if (1 + valid.length > Math.min(options.maxRequests, 9)) { catalogComplete = false; reason = 'metadata-request-budget-exceeded'; }
+  else if ((trades ? 2 : 1) + valid.length > Math.min(options.maxRequests, trades ? 10 : 9)) { catalogComplete = false; reason = 'metadata-request-budget-exceeded'; }
   else {
     for (const row of valid) {
       signal.throwIfAborted();
@@ -1283,24 +1306,27 @@ async function collectDraftMetadata(leagueId: string, season: number, options: A
       requests++;
       let draft: unknown = null, complete = false;
       try {
-        const body = await fetchJson(`/draft/${id}${selections ? '/picks' : ''}`, 0, signal, policy);
+        const body = await fetchJson(`/draft/${id}${trades ? '/traded_picks' : selections ? '/picks' : ''}`, 0, signal, policy);
         const bytes = Buffer.byteLength(JSON.stringify(body), 'utf8');
         if (bytes <= DRAFT_METADATA_LIMITS.nativeBytes - nativeBytes) { nativeBytes += bytes; draft = body;
-          complete = selections ? Array.isArray(body) && body.length <= DRAFT_SELECTIONS_LIMITS.selections : ownsDraft(body, leagueId, id); }
+          complete = trades ? Array.isArray(body) && body.length <= TRADED_PICKS_LIMITS.rows
+            : selections ? Array.isArray(body) && body.length <= DRAFT_SELECTIONS_LIMITS.selections : ownsDraft(body, leagueId, id); }
       } catch { signal.throwIfAborted(); }
       if (!complete) { catalogComplete = false; reason ??= 'metadata-source-partial'; }
       details.push({ externalDraftId: id, state: complete ? 'succeeded' : 'failed' });
-      observations.push(metadataDocument('drafts', selections
+      observations.push(metadataDocument('drafts', trades
+        ? { tradedPicksVersion: TRADED_PICKS_VERSION, kind: 'draft', externalDraftId: id, catalog: row, tradedPicks: draft } : selections
         ? { selectionsVersion: DRAFT_SELECTIONS_VERSION, kind: 'selections', externalDraftId: id, catalog: row, picks: draft }
         : { metadataVersion: DRAFT_METADATA_VERSION, kind: 'detail', externalDraftId: id, catalog: row, draft }, detailStarted, complete));
     }
   }
   if (!Array.isArray(catalog)) reason ??= 'metadata-source-partial';
   signal.throwIfAborted();
-  return { observations: [{ ...catalogDocument, completeness: catalogComplete ? 'complete' : 'partial',
-    payload: selections ? { selectionsVersion: DRAFT_SELECTIONS_VERSION, kind: 'catalog', catalog, selections: details, reason: reason ?? null }
+  return { observations: [...(leagueDocument ? [leagueDocument] : []), { ...catalogDocument, completeness: catalogComplete ? 'complete' : 'partial',
+    payload: trades ? { tradedPicksVersion: TRADED_PICKS_VERSION, kind: 'catalog', catalog, trades: details, reason: reason ?? null }
+      : selections ? { selectionsVersion: DRAFT_SELECTIONS_VERSION, kind: 'catalog', catalog, selections: details, reason: reason ?? null }
       : { metadataVersion: DRAFT_METADATA_VERSION, kind: 'catalog', catalog, details, reason: reason ?? null } }, ...observations],
-    providerRequests: requests, ...(reason ? { reason } : {}) };
+    providerRequests: requests, ...(reason || leagueReason ? { reason: reason ?? leagueReason } : {}) };
 }
 
 /** Each bundle retains all four provider bodies. The envelope span is a sequence
@@ -1309,8 +1335,8 @@ export async function getOfficialDraftAdministration(
   leagueId: string, season: number, options: AdministrationMetadataOptions,
 ): Promise<AdministrationMetadataCollection> {
   validateMetadataRequest(leagueId, season, options);
-  if (options.metadataOnly && options.selectionsOnly) throw new Error('Select one explicit draft capture.');
-  if (options.metadataOnly === true || options.selectionsOnly === true) return collectDraftMetadata(leagueId, season, options);
+  if ([options.metadataOnly, options.selectionsOnly, options.tradedPicksOnly].filter(Boolean).length > 1) throw new Error('Select one explicit draft capture.');
+  if (options.metadataOnly === true || options.selectionsOnly === true || options.tradedPicksOnly === true) return collectDraftMetadata(leagueId, season, options);
   const started = new Date().toISOString();
   if (options.maxRequests < 1) return { observations: [metadataDocument('drafts', null, started, false)],
     providerRequests: 0, reason: 'metadata-request-budget-exceeded' };
@@ -1365,7 +1391,7 @@ export async function getOfficialAdministrationMetadata(
   leagueId: string, season: number, options: AdministrationMetadataOptions,
 ): Promise<AdministrationMetadataCollection> {
   validateMetadataRequest(leagueId, season, options);
-  if (options.metadataOnly || options.selectionsOnly) throw new Error('Explicit draft capture requires the draft entry point.');
+  if (options.metadataOnly || options.selectionsOnly || options.tradedPicksOnly) throw new Error('Explicit draft capture requires the draft entry point.');
   const families = ['traded_picks', 'winners_bracket', 'losers_bracket'] as const;
   const started = new Date().toISOString();
   if (options.maxRequests < 4) return { observations: [...families, 'drafts' as const]

@@ -1,3 +1,5 @@
+import { tradedPicksMethods } from './traded-picks';
+import { TRADED_PICKS_LIMITS, projectTradedPicks } from '../../aggregator/traded-picks';
 import { bracketMethods } from './brackets';
 import { draftMetadataMethods } from './draft-metadata';
 import { draftSelectionsMethods } from './draft-selections';
@@ -134,6 +136,7 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
     ...bracketMethods(client),
     ...draftMetadataMethods(client),
     ...draftSelectionsMethods(client),
+    ...tradedPicksMethods(client),
     ...weeklyReportMethods(client),
     ...currentRosterMethods(client),
     ...rosterPlayerLinkMethods(client),
@@ -177,10 +180,11 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
       if (!isAdministrationSourceMapping(mapping)) throw new Error('Invalid administration source mapping.');
       return mapping;
     },
-    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance, weeklyReportAcceptance, draftMetadataAcceptance, draftSelectionsAcceptance) {
+    async recordObservation(input, fence, mapping, acceptance, managerAcceptance, leagueSettingsAcceptance, matchupAcceptance, calendarEvidence, calculationCapture, transactionAcceptance, managerEvidenceAcceptance, bracketAcceptance, weeklyReportAcceptance, draftMetadataAcceptance, draftSelectionsAcceptance, tradedPicksAcceptance) {
       const draftAddition = draftMetadataAcceptance ? { draftMetadataAcceptance, draftMetadataProjection: projectDraftMetadata(input) } : {};
       const selectionAddition = draftSelectionsAcceptance ? { draftSelectionsAcceptance, draftSelectionsProjection: projectDraftSelections(input) } : {};
-      const submission = JSON.stringify({ ...input, ...draftAddition, ...selectionAddition, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
+      const tradeAddition = tradedPicksAcceptance ? { tradedPicksAcceptance, tradedPicksProjection: projectTradedPicks(input) } : {};
+      const submission = JSON.stringify({ ...input, ...draftAddition, ...selectionAddition, ...tradeAddition, ...(fence ? { writeFence: fence } : {}), ...(mapping ? { sourceMapping: mapping } : {}),
         ...(acceptance ? { rosterAcceptance: acceptance } : {}),
         ...(managerAcceptance ? { teamManagerAcceptance: managerAcceptance } : {}),
         ...(managerEvidenceAcceptance ? { teamManagerEvidenceAcceptance: managerEvidenceAcceptance } : {}),
@@ -212,6 +216,16 @@ export function createLeagueAdministrationMethods(client: DatabaseClient): Omit<
           + bytes(mapping) + bytes(input.envelope.provenance) + DRAFT_SELECTIONS_LIMITS.framingBytes + rowFraming;
         if (Buffer.byteLength(submission, 'utf8') > DRAFT_SELECTIONS_LIMITS.persistedBytes
           || readAllowance > DRAFT_SELECTIONS_LIMITS.persistedBytes - DRAFT_SELECTIONS_LIMITS.nativeBytes) throw new Error('Draft selections persistence budget exceeded.');
+      }
+      if (tradedPicksAcceptance) {
+        const bytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
+        const selected = tradeAddition.tradedPicksProjection?.value;
+        const rowFraming = (selected?.entries.length ?? 0) * (2_048 + 2 * bytes(input.envelope.scope.externalLeagueId)
+          + 2 * bytes(selected?.kind === 'draft' ? selected.externalDraftId : null));
+        const readAllowance = bytes(input.envelope.payload) + bytes(selected) + bytes(mapping) + bytes(input.envelope.provenance)
+          + TRADED_PICKS_LIMITS.framingBytes + rowFraming;
+        if (Buffer.byteLength(submission, 'utf8') > TRADED_PICKS_LIMITS.persistedBytes
+          || readAllowance > TRADED_PICKS_LIMITS.persistedBytes) throw new Error('Traded picks persistence budget exceeded.');
       }
       const rows = await client.query(`/* league-administration:record-observation */
         SELECT public.record_league_administration_observation($1::jsonb) AS result`, [submission]);

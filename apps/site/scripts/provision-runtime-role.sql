@@ -887,3 +887,22 @@ BEGIN
   END IF;
 END; $$;
 -- END OPTIONAL DRAFT SELECTIONS GRANTS
+
+-- BEGIN OPTIONAL TRADED PICKS GRANTS
+DO $$ DECLARE value_table text; helper text; denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_traded_pick_contents') IS NOT NULL THEN
+    FOREACH value_table IN ARRAY ARRAY['league_traded_pick_assets','league_traded_pick_contents','league_traded_pick_catalog_entries','league_traded_pick_entries'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM league_one_runtime',value_table);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',value_table);
+      IF NOT has_table_privilege('league_one_runtime','public.'||value_table,'SELECT') OR has_table_privilege('league_one_runtime','public.'||value_table,denied) THEN
+        RAISE EXCEPTION 'runtime has incorrect traded picks privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.traded_pick_field(jsonb,text,text)','public.traded_pick_facts(jsonb,integer,text,text)','public.project_traded_picks_native(jsonb,text,boolean)','public.traded_picks_typed_value(uuid)','public.capture_traded_picks_typed(uuid,uuid,jsonb)','public.validate_traded_picks_typed_lineage()','public.guard_traded_picks_child_insert()','public.record_league_administration_observation_v54(jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private traded picks helper'; END IF;
+    END LOOP;
+    GRANT EXECUTE ON FUNCTION public.begin_traded_picks_attempt(jsonb,jsonb,uuid,jsonb),public.record_league_administration_observation(jsonb) TO league_one_runtime;
+  END IF;
+END; $$;
+-- END OPTIONAL TRADED PICKS GRANTS
