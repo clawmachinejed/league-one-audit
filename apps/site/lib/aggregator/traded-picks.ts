@@ -4,6 +4,7 @@ import type { AdministrationSourceMapping } from '../league-administration/sourc
 import { isAdministrationSourceMapping } from '../league-administration/source-mapping';
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
+import { publicDraftCaptureForPayload } from '../league-administration/public-capture-witness';
 import { PUBLIC_CAPTURE_LIMITS } from '../sleeper-public-response';
 import { DRAFT_METADATA_LIMITS, ownsDraft, validDraftId, type DraftField } from './draft-metadata';
 
@@ -79,8 +80,9 @@ function bounded(value: JsonValue): boolean {
 export function projectTradedPicks(normalized: NormalizedAdministrationObservation): TradedPicksProjection {
   try {
     const { envelope } = normalized, payload = envelope.payload, provenance = envelope.provenance;
+    publicDraftCaptureForPayload(provenance.acquisition, envelope.scope.externalLeagueId, envelope.scope.season, payload);
     if (envelope.schemaVersion !== 'league-administration-v1' || envelope.normalizerVersion !== 'sleeper-administration-v1'
-      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network' || provenance.acquisition !== undefined
+      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network'
       || !['complete', 'partial'].includes(envelope.completeness) || envelope.family !== 'drafts' || envelope.week !== null
       || envelope.scope.provider !== 'sleeper' || envelope.scope.season !== 2026 || !object(payload)
       || payload.tradedPicksVersion !== TRADED_PICKS_VERSION

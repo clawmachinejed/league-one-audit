@@ -6,6 +6,8 @@ import { normalizePublicWeeklyReports, normalizePublicPlayoffBrackets, type Publ
 import { readPublicBrackets } from './public-bracket-reader';
 import { readPublicWeeklyReports } from './public-weekly-report-reader';
 import { readPublicTransactions, readPublicTransactionHistory } from './public-transaction-reader';
+import { readPublicDraftPicks } from './public-draft-reader';
+import { normalizePublicDraftPicks, type PublicDraftPicks } from './public-intake-contracts';
 import { normalizePublicTransactionPeriod, normalizePublicTransactionHistory, type PublicTransactionHistory, type PublicTransactionPeriod } from './public-intake-contracts';
 import { readPublicOfficialStandings } from './public-official-results-reader';
 import { composeOfficialResults, type OfficialResultsRead } from '../aggregator/official-results';
@@ -129,6 +131,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       to_jsonb(request)->'weekly_reports' AS selected_weekly_reports,
       to_jsonb(request)->'transaction_period' AS selected_transaction_period,
       to_jsonb(request)->'transaction_history' AS selected_transaction_history,
+      to_jsonb(request)->'draft_picks' AS selected_draft_picks,
       request.failure_count,request.next_attempt_at,identity.source_manager_account_id,account.external_manager_id,
       identity.username,identity.display_name,identity.avatar_url,identity.request_started_at,identity.request_completed_at
     FROM public.public_data_intakes request
@@ -136,16 +139,18 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     LEFT JOIN public.league_source_manager_accounts account ON account.id=identity.source_manager_account_id AND account.provider='sleeper'
     WHERE request.id=$1::uuid`, [requestId]);
   if (requests.length !== 1) return { status: 'missing' } as const;
-  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, ...storedHeader } = requests[0];
+  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, selected_draft_picks: selectedDraftPicks, ...storedHeader } = requests[0];
   const { exactPeriods: selection, periodInventory: mode } = normalizeStoredPublicPeriods(selectedPeriods,
     Array.isArray(storedHeader.seasons) ? storedHeader.seasons : [], selectedInventory);
   const playoffBrackets = normalizePublicPlayoffBrackets(selectedBrackets ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
   const reportSelection = normalizePublicWeeklyReports(selectedReports ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
   const transactionPeriod = normalizePublicTransactionPeriod(selectedTransaction ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
   const transactionHistory = normalizePublicTransactionHistory(selectedTransactionHistory ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
+  const draftPicks = normalizePublicDraftPicks(selectedDraftPicks ?? undefined, Array.isArray(storedHeader.seasons) ? storedHeader.seasons : []);
+  if (!draftPicks && options.draftPicksPage !== undefined) throw new Error('Draft page requires selected draft intake.');
   if (transactionHistory && transactionPeriod) throw new Error('Stored transaction scopes are mutually exclusive.');
   if (!transactionHistory && options.transactionHistoryPage !== undefined) throw new Error('Transaction history page requires selected history.');
-  const header: DatabaseRow & { transactionHistory?: PublicTransactionHistory; transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(transactionHistory ? { transactionHistory } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
+  const header: DatabaseRow & { draftPicks?: PublicDraftPicks; transactionHistory?: PublicTransactionHistory; transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(draftPicks ? { draftPicks } : {}), ...(transactionHistory ? { transactionHistory } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
@@ -241,6 +246,10 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
         && task.externalLeagueId === candidate.external_league_id && task.nativeWeek === period.nativeWeek)));
   const transactionHistoryRead = transactionHistory ? await readPublicTransactionHistory(client, administration, requestId,
     candidates, lists, options.transactionHistoryPage, storedHeader.terminal === true) : undefined;
+  const draftRead = draftPicks ? await readPublicDraftPicks(client, administration, requestId, candidates, lists,
+    options.draftPicksPage, storedHeader.terminal === true) : undefined;
+  const completeDrafts = !draftRead || draftRead.inventory.collection === 'complete' && draftRead.inventory.readCoverage === 'complete'
+    && draftRead.drafts.every(task => task.resource.status === 'available');
   const transactions = transactionHistoryRead?.transactions ?? (transactionPeriod ? await readPublicTransactions(client, administration, requestId, candidates, transactionPeriod) : undefined);
   const completeTransactions = transactionHistoryRead ? transactionHistoryRead.inventory.collection === 'complete'
     && transactionHistoryRead.inventory.readCoverage === 'complete' && transactions!.every(task => task.resource.status === 'available')
@@ -287,10 +296,12 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     && league.resources.heldRoster.status === 'available' && league.resources.directory.status === 'available');
   const allSeasons = Array.isArray(header.seasons) && lists.length === header.seasons.length;
   const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
-    : completeResources && completePeriods && completeBrackets && completeReports && completeTransactions ? 'available'
+    : completeResources && completePeriods && completeBrackets && completeReports && completeTransactions && completeDrafts ? 'available'
       : header.terminal || completeResources && (inventoryRead?.inventory.collection === 'complete'
-        || transactionHistoryRead?.inventory.collection === 'complete') ? 'partial' : 'pending';
+        || transactionHistoryRead?.inventory.collection === 'complete' || draftRead?.inventory.collection === 'complete') ? 'partial' : 'pending';
   return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
+    ...(draftRead ? { drafts: draftRead.drafts, draftPicks: draftRead.inventory,
+      ...(draftRead.inventory.readCoverage === 'page' ? { reason: 'draft-page-not-fully-verified' as const } : {}) } : {}),
     ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}), ...(weeklyReports ? { weeklyReports } : {}), ...(transactions ? { transactions } : {}), ...(officialResults ? { officialResults } : {}),
     ...(transactionHistoryRead ? { transactionHistory: transactionHistoryRead.inventory,
       ...(transactionHistoryRead.inventory.readCoverage === 'page' ? { reason: 'transaction-history-page-not-fully-verified' as const } : {}) } : {}),
@@ -298,10 +309,10 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
-      ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []),
+      ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []), ...(draftPicks ? ['drafts'] : []),
       ...(selection.length && (options.periodContextVersion || options.officialResultsVersion) ? ['exact-period-context'] : []),
       ...(selection.length && (options.exactMatchupValuesVersion || options.officialResultsVersion) ? ['exact-matchup-values'] : []), ...(playoffBrackets ? ['playoff-brackets'] : []), ...(weeklyReports ? ['weekly-reports'] : []), ...(transactions ? ['transactions'] : []), ...(officialResults ? ['official-results'] : [])],
-      notRequested: [...(selection.length ? [] : ['exact-matchups']), ...(officialResults ? [] : ['official-results']), ...(transactions ? [] : ['transactions']), 'drafts', ...(playoffBrackets ? [] : ['playoff-brackets']), 'annual-history'],
+      notRequested: [...(selection.length ? [] : ['exact-matchups']), ...(officialResults ? [] : ['official-results']), ...(transactions ? [] : ['transactions']), ...(draftPicks ? [] : ['drafts']), ...(playoffBrackets ? [] : ['playoff-brackets']), 'annual-history'],
       note: options.periodContextVersion && selection.length
         ? 'Provider standings fields are retained with the roster; optional period context derives only evidenced competition boundaries, not results or ranks.'
         : 'Provider standings fields are retained with the roster; no derived rank or calculation is produced.' } } as const;

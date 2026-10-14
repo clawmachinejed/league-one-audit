@@ -17,7 +17,20 @@ export const TRADED_PICKS_SQL = `/* league-administration:read-traded-picks */
     receipt.id AS receipt_id,receipt.attempt_id,receipt.provenance,receipt.coverage,receipt.legacy_observation_id,
     receipt.configuration_content_id,receipt.population_evidence,receipt.expected_team_count,
     attempt.id AS reserved_attempt_id,attempt.ordinal,attempt.expected_generation,attempt.source_mapping,
-    COALESCE((receipt.provenance->>'requestStartedAt')::timestamptz>=attempt.reserved_at,false) AS capture_after_reservation,
+    CASE WHEN receipt.provenance ? 'acquisition' THEN COALESCE(
+      receipt.provenance->'acquisition'->'fence'=attempt.write_fence
+      AND receipt.provenance->'acquisition'->'mapping'=attempt.source_mapping
+      AND receipt.provenance->'acquisition'->'attempts'=jsonb_build_object('tradedPicks',
+        jsonb_build_object('id',attempt.id,'nonce',attempt.capture_nonce))
+      AND EXISTS(SELECT 1 FROM public.public_data_dispatches dispatch
+        WHERE dispatch.worker_id=attempt.write_fence->>'workerId'
+          AND dispatch.generation=(attempt.write_fence->>'generation')::integer
+          AND dispatch.resource='drafts' AND dispatch.max_requests=1
+          AND dispatch.work=receipt.provenance->'acquisition'->'work'
+          AND dispatch.capture_nonce::text=receipt.provenance->'acquisition'->>'dispatchNonce'
+          AND dispatch.admitted_at<=attempt.reserved_at AND attempt.reserved_at<=receipt.recorded_at),false)
+      ELSE COALESCE((receipt.provenance->>'requestStartedAt')::timestamptz>=attempt.reserved_at,false)
+    END AS capture_after_reservation,
     content.id AS content_id,content.content_hash,content.semantic_hash,content.payload,content.normalized_value,
     content.normalizer_version,content.completeness,content.accepted AS content_accepted,
     content.league_season_id,content.provider,content.external_league_id,content.family,content.week,
@@ -150,7 +163,7 @@ export function readTradedPicksRows(result: readonly DatabaseRow[], mapping: Adm
       || row.normalizer_version !== 'sleeper-administration-v1' || !['complete', 'partial'].includes(String(row.completeness))
       || row.observation_content_id !== contentId || row.observation_league_season_id !== mapping.leagueSeasonId
       || row.configuration_content_id !== null || row.population_evidence !== null || row.expected_team_count !== null
-      || row.capture_after_reservation !== true || provenance.origin !== 'network' || provenance.acquisition !== undefined
+      || row.capture_after_reservation !== true || provenance.origin !== 'network'
       || selection.receiptId !== undefined && selection.receiptId !== receiptId) throw new Error('Invalid traded picks receipt lineage.');
     const started = tradedPickInstantMicros(provenance.requestStartedAt!), completed = tradedPickInstantMicros(provenance.requestCompletedAt!), checked = tradedPickInstantMicros(provenance.checkedAt);
     if (started > completed || completed > checked || provenance.sourceObservedAt !== null

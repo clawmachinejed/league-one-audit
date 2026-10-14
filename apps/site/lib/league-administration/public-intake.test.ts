@@ -1065,7 +1065,7 @@ function streamedIntakeFixture() {
     }),
   };
   const dependencies: PublicIntakeDependencies = { ...f.dependencies, administration, intake, source: undefined, now: () => new Date() };
-  const select = (kind: Exclude<PublicIntakeWork['kind'], 'weekly-report' | 'transactions'>) => f.setWork(kind === 'identity'
+  const select = (kind: Exclude<PublicIntakeWork['kind'], 'weekly-report' | 'transactions' | 'drafts'>) => f.setWork(kind === 'identity'
     ? { requestId: id, revision: 10, kind, username: 'public_manager' }
     : kind === 'leagues' ? { requestId: id, revision: 10, kind, userId: '55', season: 2026 }
       : kind === 'exact-matchups' ? { ...periodWork, revision: 10 }
@@ -1097,7 +1097,7 @@ function streamedPublicResponse(payload: unknown, failure?: IntakeResponseFailur
 }
 
 describe('public intake response bounds through real captures with offline stateful storage', () => {
-  const targets: readonly { kind: Exclude<PublicIntakeWork['kind'], 'weekly-report' | 'transactions'>; family: string; path: string }[] = [
+  const targets: readonly { kind: Exclude<PublicIntakeWork['kind'], 'weekly-report' | 'transactions' | 'drafts'>; family: string; path: string }[] = [
     { kind: 'identity', family: 'identity', path: '/user/public_manager' },
     { kind: 'leagues', family: 'leagues', path: '/user/55/leagues/nfl/2026' },
     { kind: 'bootstrap', family: 'league', path: '/league/' + native },

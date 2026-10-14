@@ -5,6 +5,7 @@ import { isAdministrationSourceMapping } from '../league-administration/source-m
 import { normalizeAdministrationObservation } from '../league-administration/normalize';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';
 import { PUBLIC_CAPTURE_LIMITS } from '../sleeper-public-response';
+import { publicDraftCaptureForPayload } from '../league-administration/public-capture-witness';
 
 export const DRAFT_METADATA_VERSION = 'sleeper-draft-metadata-v1' as const;
 export const DRAFT_METADATA_POLICY = Object.freeze({ audienceId: 'public', coverageSpecId: DRAFT_METADATA_VERSION,
@@ -111,11 +112,12 @@ export function projectDraftMetadata(normalized: NormalizedAdministrationObserva
   try {
     const { envelope } = normalized, payload = envelope.payload;
     const provenance = envelope.provenance;
+    publicDraftCaptureForPayload(provenance.acquisition, envelope.scope.externalLeagueId, envelope.scope.season, payload);
     const timestamp = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? Date.parse(value) : NaN;
     const started = timestamp(provenance.requestStartedAt), completed = timestamp(provenance.requestCompletedAt), checkedAt = timestamp(provenance.checkedAt);
     const observed = provenance.sourceObservedAt === null ? null : timestamp(provenance.sourceObservedAt);
     if (envelope.schemaVersion !== 'league-administration-v1' || envelope.normalizerVersion !== 'sleeper-administration-v1'
-      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network' || provenance.acquisition !== undefined
+      || envelope.dialect !== 'sleeper-nfl-v1' || provenance.origin !== 'network'
       || !Number.isFinite(started) || !Number.isFinite(completed) || !Number.isFinite(checkedAt) || started > completed || completed > checkedAt
       || observed !== null && (!Number.isFinite(observed) || observed < started || observed > completed)
       || envelope.completeness === 'complete' && observed === null

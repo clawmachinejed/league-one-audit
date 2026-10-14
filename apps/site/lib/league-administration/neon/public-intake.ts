@@ -14,6 +14,18 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+async function requireDraftCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(`/* public-data-intake:draft-capability */
+    SELECT to_regclass('public.public_data_draft_tasks') IS NOT NULL
+      AND to_regclass('public.public_data_draft_checkpoints') IS NOT NULL
+      AND to_regprocedure('public.read_public_data_draft_catalog(jsonb,jsonb,jsonb)') IS NOT NULL
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_intakes')
+        AND attname='draft_picks' AND NOT attisdropped)
+      AND EXISTS(SELECT 1 FROM pg_attribute WHERE attrelid=to_regclass('public.public_data_refresh_configurations')
+        AND attname='draft_picks' AND NOT attisdropped) AS supported`);
+  if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public draft intake requires installed R056.');
+}
+
 /** Older JSON functions ignore unknown keys. Refuse explicit period scope before any mutation. */
 async function requireExactPeriodCapability(client: DatabaseClient): Promise<void> {
   const rows = await client.query(`/* public-data-intake:exact-period-capability */
@@ -87,6 +99,7 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
   return {
     async submit(input) {
       const validated = validatePublicIntake(input);
+      if (validated.draftPicks) await requireDraftCapability(client);
       if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
       if (validated.transactionPeriod) await requireTransactionCapability(client);
       if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
@@ -106,8 +119,18 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
       const work = record(result);
       if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
-        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions'].includes(String(work.kind))) {
+        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions', 'drafts'].includes(String(work.kind))) {
         throw new Error('Invalid public intake work.');
+      }
+      if (work.kind === 'drafts') {
+        const child = ['detail', 'selections', 'draft-trades'].includes(String(work.resource));
+        const expected = ['externalLeagueId', 'kind', 'requestId', 'revision', 'season', 'resource',
+          ...(child ? ['externalDraftId', 'catalogReceiptId'] : [])].sort().join('|');
+        if (Object.keys(work).sort().join('|') !== expected || work.season !== 2026
+          || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
+          || !['catalog', 'detail', 'selections', 'league-trades', 'draft-trades'].includes(String(work.resource))
+          || child && (typeof work.externalDraftId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(work.externalDraftId)
+            || !refreshUuid(work.catalogReceiptId))) throw new Error('Invalid public draft work.');
       }
       if (work.kind === 'transactions' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
         || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
@@ -204,6 +227,14 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     completeBrackets: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     completeWeeklyReport: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     completeTransactions: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
+    async draftCatalog(work, mapping, fence) {
+      const rows = await client.query(`/* public-data-intake:draft-catalog */
+        SELECT public.read_public_data_draft_catalog($1::jsonb,$2::jsonb,$3::jsonb) AS result`,
+        [JSON.stringify(work), JSON.stringify(mapping), JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public draft catalog.');
+      return record(rows[0].result);
+    },
+    completeDraft: (work, mapping, captured, fence) => checkpoint(work, { mapping, ...captured }, fence),
     fail: (work, fence) => checkpoint(work, { failed: true }, fence),
   };
 }
@@ -216,6 +247,7 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   return {
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
+      if (validated.draftPicks) await requireDraftCapability(client);
       if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
       if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
       if (validated.playoffBrackets) await requireBracketCapability(client);

@@ -5,6 +5,19 @@ import { normalizeAdministrationObservation } from '../normalize';
 import { createLeagueAdministrationStore } from '../store';
 import { tradedPicksCoverage, tradedPicksMethods, readTradedPicksRows } from './traded-picks';
 vi.mock('server-only', () => ({}));
+it('reads immutable CP19 witnessed receipts and rejects wrong endpoint or unproved causal lineage', () => {
+  const f = fixture();
+  const acquisition = { version: 'public-network-capture-v1', mapping,
+    work: { kind: 'drafts', resource: 'draft-trades', requestId: id(90), revision: 4, externalLeagueId: mapping.scope.externalLeagueId,
+      season: 2026, externalDraftId: selection.externalDraftId, catalogReceiptId: id(91) },
+    fence: { jobKey: 'league-administration-public-intake', workerId: id(92), generation: 1, deadlineAt: at },
+    dispatchNonce: id(93), attempts: { tradedPicks: { id: id(6), nonce: id(94) } } };
+  const row = { ...f.row, provenance: { ...f.normalized.envelope.provenance, acquisition } };
+  expect(readTradedPicksRows([row], mapping, { ...selection, receiptId: id(5) })).toMatchObject({ status: 'available', selection: 'receipt' });
+  expect(readTradedPicksRows([{ ...row, capture_after_reservation: false }], mapping, selection).status).toBe('unavailable');
+  expect(readTradedPicksRows([{ ...row, provenance: { ...row.provenance, acquisition: { ...acquisition,
+    work: { ...acquisition.work, externalDraftId: 'wrong-draft' } } } }], mapping, selection).status).toBe('unavailable');
+});
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const at = '2026-10-14T12:00:00.000001Z';
 const mapping = { connectionId: id(1), leagueSeasonId: id(2), revisionId: id(3), generation: 1,

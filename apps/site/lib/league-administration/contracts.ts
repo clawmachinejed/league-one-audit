@@ -36,6 +36,10 @@ export type PublicIntakeWork = Readonly<{ requestId: string; revision: number }>
   | Readonly<{ kind: 'playoff-brackets'; externalLeagueId: string; season: 2026 }>
   | Readonly<{ kind: 'weekly-report'; externalLeagueId: string; season: 2026; nativeWeek: number }>
   | Readonly<{ kind: 'transactions'; externalLeagueId: string; season: 2026; nativeWeek: number }>
+  | (Readonly<{ kind: 'drafts'; externalLeagueId: string; season: 2026 }> & (
+    | Readonly<{ resource: 'catalog' }>
+    | Readonly<{ resource: 'league-trades' }>
+    | Readonly<{ resource: 'detail' | 'selections' | 'draft-trades'; externalDraftId: string; catalogReceiptId: string }>))
   | Readonly<{ kind: 'exact-matchups'; externalLeagueId: string; season: number; nativeWeek: number }>
 );
 /** DB-issued causality evidence, separate from the provider document and its clocks.

@@ -1,6 +1,6 @@
 import 'server-only';
 import { readPublicCaptureJson } from './sleeper-public-response';
-import { publicCaptureForRequest, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
+import { publicCaptureForRequest, publicDraftCaptureForPayload, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
 
 import { cache } from 'react';
 import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
@@ -149,6 +149,7 @@ export type CapturedAdministrationDocument = Readonly<{
   origin: 'network' | 'cache' | 'bootstrap';
   sourceObservedAt: string | null;
   completeness?: 'complete' | 'partial';
+  acquisition?: PublicCaptureWitness;
   fallbackReason?: 'missing' | 'disabled' | 'unavailable' | 'stale';
 }>;
 
@@ -1217,6 +1218,8 @@ export type AdministrationMetadataCollection = Readonly<{
 type AdministrationMetadataOptions = Readonly<{ signal?: AbortSignal; maxRequests: number; maxDrafts?: number;
   /** Explicit CP16 opt-in. The existing full-bundle acquisition remains the default. */
   metadataOnly?: boolean; selectionsOnly?: boolean; tradedPicksOnly?: boolean;
+  /** One original endpoint admitted by the existing DATA owner; catalog comes from its immutable receipt. */
+  publicDraft?: Readonly<{ witness: PublicCaptureWitness; catalog: unknown }>;
   beforeDetail?: (externalDraftId: string, signal: AbortSignal) => Promise<void> }>;
 
 function validateMetadataRequest(leagueId: string, season: number, options: AdministrationMetadataOptions) {
@@ -1232,6 +1235,56 @@ function metadataDocument(family: AdministrationFamily, payload: unknown, starte
   const completed = new Date().toISOString();
   return { family, week: null, payload, requestStartedAt: started, requestCompletedAt: completed,
     sourceObservedAt: complete ? completed : null, origin: 'network', completeness: complete ? 'complete' : 'partial' };
+}
+
+async function collectPublicDraftEndpoint(leagueId: string, season: number,
+  options: AdministrationMetadataOptions): Promise<AdministrationMetadataCollection> {
+  const witness = publicCaptureForRequest(options.publicDraft?.witness, 'drafts', leagueId);
+  if (!witness || witness.work.kind !== 'drafts' || season !== 2026 || options.maxRequests !== 1
+    || options.maxDrafts !== undefined || options.beforeDetail !== undefined) throw new Error('Invalid ordinary draft endpoint.');
+  const work = witness.work;
+  const { DRAFT_METADATA_VERSION, DRAFT_METADATA_LIMITS, ownsDraft } = await import('./aggregator/draft-metadata');
+  const { DRAFT_SELECTIONS_VERSION, DRAFT_SELECTIONS_LIMITS } = await import('./aggregator/draft-selections');
+  const { TRADED_PICKS_VERSION, TRADED_PICKS_LIMITS } = await import('./aggregator/traded-picks');
+  const catalog = options.publicDraft!.catalog;
+  if ('externalDraftId' in work ? !ownsDraft(catalog, leagueId, work.externalDraftId) : catalog !== null) {
+    throw new Error('Ordinary draft endpoint requires its original catalog row.');
+  }
+  const remaining = Date.parse(witness.fence.deadlineAt) - Date.now();
+  if (remaining <= 0) throw new Error('Original draft acquisition deadline expired.');
+  const deadline = AbortSignal.timeout(Math.min(20_000, remaining));
+  const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  signal.throwIfAborted();
+  const path = work.resource === 'catalog' ? `/league/${leagueId}/drafts`
+    : work.resource === 'league-trades' ? `/league/${leagueId}/traded_picks`
+      : `/draft/${work.externalDraftId}${work.resource === 'detail' ? '' : work.resource === 'selections' ? '/picks' : '/traded_picks'}`;
+  const started = new Date().toISOString();
+  let body: unknown = null, complete = false;
+  let reason: AdministrationMetadataCollection['reason'];
+  try {
+    const result = await fetchJson(path, 0, signal, { redirect: 'error', boundedPublicCapture: true });
+    if (Buffer.byteLength(JSON.stringify(result), 'utf8') + Buffer.byteLength(JSON.stringify(catalog), 'utf8')
+      <= DRAFT_METADATA_LIMITS.nativeBytes) body = result;
+    if (work.resource === 'catalog') {
+      const ids = new Set<string>();
+      complete = Array.isArray(body) && body.length <= DRAFT_METADATA_LIMITS.drafts && body.every(row => {
+        if (!ownsDraft(row, leagueId) || ids.has(row.draft_id as string)) return false;
+        ids.add(row.draft_id as string); return true;
+      });
+      if (Array.isArray(body) && body.length > DRAFT_METADATA_LIMITS.drafts) reason = 'draft-inventory-limit';
+    } else complete = work.resource === 'detail' ? ownsDraft(body, leagueId, work.externalDraftId)
+      : Array.isArray(body) && body.length <= (work.resource === 'selections' ? DRAFT_SELECTIONS_LIMITS.selections : TRADED_PICKS_LIMITS.rows);
+  } catch { signal.throwIfAborted(); }
+  signal.throwIfAborted();
+  if (!complete) reason ??= 'metadata-source-partial';
+  const payload = work.resource === 'catalog' ? { metadataVersion: DRAFT_METADATA_VERSION, kind: 'catalog', catalog: body, details: [], reason: reason ?? null }
+    : work.resource === 'detail' ? { metadataVersion: DRAFT_METADATA_VERSION, kind: 'detail', externalDraftId: work.externalDraftId, catalog, draft: body }
+      : work.resource === 'selections' ? { selectionsVersion: DRAFT_SELECTIONS_VERSION, kind: 'selections', externalDraftId: work.externalDraftId, catalog, picks: body }
+        : work.resource === 'league-trades' ? { tradedPicksVersion: TRADED_PICKS_VERSION, kind: 'league', tradedPicks: body }
+          : { tradedPicksVersion: TRADED_PICKS_VERSION, kind: 'draft', externalDraftId: work.externalDraftId, catalog, tradedPicks: body };
+  publicDraftCaptureForPayload(witness, leagueId, season, payload);
+  const document = sealPublicCapture({ ...metadataDocument('drafts', payload, started, complete), acquisition: witness }, witness);
+  return { observations: [document], providerRequests: 1, ...(reason ? { reason } : {}) };
 }
 
 /** One original work deadline covers catalog, reservations and all bounded detail reads. */
@@ -1335,6 +1388,10 @@ export async function getOfficialDraftAdministration(
   leagueId: string, season: number, options: AdministrationMetadataOptions,
 ): Promise<AdministrationMetadataCollection> {
   validateMetadataRequest(leagueId, season, options);
+  if (options.publicDraft) {
+    if (options.metadataOnly || options.selectionsOnly || options.tradedPicksOnly) throw new Error('Select one explicit draft capture.');
+    return collectPublicDraftEndpoint(leagueId, season, options);
+  }
   if ([options.metadataOnly, options.selectionsOnly, options.tradedPicksOnly].filter(Boolean).length > 1) throw new Error('Select one explicit draft capture.');
   if (options.metadataOnly === true || options.selectionsOnly === true || options.tradedPicksOnly === true) return collectDraftMetadata(leagueId, season, options);
   const started = new Date().toISOString();
@@ -1391,7 +1448,7 @@ export async function getOfficialAdministrationMetadata(
   leagueId: string, season: number, options: AdministrationMetadataOptions,
 ): Promise<AdministrationMetadataCollection> {
   validateMetadataRequest(leagueId, season, options);
-  if (options.metadataOnly || options.selectionsOnly || options.tradedPicksOnly) throw new Error('Explicit draft capture requires the draft entry point.');
+  if (options.metadataOnly || options.selectionsOnly || options.tradedPicksOnly || options.publicDraft) throw new Error('Explicit draft capture requires the draft entry point.');
   const families = ['traded_picks', 'winners_bracket', 'losers_bracket'] as const;
   const started = new Date().toISOString();
   if (options.maxRequests < 4) return { observations: [...families, 'drafts' as const]

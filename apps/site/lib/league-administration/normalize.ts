@@ -1,5 +1,5 @@
 import { compatibleRevision, compatibleScoringRulesHash } from '../projections/shared/revision-compatibility';
-import { publicCaptureForRequest, type PublicCaptureWitness } from './public-capture-witness';
+import { publicCaptureForRequest, publicDraftCaptureForPayload, type PublicCaptureWitness } from './public-capture-witness';
 import { MANAGER_DIRECTORY_VERSION, type ManagerDirectoryNormalization, type CommissionerFact,
   TEAM_MANAGERS_POLICY, TEAM_MANAGER_EVIDENCE_POLICY, type SourceTeamManagers, type TeamManagersNormalization,
   type SourceTeamManagerEvidence, type TeamManagerEvidenceNormalization } from '../aggregator/team-managers';
@@ -187,8 +187,10 @@ function validateEnvelope(envelope: AdministrationEnvelope): void {
   if (provenance.acquisition !== undefined) {
     try {
       if (provenance.origin !== 'network'
-        || !['league', 'rosters', 'users', 'matchups', 'transactions', 'winners_bracket', 'losers_bracket', 'weekly_report'].includes(envelope.family)) throw new Error('scope');
-      publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
+        || !['league', 'rosters', 'users', 'matchups', 'transactions', 'winners_bracket', 'losers_bracket', 'weekly_report', 'drafts'].includes(envelope.family)) throw new Error('scope');
+      if (envelope.family === 'drafts') publicDraftCaptureForPayload(provenance.acquisition as PublicCaptureWitness,
+        String(scope.externalLeagueId), Number(scope.season), envelope.payload);
+      else publicCaptureForRequest(provenance.acquisition as PublicCaptureWitness,
         envelope.family as 'league' | 'rosters' | 'users' | 'matchups' | 'transactions' | 'winners_bracket' | 'losers_bracket' | 'weekly_report', String(scope.externalLeagueId), envelope.week);
       const witness = provenance.acquisition as PublicCaptureWitness;
       if (witness.mapping && compatibleRevision(witness.mapping.scope) !== compatibleRevision(scope)) throw new Error('mapping');
