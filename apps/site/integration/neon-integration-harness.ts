@@ -238,7 +238,7 @@ function assertComment(env: IntegrationEnvironment, identity: ConnectionIdentity
   }
 }
 
-async function assertRestrictedAuthRole(pool: Pool, signal?: AbortSignal): Promise<void> {
+async function assertRestrictedAuthRole(pool: Pool, signal?: AbortSignal, label = 'auth'): Promise<void> {
   let rows: readonly QueryRow[];
   try {
     signal?.throwIfAborted();
@@ -252,13 +252,13 @@ async function assertRestrictedAuthRole(pool: Pool, signal?: AbortSignal): Promi
     rows = result.rows as QueryRow[];
   } catch {
     signal?.throwIfAborted();
-    throw new Error('The auth connection could not verify its restricted role privileges.');
+    throw new Error(`The ${label} connection could not verify its restricted role privileges.`);
   }
   const role = rows[0];
   if (rows.length !== 1 || role?.rolcanlogin !== true
     || ['rolsuper', 'rolcreatedb', 'rolcreaterole', 'rolreplication', 'rolinherit',
       'rolbypassrls', 'has_memberships'].some(flag => role[flag] !== false)) {
-    throw new Error('Integration auth must be an unprivileged standalone LOGIN role.');
+    throw new Error(`Integration ${label} must be an unprivileged standalone LOGIN role.`);
   }
 }
 
@@ -283,6 +283,16 @@ export async function assertSafeIntegrationDatabase(
   // capacity callers may omit it, but a configured credential must always pass
   // the same pre-reset identity checks, even before migration 021 creates tables.
   const authDatabaseUrl = process.env.AUTH_RESET_INTEGRATION_DATABASE_URL?.trim();
+  const accountDatabaseUrl = process.env.ACCOUNT_FRESH_INSTALL_DATABASE_URL?.trim();
+  if (accountDatabaseUrl) {
+    const accountUrl = parseDatabaseUrl(accountDatabaseUrl, 'Integration account URL');
+    const parsed = new URL(accountDatabaseUrl);
+    if (accountUrl.target !== ownerUrl.target || accountUrl.user !== 'league_one_account'
+      || !parsed.password || parsed.hash || (parsed.port && parsed.port !== '5432')
+      || !['require', 'verify-ca', 'verify-full'].includes(parsed.searchParams.get('sslmode')?.toLowerCase() ?? '')) {
+      throw new Error('Integration account URL must use the restricted role on the same guarded database.');
+    }
+  }
   if (authDatabaseUrl) {
     const authUrl = parseDatabaseUrl(authDatabaseUrl, 'Integration auth URL');
     const parsed = new URL(authDatabaseUrl);
@@ -329,14 +339,16 @@ export async function assertSafeIntegrationDatabase(
   const ownerPool = new Pool({ connectionString: env.ownerDatabaseUrl, ...preflightLimits });
   const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
   const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
+  const accountPool = accountDatabaseUrl ? new Pool({ connectionString: accountDatabaseUrl, ...preflightLimits }) : undefined;
   try {
-    const [ownerIdentity, runtimeIdentity, authIdentity] = await Promise.all([
+    const [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity] = await Promise.all([
       connectionIdentity(ownerPool, 'The owner connection', signal),
       connectionIdentity(runtimePool, 'The runtime connection', signal),
       authPool ? connectionIdentity(authPool, 'The auth connection', signal) : undefined,
+      accountPool ? connectionIdentity(accountPool, 'The account connection', signal) : undefined,
     ]);
     signal?.throwIfAborted();
-    for (const identity of [ownerIdentity, runtimeIdentity, authIdentity]) {
+    for (const identity of [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity]) {
       if (identity) assertNotDenied(env, [identity.database, identity.branch,
         identity.comment.branchId, identity.comment.branchName]);
     }
@@ -356,8 +368,17 @@ export async function assertSafeIntegrationDatabase(
       }
       await assertRestrictedAuthRole(authPool, signal);
     }
+    if (accountIdentity && accountPool) {
+      assertComment(env, accountIdentity);
+      if (accountIdentity.user !== 'league_one_account' || accountIdentity.sessionUser !== 'league_one_account') {
+        throw new Error('The account connection did not authenticate as the restricted league_one_account role.');
+      }
+      await assertRestrictedAuthRole(accountPool, signal, 'account');
+      // CP21 generates the extra account credential only with its new-role proof.
+      await assertRestrictedAuthRole(runtimePool, signal, 'runtime');
+    }
   } finally {
-    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end()]);
+    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end(), accountPool?.end()]);
   }
   signal?.throwIfAborted();
 }
@@ -448,12 +469,27 @@ export async function prepareIntegrationDatabase(options: Readonly<{
   provisionAccountRole?: boolean;
   provisionAuthRole?: boolean;
   ownerProof?: string;
+  freshInstall?: boolean;
 }> = {}): Promise<void> {
   try {
     const env = integrationEnvironment();
     await assertSafeIntegrationDatabase(env);
     const ownerPool = await databaseOwnership.acquire({ ownerDatabaseUrl: env.ownerDatabaseUrl,
       expectedDatabase: env.expectedDatabase, expectedBranchId: env.expectedBranchId }, delegatedOwner(options.ownerProof));
+    if (options.freshInstall) {
+      if (!process.env.ACCOUNT_FRESH_INSTALL_DATABASE_URL?.trim() || options.throughMigration
+        || options.provisionRuntimeRole === false || options.provisionAccountRole === false || options.provisionAuthRole === false) {
+        throw new Error('Fresh installation requires all new LOGIN credentials and the complete maintained installation.');
+      }
+      const original = await ownerPool.query(`SELECT
+        (SELECT count(*)::int FROM pg_namespace WHERE nspname NOT IN ('public','information_schema') AND left(nspname,3)<>'pg_') AS schemas,
+        (SELECT count(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public') AS relations,
+        (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public') AS functions,
+        (SELECT count(*)::int FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname='public') AS types`);
+      if (JSON.stringify(original.rows) !== JSON.stringify([{ schemas: 0, relations: 0, functions: 0, types: 0 }])) {
+        throw new Error('Fresh installation refuses nonempty application state before the guarded reset.');
+      }
+    }
     await resetIntegrationSchemas(ownerPool);
     const empty = await ownerPool.query(`
       SELECT count(*)::integer AS relation_count
@@ -663,13 +699,16 @@ export function createIndependentDatabase(
 
 /** Transactions with expected SQL errors must retain one checked-out client.
  * Pool.query releases its client on error, even when the pool has max: 1.
- * Only the two configured identities from the guarded integration setup are
+ * Only configured identities from the guarded integration setup are
  * accepted here; this helper never creates or changes database roles. */
 export async function createPinnedIntegrationDatabase(
-  role: 'owner' | 'runtime' = 'runtime',
+  role: 'owner' | 'runtime' | 'account' | 'auth' = 'runtime',
 ): Promise<IndependentDatabase> {
   const env = integrationEnvironment();
-  const pool = new Pool({ connectionString: role === 'owner' ? env.ownerDatabaseUrl : env.runtimeDatabaseUrl, max: 1 });
+  const connectionString = role === 'owner' ? env.ownerDatabaseUrl : role === 'runtime' ? env.runtimeDatabaseUrl
+    : requiredEnvironment(role === 'account' ? 'ACCOUNT_FRESH_INSTALL_DATABASE_URL' : 'AUTH_RESET_INTEGRATION_DATABASE_URL');
+  if (role === 'account' || role === 'auth') await assertSafeIntegrationDatabase(env);
+  const pool = new Pool({ connectionString, max: 1 });
   const client = await pool.connect().catch(async (error: unknown) => {
     await pool.end();
     throw error;

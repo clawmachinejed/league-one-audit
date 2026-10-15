@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertIntegrationPostgresqlVersionEvidence, runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
+import { assertIntegrationFreshInstallEvidence, assertIntegrationPostgresqlVersionEvidence, runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
 import { IntegrationLifecycleBudget } from '../integration/integration-lifecycle-budget';
 import { createIntegrationReceiptJournal } from '../integration/integration-receipt-journal';
 
@@ -62,7 +62,10 @@ try {
   let versionEvidenceValid = false;
   try { assertIntegrationPostgresqlVersionEvidence(receipt, { gitSha, profile }); versionEvidenceValid = true; }
   catch { if (passed) receipt.failures.push('postgresql-version-evidence'); }
-  let qualificationPassed = passed && sourceUnchanged && !cancelled && versionEvidenceValid;
+  let freshInstallEvidenceValid = false;
+  try { assertIntegrationFreshInstallEvidence(receipt, { gitSha, profile }); freshInstallEvidenceValid = true; }
+  catch { if (passed) receipt.failures.push('fresh-install-evidence'); }
+  let qualificationPassed = passed && sourceUnchanged && !cancelled && versionEvidenceValid && freshInstallEvidenceValid;
   receipt.qualification = qualificationPassed ? 'passed' : 'failed';
   receipt.stage = qualificationPassed ? 'complete' : 'failed';
   finalizationStarted = true;

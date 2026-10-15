@@ -1,14 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const mocked = vi.hoisted(() => ({ prepare: vi.fn(), clean: vi.fn(), safe: vi.fn(), clock: vi.fn(), owner: vi.fn(), artifacts: vi.fn() }));
+const mocked = vi.hoisted(() => ({ prepare: vi.fn(), clean: vi.fn(), safe: vi.fn(), clock: vi.fn(), owner: vi.fn(), artifacts: vi.fn(),
+  initial: vi.fn(), installed: vi.fn(), pinned: vi.fn(), query: vi.fn(), close: vi.fn() }));
 vi.mock('./neon-integration-harness', () => ({ prepareIntegrationDatabase: mocked.prepare,
   cleanIntegrationDatabase: mocked.clean, assertSafeIntegrationDatabase: mocked.safe, ownerQuery: vi.fn(),
+  createPinnedIntegrationDatabase: mocked.pinned,
   integrationEnvironment: () => ({ expectedDatabase: 'fixture_test', expectedBranchId: 'br-fixture-test' }) }));
 vi.mock('./all-player-schedule-test-clock', () => ({ installAllPlayerScheduleTestClock: mocked.clock }));
 vi.mock('./integration-artifacts', () => ({ initializeIntegrationArtifactDirectory: mocked.artifacts }));
+vi.mock('./fresh-install-evidence', () => ({ readFreshInstallInitialEvidence: mocked.initial, writeFreshInstallInstalledEvidence: mocked.installed }));
 vi.mock('./collection-capacity-supervision', () => ({ assertCapacityOwner: mocked.owner, CAPACITY_OWNER_ENV: 'FIXTURE_UNUSED_PROOF' }));
 import standardSetup from './global-setup';
 import capacitySetup from './collection-capacity.global-setup';
+import { createQualificationContext, FRESH_INSTALL_PROFILE, QUALIFICATION_CONTEXT_ENV } from './qualification-profile';
+import { fileURLToPath } from 'node:url';
 
 const originalExitCode = process.exitCode;
 afterEach(() => { process.exitCode = originalExitCode; vi.unstubAllEnvs(); });
@@ -16,6 +21,21 @@ afterEach(() => { process.exitCode = originalExitCode; vi.unstubAllEnvs(); });
 beforeEach(() => {
   vi.resetAllMocks();
   for (const fn of Object.values(mocked)) fn.mockResolvedValue(undefined);
+  mocked.pinned.mockResolvedValue({ database: { query: mocked.query }, close: mocked.close });
+});
+
+it.each([false, true])('captures the unmodified installed catalog only for CP21 and closes its pinned owner (failure=%s)', async failure => {
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40),
+    '00000000-0000-4000-8000-000000000001', FRESH_INSTALL_PROFILE);
+  vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
+  vi.stubEnv('PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY', fileURLToPath(new URL('..', import.meta.url)));
+  if (failure) mocked.installed.mockRejectedValue(new Error('invalid installed catalog'));
+  if (failure) await expect(standardSetup()).rejects.toThrow('invalid installed catalog');
+  else await standardSetup();
+  expect(mocked.prepare).toHaveBeenCalledWith({ freshInstall: true });
+  expect(mocked.pinned).toHaveBeenCalledWith('owner'); expect(mocked.close).toHaveBeenCalledOnce();
+  expect(mocked.clock).not.toHaveBeenCalled(); expect(mocked.installed).toHaveBeenCalledOnce();
+  expect(mocked.clean).toHaveBeenCalledTimes(failure ? 1 : 0);
 });
 
 it.each([['standard', standardSetup], ['capacity', capacitySetup]] as const)(
