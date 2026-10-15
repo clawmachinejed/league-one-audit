@@ -25,6 +25,9 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   PROCESS_RECOVERY_PROFILE, PROCESS_RECOVERY_MODULE, PROCESS_RECOVERY_SOURCE_DIGEST, PROCESS_RECOVERY_SUITE,
   PROCESS_RECOVERY_TESTS, PROCESS_RECOVERY_FULL_NAMES, PROCESS_RECOVERY_PATTERN,
   PROCESS_RECOVERY_SUPPORT_SOURCES, assertProcessRecoverySupportSources,
+  COMPETING_WORKERS_PROFILE, COMPETING_WORKERS_MODULE, COMPETING_WORKERS_SOURCE_DIGEST, COMPETING_WORKERS_SUITE,
+  COMPETING_WORKERS_TESTS, COMPETING_WORKERS_FULL_NAMES, COMPETING_WORKERS_PATTERN,
+  COMPETING_WORKERS_SUPPORT_SOURCES, assertCompetingWorkersSupportSources,
   WITHIN_SEASON_HISTORY_PROFILE, WITHIN_SEASON_HISTORY_MODULE, WITHIN_SEASON_HISTORY_SOURCE_DIGEST, WITHIN_SEASON_HISTORY_SUITE,
   WITHIN_SEASON_HISTORY_TESTS, WITHIN_SEASON_HISTORY_FULL_NAMES, WITHIN_SEASON_HISTORY_PATTERN,
   DRAFT_INTAKE_PROFILE, DRAFT_INTAKE_MODULE, DRAFT_INTAKE_SOURCE_DIGEST, DRAFT_INTAKE_SUITE,
@@ -3275,4 +3278,150 @@ it('checks the actual CP22 draft-reader assertion against supplied status and ad
   // Reproduce the historical partial nested literal using this same source assertion.
   const historical = expression.slice(0, start) + "{ value: 'complete' }" + expression.slice(end);
   expect(() => evaluate(observed, historical)).toThrow();
+});
+
+async function competingWorkersFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: COMPETING_WORKERS_MODULE, pattern: COMPETING_WORKERS_PATTERN, otherFilters: false }];
+  evidence.collected = [COMPETING_WORKERS_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: COMPETING_WORKERS_MODULE,
+    suites: [{ id: 'suite', name: COMPETING_WORKERS_SUITE, mode: 'run', errors: 0 }],
+    cases: COMPETING_WORKERS_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('binds CP23 to five closed cases and two hooks with acknowledged cleanup and sticky failure', async () => {
+  expect(parseQualificationArguments(['--profile=' + COMPETING_WORKERS_PROFILE])).toBe(COMPETING_WORKERS_PROFILE);
+  expect(qualificationArguments(COMPETING_WORKERS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', COMPETING_WORKERS_MODULE, '--testNamePattern', COMPETING_WORKERS_PATTERN]);
+  const { binding, evidence } = await competingWorkersFixture();
+  expect(binding.context.modules).toEqual([{ path: COMPETING_WORKERS_MODULE, sourceDigest: COMPETING_WORKERS_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([COMPETING_WORKERS_MODULE]);
+  expect(COMPETING_WORKERS_FULL_NAMES).toHaveLength(5);
+  const pattern = new RegExp(COMPETING_WORKERS_PATTERN);
+  for (const name of COMPETING_WORKERS_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(DRAFT_INTAKE_RECOVERY_FULL_NAMES.some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence); await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: COMPETING_WORKERS_PROFILE,
+    collected: 5, executed: 5, passed: 5, skipped: 0, filtered: 0 });
+  await expect(writeQualificationArtifact(binding, 'report', evidence)).rejects.toThrow();
+  const cleanupPath = join(binding.directory, QUALIFICATION_FILES.cleanup);
+  const originalCleanup = await readFile(cleanupPath, 'utf8');
+  for (const field of ['contextDigest', 'reportDigest'] as const) {
+    const substituted = JSON.parse(originalCleanup); substituted[field] = 'f'.repeat(64);
+    await writeFile(cleanupPath, JSON.stringify(substituted));
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  await writeFile(cleanupPath, originalCleanup);
+  await expect(validateQualificationArtifacts({ ...binding, context: { ...binding.context, nonce: randomUUID() } })).rejects.toThrow();
+
+  await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  for (const args of [['--profile=data-competing-workers-v2'], ['--profile', COMPETING_WORKERS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + COMPETING_WORKERS_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + COMPETING_WORKERS_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+});
+it('rejects CP23 inventory order execution hook filter source and predecessor substitution drift', async () => {
+  const { binding, evidence } = await competingWorkersFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases[0].name += ' extra'; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].suites = []; }, r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; }, r => { r.hooks[0].ends = 0; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; }, r => { r.starts = 2; }, r => { r.ends = 0; },
+    r => { r.contextDigest = 'f'.repeat(64); }, r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.flaky = true; }, r => { r.collected.push(OFFICIAL_RESULTS_MODULE); },
+  ];
+  for (const change of changes) { const changed = structuredClone(evidence); change(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+  const predecessor = await processRecoveryFixture();
+  expect(() => validateQualificationReport(binding.context, { ...predecessor.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  expect(() => validateQualificationReport(predecessor.binding.context, { ...evidence, contextDigest: qualificationDigest(predecessor.binding.context) })).toThrow();
+  for (const change of [(context: typeof binding.context) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: typeof binding.context) => { context.modules[0].path = OFFICIAL_RESULTS_MODULE; },
+    (context: typeof binding.context) => { context.profileDigest = predecessor.binding.context.profileDigest; },
+    (context: typeof binding.context) => { context.modules.push({ ...context.modules[0] }); }]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) await writeFile(join(binding.directory, entry.path),
+    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  await writeFile(join(binding.directory, COMPETING_WORKERS_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE)).rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories CP23 source names hooks allowance and fixed manual workflow without SQL execution', async () => {
+  const path = fileURLToPath(new URL('../' + COMPETING_WORKERS_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(COMPETING_WORKERS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default'); }
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(suites).toEqual([COMPETING_WORKERS_SUITE]); expect(names).toEqual(COMPETING_WORKERS_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']); expect(budgets).toEqual(['180_000', '210_000', '240_000', '210_000', '540_000']);
+  expect(hookBudgets).toEqual(['90_000', '90_000']);
+  // Authored allowance only: 26m cases/hooks and 4m for setup, reporting, cleanup and margin.
+  expect(budgets.concat(hookBudgets).reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(26 * 60_000);
+  expect(26 + 4).toBe(30);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-competing-workers-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-competing-workers-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-competing-workers-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain('timeout-minutes: 50');
+  for (const selection of [...historyProfiles, ...draftIntakeProfiles])
+    expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70); expect(full.modules.filter(module => module.path === COMPETING_WORKERS_MODULE)).toHaveLength(0);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+});
+
+it('binds CP23 worker and protocol source independently from the five collected cases', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  const directory = await mkdtemp(join(tmpdir(), 'competing-workers-support-')); directories.push(directory);
+  await mkdir(join(directory, 'integration'));
+  const source = await readFile(new URL('../' + COMPETING_WORKERS_MODULE, import.meta.url), 'utf8');
+  await writeFile(join(directory, COMPETING_WORKERS_MODULE), source);
+  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE)).rejects.toThrow();
+  for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
+    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
+  expect(context.modules).toEqual([{ path: COMPETING_WORKERS_MODULE, sourceDigest: COMPETING_WORKERS_SOURCE_DIGEST }]);
+  expect(COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
+    'integration/competing-workers-worker.ts', 'integration/competing-workers-protocol.ts',
+  ]);
+  for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) {
+    const original = await readFile(join(directory, entry.path), 'utf8');
+    await writeFile(join(directory, entry.path), original + '\n// unreviewed source drift\n');
+    await expect(assertCompetingWorkersSupportSources(directory)).rejects.toThrow('reviewed LF digest');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, entry.path), original.replace(/\r?\n/gu, '\r\n'));
+    await expect(assertCompetingWorkersSupportSources(directory)).resolves.toBeUndefined();
+    await writeFile(join(directory, entry.path), original);
+  }
 });
