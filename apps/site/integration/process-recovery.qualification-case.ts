@@ -293,7 +293,7 @@ describe.sequential('durable DATA recovery after operating-system worker death',
     const noFetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('CP22 stored reader attempted acquisition.'));
     const read = await readPublicSleeperIntake(connection.database, administration, draftId);
     expect(read).toMatchObject({ status: 'pending', drafts: expect.arrayContaining([expect.objectContaining({ ordinal: 3,
-      resource: expect.objectContaining({ status: 'available', value: expect.objectContaining({ kind: 'detail', detail: expect.objectContaining({ status: { value: 'complete' } }) }) }) })]) });
+      resource: expect.objectContaining({ status: 'available', value: expect.objectContaining({ kind: 'detail', detail: expect.objectContaining({ status: { raw: 'complete', state: 'supplied', value: 'complete' } }) }) }) })]) });
     expect(noFetch).not.toHaveBeenCalled();
   }), 210_000);
 

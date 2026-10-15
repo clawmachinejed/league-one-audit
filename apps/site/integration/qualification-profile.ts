@@ -52,7 +52,7 @@ export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 export const PROCESS_RECOVERY_PROFILE = 'data-process-recovery-v1';
 export const PROCESS_RECOVERY_MODULE = 'integration/process-recovery.qualification-case.ts';
 // CP22 closed source inventory only; no hosted SQL execution authority.
-export const PROCESS_RECOVERY_SOURCE_DIGEST = 'f5685b6a062c3ccd3dd7b20f43b5b1092853f9d540ef97b927dfdde5e3002436';
+export const PROCESS_RECOVERY_SOURCE_DIGEST = 'c03c0ed3b8959aca2d48a95802e4b3fce424112e2a737d2a30f2b95315f32afb';
 export const PROCESS_RECOVERY_SUITE = 'durable DATA recovery after operating-system worker death';
 export const PROCESS_RECOVERY_TESTS = [
   'restarts an admitted draft child from its retained catalog after process death before acquisition',

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
@@ -3221,4 +3222,57 @@ it('binds CP22 worker and protocol source independently from the seven collected
     await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE)).rejects.toThrow('reviewed LF digest');
     await writeFile(join(directory, entry.path), original);
   }
+});
+
+it('checks the actual CP22 draft-reader assertion against supplied status and adverse states', async () => {
+  const path = fileURLToPath(new URL('../' + PROCESS_RECOVERY_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8'), tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const cases: ts.CallExpression[] = [], assertions: ts.CallExpression[] = [];
+  const findCase = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'it'
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === PROCESS_RECOVERY_TESTS[0]) cases.push(node);
+    ts.forEachChild(node, findCase);
+  };
+  findCase(tree); expect(cases).toHaveLength(1);
+  const findAssertion = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'expect(read).toMatchObject') assertions.push(node);
+    ts.forEachChild(node, findAssertion);
+  };
+  findAssertion(cases[0]); expect(assertions).toHaveLength(1);
+  const assertion = assertions[0], statuses: ts.ObjectLiteralExpression[] = [];
+  const allowedKinds = new Set([ts.SyntaxKind.CallExpression, ts.SyntaxKind.PropertyAccessExpression,
+    ts.SyntaxKind.Identifier, ts.SyntaxKind.ObjectLiteralExpression, ts.SyntaxKind.PropertyAssignment,
+    ts.SyntaxKind.ArrayLiteralExpression, ts.SyntaxKind.StringLiteral, ts.SyntaxKind.NumericLiteral]);
+  const checkLiteral = (node: ts.Node) => {
+    expect(allowedKinds.has(node.kind)).toBe(true);
+    if (ts.isCallExpression(node)) expect(['expect(read).toMatchObject', 'expect', 'expect.arrayContaining',
+      'expect.objectContaining']).toContain(node.expression.getText(tree));
+    if (ts.isObjectLiteralExpression(node) && node.properties.map(property => property.name?.getText(tree)).join(',') === 'raw,state,value') statuses.push(node);
+    ts.forEachChild(node, checkLiteral);
+  };
+  checkLiteral(assertion);
+  const observed = { status: 'pending', drafts: [{ ordinal: 3, resource: { status: 'available',
+    value: { kind: 'detail', detail: { status: { raw: 'complete', state: 'supplied', value: 'complete' } } } } }] };
+  const expression = assertion.getText(tree);
+  const evaluate = (read: unknown, text = expression) => runInNewContext(text, { expect, read }, { timeout: 1_000 });
+  expect(() => evaluate(observed)).not.toThrow();
+  const changes: ((read: typeof observed) => void)[] = [
+    read => { read.drafts[0].resource.value.detail.status.raw = 'drafting'; },
+    read => { read.drafts[0].resource.value.detail.status.state = 'unavailable'; },
+    read => { read.drafts[0].resource.value.detail.status.value = 'drafting'; },
+    read => { read.status = 'complete'; },
+    read => { read.drafts[0].ordinal = 4; },
+    read => { read.drafts[0].resource.status = 'unavailable'; },
+    read => { read.drafts[0].resource.value.kind = 'catalog'; },
+    read => { read.drafts = []; },
+  ];
+  for (const change of changes) {
+    const adverse = structuredClone(observed); change(adverse);
+    expect(() => evaluate(adverse)).toThrow();
+  }
+  expect(statuses).toHaveLength(1);
+  const status = statuses[0], start = status.getStart(tree) - assertion.getStart(tree), end = status.end - assertion.getStart(tree);
+  // Reproduce the historical partial nested literal using this same source assertion.
+  const historical = expression.slice(0, start) + "{ value: 'complete' }" + expression.slice(end);
+  expect(() => evaluate(observed, historical)).toThrow();
 });
