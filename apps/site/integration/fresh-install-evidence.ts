@@ -6,8 +6,11 @@ import {
   type QualificationBinding,
 } from './qualification-profile';
 import {
-  assertFreshInstallCatalog, assertFreshInstallPrivileges, readFreshInstallCatalog, readFreshInstallSources,
-  FRESH_INSTALL_MANIFEST_SHA256, FreshInstallCatalogMismatchError, type FreshInstallCatalogMismatch,
+  assertFreshInstallCatalog, assertFreshInstallPrivileges, assertFreshInstallInstalledCatalog,
+  assertFreshInstallDatabasePlatformBranch, FreshInstallDatabasePlatformError,
+  readFreshInstallCatalog, readFreshInstallSources,
+  FRESH_INSTALL_MANIFEST_SHA256, FreshInstallCatalogMismatchError, type FreshInstallCatalogDiagnostic, type FreshInstallCatalogMismatch,
+  type FreshInstallCatalog, type FreshInstallDatabasePlatformDiagnostic,
 } from './fresh-install-catalog';
 
 export const FRESH_INSTALL_INITIAL_DIGEST_ENV = 'PROJECTION_INTEGRATION_FRESH_INSTALL_INITIAL_DIGEST';
@@ -28,9 +31,17 @@ export type FreshInstallInitialEvidence = Bound & { kind: 'fresh-install-initial
 export type FreshInstallInstalledEvidence = Bound & { kind: 'fresh-install-installed-v1'; initialEvidenceDigest: string;
   sources: Awaited<ReturnType<typeof readFreshInstallSources>>; migrationLedger: readonly { name: string; checksum: string }[];
   catalog: Awaited<ReturnType<typeof readFreshInstallCatalog>> };
-export type FreshInstallDiagnostic = Bound & { kind: 'fresh-install-diagnostic-v1'; status: 'unverified';
-  initialEvidenceDigest: string; postgresVersion: string; frozenManifestDigest: string; sourcesDigest: string;
-  migrationLedgerDigest: string; catalogDigest: string; phase: 'catalog' | 'privileges'; mismatch: FreshInstallCatalogMismatch };
+export type FreshInstallDiagnostic = Bound & { kind: 'fresh-install-diagnostic-v2'; status: 'unverified';
+  initialEvidenceDigest: string; frozenManifestDigest: string; sourcesDigest: string; migrationLedgerDigest: string } & (
+  { phase: 'comparison'; postgresVersion: string; snapshotComplete: true; catalogDigest: string;
+    mismatch: FreshInstallCatalogMismatch; comparison: FreshInstallCatalogDiagnostic }
+  | { phase: 'platform-witness'; postgresVersion: string | null; snapshotComplete: boolean; catalogDigest: string | null;
+    platformWitness: FreshInstallDatabasePlatformDiagnostic });
+class FreshInstallDiagnosticPersistenceError extends Error {
+  constructor(cause: FreshInstallCatalogMismatchError | FreshInstallDatabasePlatformError) {
+    super('Fresh installation catalog mismatch; diagnostic persistence failed.', { cause });
+  }
+}
 const boundKeys = ['contextDigest', 'runId', 'gitSha', 'profile', 'databaseName', 'branchId', 'observedAt', 'installerRole'];
 function keys(value: unknown, expected: readonly string[]): asserts value is Record<string, unknown> {
   assert(value && typeof value === 'object' && !Array.isArray(value), 'Malformed fresh installation evidence.');
@@ -114,43 +125,69 @@ export async function readFreshInstallInitialEvidence(binding: QualificationBind
   assertFreshInstallInitialEvidence(initial, binding, target); assert.equal(qualificationDigest(initial), digest); return initial;
 }
 export async function writeFreshInstallInstalledEvidence(query: Query, binding: QualificationBinding): Promise<string> {
-  const initial = await readFreshInstallInitialEvidence(binding);
-  const sources = await readFreshInstallSources();
-  assert.deepEqual(await query(`SELECT current_database() AS database, current_user AS owner, session_user AS session,
-    current_setting('neon.branch_id',true) AS branch`), [{ database: initial.databaseName,
-    owner: initial.installerRole, session: initial.installerRole, branch: initial.branchId }]);
-  const migrationLedger = await query('SELECT name, checksum FROM public.app_schema_migrations ORDER BY name') as { name: string; checksum: string }[];
-  assert.deepEqual(migrationLedger, sources.migrations.map(({ name, checksum }) => ({ name, checksum })));
-  const catalog = await readFreshInstallCatalog(query, initial.installerRole);
-  let phase: FreshInstallDiagnostic['phase'] = 'catalog';
+  let phase = 'initial-evidence';
   try {
-    await assertFreshInstallCatalog(catalog);
-    phase = 'privileges';
-    await assertFreshInstallPrivileges(catalog);
-  } catch (error) {
-    if (error instanceof FreshInstallCatalogMismatchError) {
-      try {
-        // Retain only the comparator's fixed field names, types, lengths and digests.
-        // This failure artifact is never an installed proof or a qualification input.
-        const diagnostic: FreshInstallDiagnostic = {
-          ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
-          kind: 'fresh-install-diagnostic-v1', status: 'unverified', initialEvidenceDigest: qualificationDigest(initial),
-          postgresVersion: catalog.postgresVersion, frozenManifestDigest: FRESH_INSTALL_MANIFEST_SHA256,
-          sourcesDigest: qualificationDigest(sources), migrationLedgerDigest: qualificationDigest(migrationLedger),
-          catalogDigest: qualificationDigest(catalog), phase, mismatch: error.mismatch,
-        };
-        const serialized = JSON.stringify(diagnostic);
-        assert(Buffer.byteLength(serialized) <= FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES, 'Fresh installation diagnostic exceeds the bounded allowance.');
-        await writeFile(join(binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE), serialized, { flag: 'wx', mode: 0o600 });
-      } catch {
-        throw new Error('Fresh installation catalog mismatch; diagnostic persistence failed.', { cause: error });
+    const initial = await readFreshInstallInitialEvidence(binding);
+    phase = 'installation-sources';
+    const sources = await readFreshInstallSources();
+    phase = 'connection-identity';
+    assert.deepEqual(await query(`SELECT current_database() AS database, current_user AS owner, session_user AS session,
+      current_setting('neon.branch_id',true) AS branch`), [{ database: initial.databaseName,
+      owner: initial.installerRole, session: initial.installerRole, branch: initial.branchId }]);
+    phase = 'migration-ledger';
+    const migrationLedger = await query('SELECT name, checksum FROM public.app_schema_migrations ORDER BY name') as { name: string; checksum: string }[];
+    assert.deepEqual(migrationLedger, sources.migrations.map(({ name, checksum }) => ({ name, checksum })));
+    let catalog: FreshInstallCatalog | undefined;
+    try {
+      phase = 'catalog-read';
+      catalog = await readFreshInstallCatalog(query, initial.installerRole);
+      phase = 'platform-binding';
+      assertFreshInstallDatabasePlatformBranch(catalog, initial.branchId);
+      phase = 'catalog-comparison';
+      assertFreshInstallInstalledCatalog(catalog);
+    } catch (error) {
+      if (error instanceof FreshInstallCatalogMismatchError || error instanceof FreshInstallDatabasePlatformError) {
+        try {
+          // Every comparison runs against the same captured snapshot. Only the
+          // collector's bounded, sanitized details enter this unverified artifact.
+          const common = {
+            ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
+            kind: 'fresh-install-diagnostic-v2' as const, status: 'unverified' as const, initialEvidenceDigest: qualificationDigest(initial),
+            frozenManifestDigest: FRESH_INSTALL_MANIFEST_SHA256,
+            sourcesDigest: qualificationDigest(sources), migrationLedgerDigest: qualificationDigest(migrationLedger),
+          };
+          let diagnostic: FreshInstallDiagnostic;
+          if (error instanceof FreshInstallDatabasePlatformError) {
+            diagnostic = { ...common, phase: 'platform-witness', postgresVersion: error.postgresVersion,
+              snapshotComplete: catalog !== undefined, catalogDigest: catalog ? qualificationDigest(catalog) : null,
+              platformWitness: error.diagnostic };
+          } else {
+            assert(catalog);
+            diagnostic = { ...common, phase: 'comparison', postgresVersion: catalog.postgresVersion,
+              snapshotComplete: true, catalogDigest: qualificationDigest(catalog),
+              mismatch: error.mismatch, comparison: error.diagnostic };
+          }
+          const serialized = JSON.stringify(diagnostic);
+          assert(Buffer.byteLength(serialized) <= FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES, 'Fresh installation diagnostic exceeds the bounded allowance.');
+          await writeFile(join(binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE), serialized, { flag: 'wx', mode: 0o600 });
+        } catch {
+          throw new FreshInstallDiagnosticPersistenceError(error);
+        }
       }
+      throw error;
     }
-    throw error;
+    phase = 'installed-artifact';
+    const installed: FreshInstallInstalledEvidence = { ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
+      kind: 'fresh-install-installed-v1', initialEvidenceDigest: qualificationDigest(initial), sources, migrationLedger, catalog };
+    return await writeArtifact(binding, 'installed', installed);
+  } catch (error) {
+    if (error instanceof FreshInstallCatalogMismatchError || error instanceof FreshInstallDatabasePlatformError
+      || error instanceof FreshInstallDiagnosticPersistenceError) throw error;
+    // Driver/assertion/filesystem messages can contain query text or values.
+    // Preserve a fixed local phase, never the original message, stack or cause.
+    throw Object.assign(new Error(`Fresh installation evidence capture failed during ${phase}.`),
+      { code: 'FRESH_INSTALL_EVIDENCE_CAPTURE_FAILED', phase });
   }
-  const installed: FreshInstallInstalledEvidence = { ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
-    kind: 'fresh-install-installed-v1', initialEvidenceDigest: qualificationDigest(initial), sources, migrationLedger, catalog };
-  return writeArtifact(binding, 'installed', installed);
 }
 export async function assertFreshInstallInstalledEvidence(installed: FreshInstallInstalledEvidence,
   initial: FreshInstallInitialEvidence, binding: QualificationBinding, target: Target): Promise<void> {
@@ -158,6 +195,7 @@ export async function assertFreshInstallInstalledEvidence(installed: FreshInstal
   assert.equal(installed.kind, 'fresh-install-installed-v1'); assertBinding(installed, binding, target);
   assert.equal(installed.installerRole, initial.installerRole); assert(initial.observedAt <= installed.observedAt);
   assert.equal(installed.catalog.installer.name, initial.installerRole);
+  assertFreshInstallDatabasePlatformBranch(installed.catalog, initial.branchId);
   assert.equal(installed.initialEvidenceDigest, qualificationDigest(initial));
   assert.deepEqual(installed.sources, await readFreshInstallSources());
   assert.deepEqual(installed.migrationLedger, installed.sources.migrations.map(({ name, checksum }) => ({ name, checksum })));

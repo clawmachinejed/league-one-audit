@@ -24,7 +24,9 @@ beforeEach(() => {
   mocked.pinned.mockResolvedValue({ database: { query: mocked.query }, close: mocked.close });
 });
 
-it.each([null, 'invalid installed catalog', 'Fresh installation catalog mismatch; diagnostic persistence failed.'])(
+it.each([null, 'invalid installed catalog', 'Fresh installation catalog mismatch; diagnostic persistence failed.',
+  'Fresh installation evidence capture failed during catalog-read.',
+  'Fresh-install catalog: database platform witness differs from the reviewed variant.'])(
   'captures the unmodified installed catalog only for CP21 and closes its pinned owner (failure=%s)', async failure => {
   const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40),
     '00000000-0000-4000-8000-000000000001', FRESH_INSTALL_PROFILE);

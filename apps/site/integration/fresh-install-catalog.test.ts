@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import { assertFreshInstallCatalog, assertFreshInstallPrivileges, readFreshInstallSources,
+import { assertFreshInstallCatalog, assertFreshInstallPrivileges, assertFreshInstallInstalledCatalog, readFreshInstallSources,
   readFreshInstallCatalog, FRESH_INSTALL_MANIFEST_SHA256, FreshInstallCatalogMismatchError,
-  type FreshInstallCatalog } from './fresh-install-catalog';
+  FreshInstallDatabasePlatformError, assertFreshInstallDatabasePlatformBranch,
+  FRESH_INSTALL_COMPARISON_MAX_BYTES, type FreshInstallCatalog } from './fresh-install-catalog';
 import { createHash } from 'node:crypto';
 import { types } from '@neondatabase/serverless';
 
@@ -25,12 +26,30 @@ function baseline(nonsuper = false): FreshInstallCatalog {
   }
   return { format: 'cp21-installed-catalog-v1', postgresVersion: '180003',
     installer: { name: installer, superuser: !nonsuper, inherit: true, createRole: true },
-    bootstrap: { name: 'postgres', oid: 10, superuser: true }, sections,
+    bootstrap: { name: 'postgres', oid: 10, superuser: true }, databasePlatform: null, sections,
     membershipEvidence: sections.memberships.map((row) => Object.fromEntries(Object.entries(row).map(([key, value]) =>
       [key, value === '$INSTALLER' ? installer : value === '$BOOTSTRAP' ? 'postgres' : value]))),
   };
 }
 function mutable(catalog: FreshInstallCatalog): Record<string, Row[]> { return catalog.sections as Record<string, Row[]>; }
+function neonBaseline(): FreshInstallCatalog {
+  const catalog = baseline(true);
+  mutable(catalog).databaseAcl.push(...['CONNECT', 'CREATE', 'TEMPORARY'].map((privilege) => ({
+    database: '$DATABASE', owner: '$INSTALLER', grantee: 'neon_superuser', grantor: '$INSTALLER', privilege, grantable: false,
+  })));
+  return { ...catalog, databasePlatform: { kind: 'neon', branchId: 'br-local-model', databaseOwner: catalog.installer.name,
+    role: { name: 'neon_superuser', superuser: false, inherit: true, createDb: true, createRole: true,
+      login: false, replication: true, bypassRls: true }, installer: { member: true, usage: true },
+    applicationRoles: ['league_one_account', 'league_one_auth', 'league_one_runtime'].map((role) => ({ role, member: false, usage: false })),
+  } };
+}
+function comparisonFailure(catalog: FreshInstallCatalog): FreshInstallCatalogMismatchError {
+  try { assertFreshInstallInstalledCatalog(catalog); } catch (error) {
+    expect(error).toBeInstanceOf(FreshInstallCatalogMismatchError);
+    return error as FreshInstallCatalogMismatchError;
+  }
+  throw new Error('Expected a strict catalog mismatch.');
+}
 
 describe('frozen fresh-install catalog', () => {
   it('loads an unchanged Windows CRLF checkout while rejecting changed manifest bytes', async () => {
@@ -55,6 +74,7 @@ describe('frozen fresh-install catalog', () => {
     const catalog = baseline(nonsuper);
     expect(() => assertFreshInstallCatalog(catalog)).not.toThrow();
     expect(() => assertFreshInstallPrivileges(catalog)).not.toThrow();
+    expect(() => assertFreshInstallInstalledCatalog(catalog)).not.toThrow();
   });
   it('collects policy roles as text arrays through the installed Neon decoder', async () => {
     const expected = baseline();
@@ -62,6 +82,8 @@ describe('frozen fresh-install catalog', () => {
       if (statement.includes('AS installer_name')) return [{ current_user: 'postgres', session_user: 'postgres',
         version: '180003', installer_name: 'postgres', installer_superuser: true, installer_inherit: true,
         installer_create_role: true, bootstrap_name: 'postgres', bootstrap_oid: 10, bootstrap_superuser: true }];
+      if (statement.includes("current_setting('neon.branch_id'")) return [{ branch_id: null,
+        database_owner: 'postgres', platform_name: null }];
       if (statement.includes('FROM pg_policy p')) {
         // The real SQL/type/driver boundary is also checked in the isolated
         // PostgreSQL diagnostic. Retain its text[] transport contract here.
@@ -205,5 +227,193 @@ describe('frozen fresh-install catalog', () => {
     const catalog = baseline();
     expect(() => assertFreshInstallCatalog({ ...catalog, postgresVersion: '170007' })).toThrow('PostgreSQL 18');
     expect(() => assertFreshInstallPrivileges({ ...catalog, membershipEvidence: [] })).toThrow('membershipEvidence');
+  });
+  it('collects all 29 strict comparisons, section digests and exact inserted ACL metadata', () => {
+    const catalog = baseline();
+    mutable(catalog).policies[0].using_expression = 'false';
+    mutable(catalog).databaseAcl.push({ database: '$DATABASE', owner: '$INSTALLER', grantee: 'unexpected_admin',
+      grantor: '$INSTALLER', privilege: 'CREATE', grantable: true });
+    mutable(catalog).roles[0].login = false;
+    const error = comparisonFailure(catalog), report = error.diagnostic;
+    expect(report.sections).toHaveLength(29);
+    expect(report.sections.filter((row) => row.status === 'different').map((row) => row.section))
+      .toEqual(['policies', 'roles', 'databaseAcl']);
+    for (const section of report.sections) {
+      expect(section.expectedDigest).toMatch(/^[a-f0-9]{64}$/u);
+      expect(section.observedDigest).toMatch(/^[a-f0-9]{64}$/u);
+      expect(section.expectedDigest === section.observedDigest).toBe(section.status === 'matched');
+    }
+    const acl = report.sections.find((row) => row.section === 'databaseAcl')!;
+    expect(acl).toMatchObject({ missingRows: 0, extraRows: 1, changedRows: 0, omitted: { missing: 0, extra: 0, changed: 0 } });
+    expect(Object.fromEntries(acl.details.extra[0].fields.map((field) => [field.name, field.value])))
+      .toEqual({ database: '$DATABASE', owner: '$INSTALLER', grantee: 'unexpected_admin', grantor: '$INSTALLER', privilege: 'CREATE', grantable: true });
+    expect(report.sections.find((row) => row.section === 'policies')!.details.changed[0].differingFields).toEqual(['using_expression']);
+    expect(report.truncated).toBe(false);
+    expect(Object.isFrozen(report.sections[0].details)).toBe(true);
+  });
+  it('pairs unique identities only and never conceals duplicate identity ambiguity', () => {
+    const changed = baseline(); mutable(changed).databaseAcl[0].grantable = true;
+    const report = comparisonFailure(changed).diagnostic.sections.find((row) => row.section === 'databaseAcl')!;
+    expect(report).toMatchObject({ missingRows: 0, extraRows: 0, changedRows: 1 });
+    expect(report.details.changed[0].differingFields).toEqual(['grantable']);
+    const duplicate = baseline();
+    mutable(duplicate).databaseAcl.push({ ...mutable(duplicate).databaseAcl[0], grantable: true });
+    const ambiguous = comparisonFailure(duplicate).diagnostic.sections.find((row) => row.section === 'databaseAcl')!;
+    expect(ambiguous).toMatchObject({ missingRows: 0, extraRows: 1, changedRows: 0 });
+    // One original identity remains an exact match. The other residual pair is
+    // still ambiguous because uniqueness is checked across the entire section.
+    const sample = mutable(duplicate).databaseAcl[0];
+    const direct = new FreshInstallCatalogMismatchError('databaseAcl', [sample, { ...sample, grantable: true }],
+      [sample, { ...sample, grantable: null }], 1).diagnostic.sections[0];
+    expect(direct).toMatchObject({ missingRows: 1, extraRows: 1, changedRows: 0 });
+  });
+  it('retains all section summaries and explicit omissions under the fixed diagnostic budget', () => {
+    const catalog = baseline();
+    for (let index = 0; index < 500; index++) mutable(catalog).databaseAcl.push({ database: '$DATABASE', owner: '$INSTALLER',
+      grantee: `extra_role_${index}`, grantor: '$INSTALLER', privilege: 'CREATE', grantable: false });
+    mutable(catalog).policies[0].roles = ['unexpected_role'];
+    const report = comparisonFailure(catalog).diagnostic;
+    expect(Buffer.byteLength(JSON.stringify(report))).toBeLessThanOrEqual(FRESH_INSTALL_COMPARISON_MAX_BYTES);
+    expect(report.sections).toHaveLength(29); expect(report.truncated).toBe(true);
+    const acl = report.sections.find((row) => row.section === 'databaseAcl')!;
+    expect(acl.extraRows).toBe(500); expect(acl.omitted.extra).toBeGreaterThan(0);
+    expect(acl.details.extra.length + acl.omitted.extra).toBe(500);
+    expect(report.sections.find((row) => row.section === 'policies')!.details.changed).toHaveLength(1);
+  });
+  it('hashes opaque values, unsafe identifiers and unknown keys in aggregate details', () => {
+    const catalog = baseline(), secret = 'postgresql://user:password@example.invalid/database';
+    mutable(catalog).policies[0].using_expression = secret.repeat(1000);
+    mutable(catalog).policies[0].roles = [secret];
+    mutable(catalog).policies[0][secret] = secret;
+    mutable(catalog).databaseAcl[0].grantee = '"unmatched';
+    const report = comparisonFailure(catalog).diagnostic, serialized = JSON.stringify(report);
+    expect(serialized).not.toContain(secret); expect(serialized).not.toContain('unmatched');
+    const policy = report.sections.find((row) => row.section === 'policies')!.details.changed[0];
+    expect(policy.differingFields).toEqual(['roles', 'using_expression']);
+    expect(policy.omittedDifferingFields).toBe(1); expect(policy.observed.omittedFields).toBe(1);
+    expect(policy.observed.fields.find((field) => field.name === 'using_expression'))
+      .toMatchObject({ type: 'string', length: secret.length * 1000 });
+    expect(policy.observed.fields.find((field) => field.name === 'using_expression')!.value).toBeUndefined();
+  });
+  it('accepts the attested fixed Neon database grant variant without changing the manifest', () => {
+    const catalog = neonBaseline();
+    expect(() => assertFreshInstallInstalledCatalog(catalog)).not.toThrow();
+    expect(() => assertFreshInstallCatalog(catalog)).not.toThrow();
+    expect(() => assertFreshInstallPrivileges(catalog)).not.toThrow();
+    expect(createHash('sha256').update(text.replace(/\r\n?/gu, '\n')).digest('hex')).toBe(FRESH_INSTALL_MANIFEST_SHA256);
+  });
+  it.each(['CONNECT', 'CREATE', 'TEMPORARY'])('rejects missing and grantable provider privilege %s', (privilege) => {
+    const missing = neonBaseline(); mutable(missing).databaseAcl = mutable(missing).databaseAcl
+      .filter((row) => !(row.grantee === 'neon_superuser' && row.privilege === privilege));
+    expect(() => assertFreshInstallInstalledCatalog(missing)).toThrow('databaseAcl');
+    const grantable = neonBaseline(); mutable(grantable).databaseAcl
+      .find((row) => row.grantee === 'neon_superuser' && row.privilege === privilege)!.grantable = true;
+    expect(() => assertFreshInstallInstalledCatalog(grantable)).toThrow('databaseAcl');
+  });
+  it.each(['owner', 'grantor', 'grantee', 'database', 'privilege'])('rejects changed provider ACL %s', (field) => {
+    const catalog = neonBaseline(); mutable(catalog).databaseAcl.find((row) => row.grantee === 'neon_superuser')![field] = 'unexpected';
+    expect(() => assertFreshInstallInstalledCatalog(catalog)).toThrow('databaseAcl');
+  });
+  it.each(['superuser', 'inherit', 'createDb', 'createRole', 'login', 'replication', 'bypassRls'])
+  ('rejects changed provider role flag %s', (field) => {
+    const catalog = neonBaseline(), role = catalog.databasePlatform!.role as unknown as Row;
+    role[field] = !role[field];
+    expect(() => assertFreshInstallInstalledCatalog(catalog)).toThrow('database platform');
+  });
+  it('rejects absent, partial, extra, wrongly owned and inconsistently attested platform metadata', () => {
+    const absent = { ...baseline() } as unknown as Row; delete absent.databasePlatform;
+    expect(() => assertFreshInstallCatalog(absent as unknown as FreshInstallCatalog)).toThrow('platform witness');
+    for (const value of [undefined, {}, { ...neonBaseline().databasePlatform, extra: true },
+      { ...neonBaseline().databasePlatform, databaseOwner: 'another_owner' },
+      { ...neonBaseline().databasePlatform, branchId: 'https://example.invalid/secret' },
+      { ...neonBaseline().databasePlatform, role: { ...neonBaseline().databasePlatform!.role, name: 'other_admin' } }]) {
+      expect(() => assertFreshInstallInstalledCatalog({ ...neonBaseline(), databasePlatform: value } as FreshInstallCatalog))
+        .toThrow('database platform');
+    }
+    expect(() => assertFreshInstallInstalledCatalog({ ...neonBaseline(), databasePlatform: null })).toThrow('databaseAcl');
+    expect(() => assertFreshInstallInstalledCatalog({ ...baseline(), databasePlatform: neonBaseline().databasePlatform }))
+      .toThrow('database platform');
+  });
+  it('rejects provider installer membership loss and every app-role membership or usage escalation', () => {
+    for (const field of ['member', 'usage'] as const) {
+      const installer = neonBaseline(); (installer.databasePlatform!.installer as { member: boolean; usage: boolean })[field] = false;
+      expect(() => assertFreshInstallInstalledCatalog(installer)).toThrow('database platform');
+      for (let index = 0; index < 3; index++) {
+        const app = neonBaseline(); (app.databasePlatform!.applicationRoles[index] as { member: boolean; usage: boolean })[field] = true;
+        expect(() => assertFreshInstallInstalledCatalog(app)).toThrow('database platform');
+      }
+    }
+    const reordered = neonBaseline(); (reordered.databasePlatform!.applicationRoles as unknown[]).reverse();
+    expect(() => assertFreshInstallInstalledCatalog(reordered)).toThrow('database platform');
+  });
+  it('reports exact safe platform flag and branch drift without claiming catalog comparison', () => {
+    const catalog = neonBaseline(); (catalog.databasePlatform!.role as { login: boolean }).login = true;
+    let failure: FreshInstallDatabasePlatformError | undefined;
+    try { assertFreshInstallInstalledCatalog(catalog); } catch (error) { failure = error as FreshInstallDatabasePlatformError; }
+    expect(failure).toBeInstanceOf(FreshInstallDatabasePlatformError);
+    expect(failure!.postgresVersion).toBe('180003');
+    expect(failure!.diagnostic).toMatchObject({ format: 'fresh-install-platform-witness-v1', omittedUnknownFields: 0,
+      issues: [{ field: 'role.login', requirement: 'equals', expected: { value: false }, observed: { value: true } }] });
+    const valid = neonBaseline();
+    expect(() => assertFreshInstallDatabasePlatformBranch(valid, 'br-local-model')).not.toThrow();
+    try { assertFreshInstallDatabasePlatformBranch(valid, 'br-another-child'); } catch (error) { failure = error as FreshInstallDatabasePlatformError; }
+    expect(failure!.diagnostic.issues).toMatchObject([{ field: 'branchId', expected: { value: 'br-another-child' },
+      observed: { value: 'br-local-model' } }]);
+    expect(() => assertFreshInstallDatabasePlatformBranch(baseline(), 'br-local-model')).toThrow(FreshInstallDatabasePlatformError);
+    expect(() => assertFreshInstallDatabasePlatformBranch(valid, 'https://example.invalid/secret')).toThrow(FreshInstallDatabasePlatformError);
+  });
+  it('bounds platform metadata and hashes unsafe values and unknown field names', () => {
+    const catalog = neonBaseline(), secret = 'postgresql://user:password@example.invalid/database';
+    const platform = catalog.databasePlatform as unknown as Row;
+    platform.branchId = secret.repeat(1000); platform.databaseOwner = secret; platform[secret] = secret;
+    let failure: FreshInstallDatabasePlatformError | undefined;
+    try { assertFreshInstallInstalledCatalog(catalog); } catch (error) { failure = error as FreshInstallDatabasePlatformError; }
+    expect(failure).toBeInstanceOf(FreshInstallDatabasePlatformError);
+    expect(JSON.stringify(failure)).not.toContain(secret);
+    expect(failure!.diagnostic.omittedUnknownFields).toBe(1);
+    expect(failure!.diagnostic.issues.map((issue) => issue.field)).toEqual(['branchId', 'databasePlatform', 'databaseOwner']);
+    expect(failure!.diagnostic.issues[0].observed).toMatchObject({ type: 'string', length: secret.length * 1000 });
+    expect(failure!.diagnostic.issues[0].observed.value).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(failure!.diagnostic))).toBeLessThan(16 * 1024);
+  });
+  it.each([
+    { branch_id: null, platform_name: 'neon_superuser' },
+    { branch_id: 'br-local-model', platform_name: null },
+    { branch_id: 'br-local-model', platform_name: 'another_role' },
+    { branch_id: undefined, platform_name: undefined },
+  ])('rejects incomplete provider signals and rolls back the read-only snapshot: %o', async (signals) => {
+    const statements: string[] = [];
+    const query = async (statement: string): Promise<readonly Row[]> => {
+      statements.push(statement);
+      if (statement.includes('AS installer_name')) return [{ current_user: 'test_installer', session_user: 'test_installer',
+        version: '180003', installer_name: 'test_installer', installer_superuser: false, installer_inherit: true,
+        installer_create_role: true, bootstrap_name: 'postgres', bootstrap_oid: 10, bootstrap_superuser: true }];
+      if (statement.includes("current_setting('neon.branch_id'")) return [{ ...signals, database_owner: 'test_installer' }];
+      return [];
+    };
+    await expect(readFreshInstallCatalog(query, 'test_installer')).rejects.toBeInstanceOf(FreshInstallDatabasePlatformError);
+    expect(statements[0]).toBe('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    expect(statements.at(-1)).toBe('ROLLBACK'); expect(statements).not.toContain('COMMIT');
+  });
+  it('reads the required provider witness in the same snapshot without inferring false flags', async () => {
+    let login: unknown = false;
+    const statements: string[] = [];
+    const query = async (statement: string): Promise<readonly Row[]> => {
+      statements.push(statement);
+      if (statement.includes('AS installer_name')) return [{ current_user: 'test_installer', session_user: 'test_installer',
+        version: '180003', installer_name: 'test_installer', installer_superuser: false, installer_inherit: true,
+        installer_create_role: true, bootstrap_name: 'postgres', bootstrap_oid: 10, bootstrap_superuser: true }];
+      if (statement.includes("current_setting('neon.branch_id'")) return [{ branch_id: 'br-local-model', database_owner: 'test_installer',
+        platform_name: 'neon_superuser', superuser: false, inherit: true, create_db: true, create_role: true,
+        login, replication: true, bypass_rls: true, installer_member: true, installer_usage: true }];
+      if (statement.includes("pg_has_role(r.oid,p.oid,'MEMBER')")) return neonBaseline().databasePlatform!.applicationRoles;
+      return [];
+    };
+    const result = await readFreshInstallCatalog(query, 'test_installer');
+    expect(result.databasePlatform).toEqual(neonBaseline().databasePlatform);
+    login = null; statements.length = 0;
+    await expect(readFreshInstallCatalog(query, 'test_installer')).rejects.toBeInstanceOf(FreshInstallDatabasePlatformError);
+    expect(statements.some((statement) => statement.includes('FROM pg_namespace n'))).toBe(false);
+    expect(statements.at(-1)).toBe('ROLLBACK');
   });
 });
