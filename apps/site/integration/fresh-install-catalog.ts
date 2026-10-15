@@ -13,6 +13,29 @@ export const FRESH_INSTALL_BASELINE_SHA256 = '80fe613fcf0fe336698e9b9c971b9c71b1
 export const FRESH_INSTALL_NONSUPER_BASELINE_SHA256 = '324f4a3d4a32ffd91ecbe70fe43e242e40bab9aa35673d1f811a7f98bd7d046b';
 const APPLICATION_ROLES = ['league_one_account', 'league_one_auth', 'league_one_runtime'] as const;
 type CatalogRow = Record<string, unknown>;
+export type FreshInstallCatalogValueDiagnostic = Readonly<{ type: string; sha256: string | null; length?: number }>;
+const POLICY_FIELDS = ['schema', 'relation', 'name', 'command', 'permissive', 'roles', 'using_expression', 'check_expression'] as const;
+export type FreshInstallCatalogMismatch = Readonly<{
+  section: string; expectedRows: number; observedRows: number; firstDifferingRow: number;
+  expectedRowDigest: string | null; observedRowDigest: string | null;
+  policyFields?: readonly Readonly<{ field: typeof POLICY_FIELDS[number];
+    expected: FreshInstallCatalogValueDiagnostic; observed: FreshInstallCatalogValueDiagnostic }>[];
+}>;
+export class FreshInstallCatalogMismatchError extends Error {
+  readonly mismatch: FreshInstallCatalogMismatch;
+  constructor(section: string, expected: readonly CatalogRow[], observed: readonly CatalogRow[], firstDifferingRow: number) {
+    if (section !== 'membershipEvidence' && !Object.hasOwn(frozen.catalog, section)) throw new Error('Fresh-install catalog: unknown mismatch section.');
+    const expectedRow = expected[firstDifferingRow], observedRow = observed[firstDifferingRow];
+    const mismatch: FreshInstallCatalogMismatch = Object.freeze({ section, expectedRows: expected.length, observedRows: observed.length,
+      firstDifferingRow, expectedRowDigest: valueDiagnostic(expectedRow).sha256, observedRowDigest: valueDiagnostic(observedRow).sha256,
+      ...(section === 'policies' ? { policyFields: Object.freeze(POLICY_FIELDS
+        .filter((field) => !isDeepStrictEqual(expectedRow?.[field], observedRow?.[field]))
+        .map((field) => Object.freeze({ field, expected: valueDiagnostic(expectedRow?.[field]), observed: valueDiagnostic(observedRow?.[field]) }))) } : {}) });
+    super(`Fresh-install catalog: ${mismatch.section} differs from frozen inventory; expected ${mismatch.expectedRows} rows, observed ${mismatch.observedRows}, first differing row ${mismatch.firstDifferingRow}.`);
+    this.name = 'FreshInstallCatalogMismatchError';
+    this.mismatch = mismatch;
+  }
+}
 export type FreshInstallCatalogQuery = (statement: string, parameters?: readonly unknown[]) => Promise<readonly CatalogRow[]>;
 export type FreshInstallSources = Readonly<{
   migrations: readonly Readonly<{ name: string; checksum: string; lfSha256: string }>[];
@@ -47,13 +70,21 @@ function ordered(rows: readonly CatalogRow[]): CatalogRow[] {
 function invariant(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Fresh-install catalog: ${message}`);
 }
+function valueDiagnostic(value: unknown): FreshInstallCatalogValueDiagnostic {
+  const serialized = JSON.stringify(value);
+  return Object.freeze({ type: value === undefined ? 'missing' : value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value,
+    sha256: serialized === undefined ? null : sha256(serialized),
+    ...(typeof value === 'string' || Array.isArray(value) ? { length: value.length } : {}) });
+}
 function assertRows(actual: readonly CatalogRow[], expected: readonly CatalogRow[], section: string): void {
   invariant(Array.isArray(actual), `${section} is missing.`);
   const sortedActual = ordered(actual), sortedExpected = ordered(expected);
   if (isDeepStrictEqual(sortedActual, sortedExpected)) return;
   const mismatch = sortedActual.findIndex((row, index) => !isDeepStrictEqual(row, sortedExpected[index]));
-  // Never dump function bodies, production data or the whole 3.7 MiB manifest.
-  throw new Error(`Fresh-install catalog: ${section} differs from frozen inventory; expected ${expected.length} rows, observed ${actual.length}, first differing row ${mismatch < 0 ? actual.length : mismatch}.`);
+  const firstDifferingRow = mismatch < 0 ? actual.length : mismatch;
+  // Retain types and hashes for a bounded unverified diagnostic, never row values,
+  // function bodies, expressions or the complete 3.7 MiB catalog.
+  throw new FreshInstallCatalogMismatchError(section, sortedExpected, sortedActual, firstDifferingRow);
 }
 
 const CATALOG_QUERIES: Readonly<Record<string, string>> = {
@@ -68,7 +99,7 @@ const CATALOG_QUERIES: Readonly<Record<string, string>> = {
   "triggers": "SELECT n.nspname AS schema,t.tgrelid::regclass::text AS relation,CASE WHEN t.tgisinternal THEN NULL ELSE t.tgname END AS name,t.tgisinternal AS internal,c.conname AS constraint,t.tgfoid::regprocedure::text AS function,t.tgtype AS type,t.tgenabled::text AS enabled,t.tgdeferrable AS deferrable,t.tginitdeferred AS initially_deferred,t.tgnargs AS argument_count,encode(t.tgargs,'hex') AS arguments,t.tgattr::int[] AS columns,CASE WHEN t.tgisinternal THEN NULL ELSE pg_get_triggerdef(t.oid,false) END AS definition,t.tgoldtable AS old_table,t.tgnewtable AS new_table FROM pg_trigger t JOIN pg_class r ON r.oid=t.tgrelid JOIN pg_namespace n ON n.oid=r.relnamespace LEFT JOIN pg_constraint c ON c.oid=t.tgconstraint WHERE n.nspname IN ('public','website_auth')",
   "functions": "SELECT n.nspname AS schema,p.oid::regprocedure::text AS signature,p.proname AS name,pg_get_userbyid(p.proowner) AS owner,l.lanname AS language,p.prokind::text AS kind,p.prosecdef AS security_definer,p.proleakproof AS leakproof,p.proisstrict AS strict,p.proretset AS returns_set,p.provolatile::text AS volatility,p.proparallel::text AS parallel,p.proconfig AS configuration,pg_get_function_result(p.oid) AS result,pg_get_function_arguments(p.oid) AS arguments,p.procost AS cost,p.prorows AS rows,p.prosrc AS body,p.probin AS binary,pg_get_functiondef(p.oid) AS definition,(SELECT e.extname FROM pg_depend d JOIN pg_extension e ON e.oid=d.refobjid WHERE d.classid='pg_proc'::regclass AND d.objid=p.oid AND d.deptype='e') AS extension FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang WHERE n.nspname IN ('public','website_auth')",
   "sequences": "SELECT n.nspname AS schema,c.relname AS name,format_type(s.seqtypid,NULL) AS type,s.seqstart::text AS start,s.seqincrement::text AS increment,s.seqmax::text AS max,s.seqmin::text AS min,s.seqcache::text AS cache,s.seqcycle AS cycle FROM pg_sequence s JOIN pg_class c ON c.oid=s.seqrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','website_auth')",
-  "policies": "SELECT n.nspname AS schema,c.relname AS relation,p.polname AS name,p.polcmd::text AS command,p.polpermissive AS permissive,ARRAY(SELECT CASE WHEN x=0 THEN 'PUBLIC' ELSE pg_get_userbyid(x) END FROM unnest(p.polroles) x ORDER BY 1) AS roles,pg_get_expr(p.polqual,p.polrelid,false) AS using_expression,pg_get_expr(p.polwithcheck,p.polrelid,false) AS check_expression FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','website_auth')",
+  "policies": "SELECT n.nspname AS schema,c.relname AS relation,p.polname AS name,p.polcmd::text AS command,p.polpermissive AS permissive,ARRAY(SELECT CASE WHEN x=0 THEN 'PUBLIC' ELSE pg_get_userbyid(x) END FROM unnest(p.polroles) x ORDER BY 1)::text[] AS roles,pg_get_expr(p.polqual,p.polrelid,false) AS using_expression,pg_get_expr(p.polwithcheck,p.polrelid,false) AS check_expression FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','website_auth')",
   "roles": "SELECT rolname AS role,rolsuper AS superuser,rolinherit AS inherit,rolcreaterole AS create_role,rolcreatedb AS create_db,rolcanlogin AS login,rolreplication AS replication,rolbypassrls AS bypass_rls,rolconnlimit AS connection_limit,rolconfig AS configuration FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_account','league_one_auth')",
   "memberships": "SELECT pg_get_userbyid(roleid) AS role,pg_get_userbyid(member) AS member,pg_get_userbyid(grantor) AS grantor,admin_option,inherit_option,set_option FROM pg_auth_members WHERE roleid IN (SELECT oid FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_account','league_one_auth')) OR member IN (SELECT oid FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_account','league_one_auth'))",
   "defaultAcl": "SELECT pg_get_userbyid(d.defaclrole) AS owner,COALESCE(n.nspname,'$GLOBAL') AS schema,d.defaclobjtype::text AS object_type,CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END AS grantee,pg_get_userbyid(a.grantor) AS grantor,a.privilege_type AS privilege,a.is_grantable AS grantable FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace LEFT JOIN LATERAL aclexplode(CASE WHEN cardinality(d.defaclacl)>0 THEN d.defaclacl ELSE NULL END) a ON true WHERE n.nspname IN ('public','website_auth') OR d.defaclnamespace=0",

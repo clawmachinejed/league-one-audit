@@ -442,10 +442,10 @@
     {
       "path": "apps/site/integration/global-setup.test.ts",
       "resource": "Trustworthy bounded DATA qualification result and cleanup evidence; CP21: CP21 fresh role-first installation lineage, exact installed catalog and actual restricted LOGIN enforcement",
-      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged default/full Vitest settings, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.; CP21: Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock.",
-      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.; CP21: Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage.",
+      "purpose": "Require fresh exact-run structured test evidence and a post-successful-global-cleanup acknowledgment, including a sticky late-timeout failure marker, through the existing supervisor. Add one closed versioned core-refresh profile with fixed module/name inventory and no arbitrary filters; preserve default full-suite selection, unchanged default/full Vitest settings, 30-minute work/40-minute lifecycle, real LOGIN, identity/ownership/secret/cleanup/revocation/deletion/source and terminal-journal gates. Use public reporter APIs and fixed supervisor arguments, not another harness or pipeline.; CP21: Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock. CP21 transport repair: extend the existing global-setup regression to require pinned owner closure and central cleanup after diagnostic persistence failure.",
+      "proof": "Root and independent reviewer reproduced installed Vitest teardown failure with exit0; offline actual-runner adverse cases and exact-SHA review required. SQL, live source, paid execution and remote cleanup remain unqualified.; CP21: Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage. The diagnostic failure remains a setup failure, closes its pinned owner before central cleanup and never registers successful qualification teardown.",
       "reviewer": "Independent GPT-6 Astra ultra reporter/teardown design in Backend foundation reconciliation (01a10e85-7bde-74b1-8ad7-93d3d1838eab); CP21: Independent GPT-6 Astra ultra /root/cp21_lifecycle audited and confirmed the exact role-first plan; coordinating root independently reviewed and approved the tightly scoped shared-core file purposes before implementation. Final nonauthor source review is separate.",
-      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01; CP21: DATA-CP21-2026-10-15-LIFECYCLE"
+      "reviewReference": "DATA-SCOPE-2026-10-06-QUALIFICATION-EVIDENCE-01; CP21: DATA-CP21-2026-10-15-LIFECYCLE; DATA-CP21-2026-10-15-TRANSPORT-REPAIR-SCOPE"
     },
     {
       "path": "apps/site/integration/league-two.live-integration-case.ts",
@@ -1754,18 +1754,18 @@
     {
       "path": "apps/site/integration/fresh-install-catalog.ts",
       "resource": "CP21 fresh role-first installation lineage, exact installed catalog and actual restricted LOGIN enforcement",
-      "purpose": "Read and compare the frozen complete enumerated catalog and effective privileges against accepted CP20 migration/provisioner source; strict two-variant PostgreSQL18 owner/membership normalization.",
-      "proof": "Preimplementation catalog freeze, exact manifest/source hashes, mutation rejection tests, both full local installer variants and independently reproduced exact37function/74ACL/3membership platform difference.",
+      "purpose": "Read and compare the frozen complete enumerated catalog and effective privileges against accepted CP20 migration/provisioner source; strict two-variant PostgreSQL18 owner/membership normalization. CP21 transport repair: explicitly emit policy roles as text[] without changing values/order/oracle strictness; expose bounded sanitized mismatch metadata for separate unverified diagnostics.",
+      "proof": "Preimplementation catalog freeze, exact manifest/source hashes, mutation rejection tests, both full local installer variants and independently reproduced exact37function/74ACL/3membership platform difference. Independently reproduce the original installed Neon name[] representation mismatch; require codec/semantic-drift and diagnostic redaction/binding/immutability/fail-closed regression coverage. Final exact-source verification remains separately recorded.",
       "reviewer": "Coordinating root independently confirmed enumerated coverage and baseline before implementation; GPT-6 Astra ultra /root/cp21_lifecycle independently reproduced the nonsuperuser platform variant. Final source review is separate.",
-      "reviewReference": "DATA-CP21-2026-10-15-INVENTORY; DATA-CP21-2026-10-15-PG18-OWNER-VARIANT"
+      "reviewReference": "DATA-CP21-2026-10-15-INVENTORY; DATA-CP21-2026-10-15-PG18-OWNER-VARIANT; DATA-CP21-2026-10-15-TRANSPORT-REPAIR-SCOPE"
     },
     {
       "path": "apps/site/integration/fresh-install-catalog.test.ts",
       "resource": "CP21 fresh role-first installation lineage, exact installed catalog and actual restricted LOGIN enforcement",
-      "purpose": "Read and compare the frozen complete enumerated catalog and effective privileges against accepted CP20 migration/provisioner source; strict two-variant PostgreSQL18 owner/membership normalization.",
-      "proof": "Preimplementation catalog freeze, exact manifest/source hashes, mutation rejection tests, both full local installer variants and independently reproduced exact37function/74ACL/3membership platform difference.",
+      "purpose": "Read and compare the frozen complete enumerated catalog and effective privileges against accepted CP20 migration/provisioner source; strict two-variant PostgreSQL18 owner/membership normalization. CP21 transport repair: explicitly emit policy roles as text[] without changing values/order/oracle strictness; expose bounded sanitized mismatch metadata for separate unverified diagnostics.",
+      "proof": "Preimplementation catalog freeze, exact manifest/source hashes, mutation rejection tests, both full local installer variants and independently reproduced exact37function/74ACL/3membership platform difference. Independently reproduce the original installed Neon name[] representation mismatch; require codec/semantic-drift and diagnostic redaction/binding/immutability/fail-closed regression coverage. Final exact-source verification remains separately recorded.",
       "reviewer": "Coordinating root independently confirmed enumerated coverage and baseline before implementation; GPT-6 Astra ultra /root/cp21_lifecycle independently reproduced the nonsuperuser platform variant. Final source review is separate.",
-      "reviewReference": "DATA-CP21-2026-10-15-INVENTORY; DATA-CP21-2026-10-15-PG18-OWNER-VARIANT"
+      "reviewReference": "DATA-CP21-2026-10-15-INVENTORY; DATA-CP21-2026-10-15-PG18-OWNER-VARIANT; DATA-CP21-2026-10-15-TRANSPORT-REPAIR-SCOPE"
     },
     {
       "path": "apps/site/integration/fresh-install-catalog.json",
@@ -1778,18 +1778,18 @@
     {
       "path": "apps/site/integration/fresh-install-evidence.ts",
       "resource": "CP21 fresh role-first installation lineage, exact installed catalog and actual restricted LOGIN enforcement",
-      "purpose": "Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock.",
-      "proof": "Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage.",
+      "purpose": "Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock. CP21 transport repair: persist an immutable bounded sanitized mismatch artifact with source/run/context/version binding before rethrowing; never promote diagnostics to installed acceptance or bypass cleanup.",
+      "proof": "Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage. Independently reproduce the original installed Neon name[] representation mismatch; require codec/semantic-drift and diagnostic redaction/binding/immutability/fail-closed regression coverage. Final exact-source verification remains separately recorded.",
       "reviewer": "Independent GPT-6 Astra ultra /root/cp21_lifecycle audited and confirmed the exact role-first plan; coordinating root independently reviewed and approved the tightly scoped shared-core file purposes before implementation. Final nonauthor source review is separate.",
-      "reviewReference": "DATA-CP21-2026-10-15-LIFECYCLE"
+      "reviewReference": "DATA-CP21-2026-10-15-LIFECYCLE; DATA-CP21-2026-10-15-TRANSPORT-REPAIR-SCOPE"
     },
     {
       "path": "apps/site/integration/fresh-install-evidence.test.ts",
       "resource": "CP21 fresh role-first installation lineage, exact installed catalog and actual restricted LOGIN enforcement",
-      "purpose": "Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock.",
-      "proof": "Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage.",
+      "purpose": "Wire only the closed CP21 profile into the existing supervisor/harness: fresh account credential lifecycle, guarded pinned LOGIN sessions, immutable initial/installed source-bound evidence and profile-only preservation of the installed clock. CP21 transport repair: persist an immutable bounded sanitized mismatch artifact with source/run/context/version binding before rethrowing; never promote diagnostics to installed acceptance or bypass cleanup.",
+      "proof": "Missing/stale/swapped evidence and identity failures close the profile; account credential redaction/revocation and all prior profiles/cleanup/deadline guards retain focused regression coverage. Independently reproduce the original installed Neon name[] representation mismatch; require codec/semantic-drift and diagnostic redaction/binding/immutability/fail-closed regression coverage. Final exact-source verification remains separately recorded.",
       "reviewer": "Independent GPT-6 Astra ultra /root/cp21_lifecycle audited and confirmed the exact role-first plan; coordinating root independently reviewed and approved the tightly scoped shared-core file purposes before implementation. Final nonauthor source review is separate.",
-      "reviewReference": "DATA-CP21-2026-10-15-LIFECYCLE"
+      "reviewReference": "DATA-CP21-2026-10-15-LIFECYCLE; DATA-CP21-2026-10-15-TRANSPORT-REPAIR-SCOPE"
     }
   ],
   "governanceChanges": [

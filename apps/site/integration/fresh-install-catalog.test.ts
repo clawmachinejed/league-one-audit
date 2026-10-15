@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { assertFreshInstallCatalog, assertFreshInstallPrivileges, readFreshInstallSources,
-  FRESH_INSTALL_MANIFEST_SHA256, type FreshInstallCatalog } from './fresh-install-catalog';
+  readFreshInstallCatalog, FRESH_INSTALL_MANIFEST_SHA256, FreshInstallCatalogMismatchError,
+  type FreshInstallCatalog } from './fresh-install-catalog';
 import { createHash } from 'node:crypto';
+import { types } from '@neondatabase/serverless';
 
 type Row = Record<string, unknown>;
 const text = readFileSync(new URL('./fresh-install-catalog.json', import.meta.url), 'utf8');
@@ -53,6 +55,93 @@ describe('frozen fresh-install catalog', () => {
     const catalog = baseline(nonsuper);
     expect(() => assertFreshInstallCatalog(catalog)).not.toThrow();
     expect(() => assertFreshInstallPrivileges(catalog)).not.toThrow();
+  });
+  it('collects policy roles as text arrays through the installed Neon decoder', async () => {
+    const expected = baseline();
+    const query = vi.fn(async (statement: string): Promise<readonly Row[]> => {
+      if (statement.includes('AS installer_name')) return [{ current_user: 'postgres', session_user: 'postgres',
+        version: '180003', installer_name: 'postgres', installer_superuser: true, installer_inherit: true,
+        installer_create_role: true, bootstrap_name: 'postgres', bootstrap_oid: 10, bootstrap_superuser: true }];
+      if (statement.includes('FROM pg_policy p')) {
+        // The real SQL/type/driver boundary is also checked in the isolated
+        // PostgreSQL diagnostic. Retain its text[] transport contract here.
+        expect(statement).toContain('ORDER BY 1)::text[] AS roles');
+        return expected.sections.policies.map((row) => ({ ...row,
+          roles: types.getTypeParser(1009, 'text')('{PUBLIC}') }));
+      }
+      return [];
+    });
+    const collected = await readFreshInstallCatalog(query, 'postgres');
+    expect(collected.sections.policies).toEqual(expected.sections.policies);
+    mutable(expected).policies = [...collected.sections.policies];
+    expect(() => assertFreshInstallCatalog(expected)).not.toThrow();
+    expect(() => assertFreshInstallPrivileges(expected)).not.toThrow();
+  });
+  it('rejects the name-array transport mismatch with typed digests and no raw values', () => {
+    const catalog = baseline();
+    for (const row of mutable(catalog).policies) row.roles = types.getTypeParser(1003, 'text')('{PUBLIC}');
+    let error: unknown;
+    try { assertFreshInstallCatalog(catalog); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(FreshInstallCatalogMismatchError);
+    const mismatch = (error as FreshInstallCatalogMismatchError).mismatch;
+    expect(mismatch).toMatchObject({ section: 'policies', expectedRows: 6, observedRows: 6, firstDifferingRow: 0,
+      policyFields: [{ field: 'roles', expected: { type: 'array', length: 1 }, observed: { type: 'string', length: 8 } }] });
+    expect(mismatch.expectedRowDigest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(mismatch.observedRowDigest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(mismatch.expectedRowDigest).not.toBe(mismatch.observedRowDigest);
+    expect(JSON.stringify(mismatch)).not.toContain('PUBLIC');
+    expect((error as Error).message).toBe('Fresh-install catalog: policies differs from frozen inventory; expected 6 rows, observed 6, first differing row 0.');
+  });
+  it.each([null, '{league_one_runtime}', '{PUBLIC,league_one_runtime}', '{league_one_runtime,PUBLIC}', '{}'])
+  ('continues rejecting changed policy role membership after text-array decoding: %s', (wireValue) => {
+    const catalog = baseline();
+    mutable(catalog).policies[0].roles = wireValue === null ? null : types.getTypeParser(1009, 'text')(wireValue);
+    expect(() => assertFreshInstallCatalog(catalog)).toThrow(FreshInstallCatalogMismatchError);
+  });
+  it('does not expose unexpected policy values or function source in mismatch diagnostics', () => {
+    const policy = baseline();
+    const sensitive = 'postgresql://private_user:private_password@example.invalid/database';
+    mutable(policy).policies[0].roles = sensitive;
+    mutable(policy).policies[0].using_expression = sensitive;
+    let policyError: unknown;
+    try { assertFreshInstallCatalog(policy); } catch (caught) { policyError = caught; }
+    expect(policyError).toBeInstanceOf(FreshInstallCatalogMismatchError);
+    expect(JSON.stringify((policyError as FreshInstallCatalogMismatchError).mismatch)).not.toContain(sensitive);
+    const functionCatalog = baseline();
+    mutable(functionCatalog).functions[0].bodyLfSha256 = sensitive;
+    let functionError: unknown;
+    try { assertFreshInstallCatalog(functionCatalog); } catch (caught) { functionError = caught; }
+    expect(functionError).toBeInstanceOf(FreshInstallCatalogMismatchError);
+    const mismatch = (functionError as FreshInstallCatalogMismatchError).mismatch;
+    expect(mismatch.section).toBe('functions');
+    expect(mismatch.policyFields).toBeUndefined();
+    expect(JSON.stringify(mismatch)).not.toContain(sensitive);
+  });
+  it('describes missing and extra rows by counts and nullable digests', () => {
+    for (const extra of [false, true]) {
+      const catalog = baseline();
+      if (extra) mutable(catalog).enums.push({ unreviewed: 'not retained in the diagnostic' });
+      else mutable(catalog).enums = [];
+      if (!extra) mutable(catalog).policies = [];
+      let error: unknown;
+      try { assertFreshInstallCatalog(catalog); } catch (caught) { error = caught; }
+      expect(error).toBeInstanceOf(FreshInstallCatalogMismatchError);
+      const mismatch = (error as FreshInstallCatalogMismatchError).mismatch;
+      expect(mismatch.firstDifferingRow).toBe(0);
+      expect(extra ? mismatch.expectedRowDigest : mismatch.observedRowDigest).toBeNull();
+      expect(extra ? mismatch.observedRowDigest : mismatch.expectedRowDigest).toMatch(/^[0-9a-f]{64}$/u);
+    }
+  });
+  it('keeps raw membership-evidence drift a typed bounded mismatch', () => {
+    let error: unknown;
+    try { assertFreshInstallPrivileges({ ...baseline(), membershipEvidence: [] }); } catch (caught) { error = caught; }
+    expect(error).toBeInstanceOf(FreshInstallCatalogMismatchError);
+    const mismatch = (error as FreshInstallCatalogMismatchError).mismatch;
+    expect(mismatch).toMatchObject({ section: 'membershipEvidence', expectedRows: 3, observedRows: 0,
+      firstDifferingRow: 0, observedRowDigest: null });
+    expect(mismatch.expectedRowDigest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(mismatch.policyFields).toBeUndefined();
+    expect(Buffer.byteLength(JSON.stringify(mismatch))).toBeLessThan(512);
   });
   it.each([
     ['columns', 'not_null', false, (row: Row) => row.not_null === true],

@@ -24,18 +24,20 @@ beforeEach(() => {
   mocked.pinned.mockResolvedValue({ database: { query: mocked.query }, close: mocked.close });
 });
 
-it.each([false, true])('captures the unmodified installed catalog only for CP21 and closes its pinned owner (failure=%s)', async failure => {
+it.each([null, 'invalid installed catalog', 'Fresh installation catalog mismatch; diagnostic persistence failed.'])(
+  'captures the unmodified installed catalog only for CP21 and closes its pinned owner (failure=%s)', async failure => {
   const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40),
     '00000000-0000-4000-8000-000000000001', FRESH_INSTALL_PROFILE);
   vi.stubEnv(QUALIFICATION_CONTEXT_ENV, JSON.stringify(context));
   vi.stubEnv('PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY', fileURLToPath(new URL('..', import.meta.url)));
-  if (failure) mocked.installed.mockRejectedValue(new Error('invalid installed catalog'));
-  if (failure) await expect(standardSetup()).rejects.toThrow('invalid installed catalog');
+  if (failure) mocked.installed.mockRejectedValue(new Error(failure));
+  if (failure) await expect(standardSetup()).rejects.toThrow(failure);
   else await standardSetup();
   expect(mocked.prepare).toHaveBeenCalledWith({ freshInstall: true });
   expect(mocked.pinned).toHaveBeenCalledWith('owner'); expect(mocked.close).toHaveBeenCalledOnce();
   expect(mocked.clock).not.toHaveBeenCalled(); expect(mocked.installed).toHaveBeenCalledOnce();
   expect(mocked.clean).toHaveBeenCalledTimes(failure ? 1 : 0);
+  if (failure) expect(mocked.close.mock.invocationCallOrder[0]).toBeLessThan(mocked.clean.mock.invocationCallOrder[0]);
 });
 
 it.each([['standard', standardSetup], ['capacity', capacitySetup]] as const)(

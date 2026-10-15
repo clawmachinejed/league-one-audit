@@ -2,15 +2,20 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { FRESH_INSTALL_PROFILE, qualificationDigest, type QualificationBinding } from './qualification-profile';
 import { readFreshInstallSources, type FreshInstallCatalog } from './fresh-install-catalog';
+import * as catalogModule from './fresh-install-catalog';
 import { assertFreshInstallEmptyEvidence, assertFreshInstallInitialEvidence, assertFreshInstallInstalledEvidence,
-  createFreshInstallEmptyEvidence, readFreshInstallEvidence, writeFreshInstallInitialEvidence,
-  FRESH_INSTALL_FILES, FRESH_INSTALL_ROLES, type FreshInstallInstalledEvidence, type FreshInstallRole } from './fresh-install-evidence';
+  createFreshInstallEmptyEvidence, readFreshInstallEvidence, writeFreshInstallInitialEvidence, writeFreshInstallInstalledEvidence,
+  FRESH_INSTALL_FILES, FRESH_INSTALL_ROLES, FRESH_INSTALL_INITIAL_DIGEST_ENV, FRESH_INSTALL_DIAGNOSTIC_FILE,
+  FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES, type FreshInstallDiagnostic, type FreshInstallInstalledEvidence, type FreshInstallRole } from './fresh-install-evidence';
 
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => {
+  vi.restoreAllMocks(); vi.unstubAllEnvs();
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
+});
 const target = { databaseName: 'fixture_test', branchId: 'br-fixture' };
 const roles: FreshInstallRole[] = FRESH_INSTALL_ROLES.map((name, index) => ({ name, oid: String(17000 + index),
   rolcanlogin: true, rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
@@ -37,6 +42,20 @@ async function fixture() {
     profile: FRESH_INSTALL_PROFILE, ...target, observedAt: new Date().toISOString(), installerRole: 'postgres',
     initialEvidenceDigest: digest, sources, migrationLedger: sources.migrations.map(({ name, checksum }) => ({ name, checksum })), catalog };
   return { binding, empty, initial, installed, digest };
+}
+async function installationFixture() {
+  const f = await fixture();
+  vi.stubEnv('PROJECTION_INTEGRATION_EXPECTED_DATABASE', target.databaseName);
+  vi.stubEnv('PROJECTION_INTEGRATION_EXPECTED_BRANCH_ID', target.branchId);
+  vi.stubEnv(FRESH_INSTALL_INITIAL_DIGEST_ENV, f.digest);
+  const readCatalog = vi.spyOn(catalogModule, 'readFreshInstallCatalog').mockResolvedValue(f.installed.catalog);
+  const query = vi.fn(async (statement: string) => {
+    if (statement.startsWith('SELECT current_database()')) return [{ database: target.databaseName,
+      owner: 'postgres', session: 'postgres', branch: target.branchId }];
+    expect(statement).toBe('SELECT name, checksum FROM public.app_schema_migrations ORDER BY name');
+    return f.installed.migrationLedger;
+  });
+  return { ...f, query, readCatalog };
 }
 it('retains bounded immutable source/run-bound original-empty, new-role and installed artifacts', async () => {
   const f = await fixture();
@@ -76,3 +95,78 @@ it.each(['missing', 'initial-digest', 'catalog-owner', 'catalog-drift', 'source-
     if (fault === 'foreign-context') value.contextDigest = 'e'.repeat(64);
     await expect(assertFreshInstallInstalledEvidence(value, f.initial, f.binding, target)).rejects.toThrow();
   });
+
+it('writes accepted installation evidence without a failure diagnostic when both frozen comparisons pass', async () => {
+  const f = await installationFixture();
+  const digest = await writeFreshInstallInstalledEvidence(f.query, f.binding);
+  const result = await readFreshInstallEvidence(f.binding, target, f.digest);
+  expect(qualificationDigest(result.installed)).toBe(digest);
+  expect(result.installed.catalog).toEqual(f.installed.catalog);
+  await expect(readFile(join(f.binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it.each(['catalog', 'privileges'] as const)('retains a bound unverified %s mismatch before rejecting installation', async phase => {
+  const f = await installationFixture();
+  if (phase === 'catalog') f.installed.catalog.sections.policies[0].roles = '{league_one_account}';
+  else (f.installed.catalog.sections.tablePrivileges as unknown[]).pop();
+  let failure: unknown;
+  try { await writeFreshInstallInstalledEvidence(f.query, f.binding); } catch (error) { failure = error; }
+  expect(failure).toBeInstanceOf(catalogModule.FreshInstallCatalogMismatchError);
+  const serialized = await readFile(join(f.binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE), 'utf8');
+  const diagnostic = JSON.parse(serialized) as FreshInstallDiagnostic;
+  expect(diagnostic).toEqual({ kind: 'fresh-install-diagnostic-v1', status: 'unverified',
+    contextDigest: qualificationDigest(f.binding.context), runId: f.binding.context.runId, gitSha: f.binding.context.gitSha,
+    profile: FRESH_INSTALL_PROFILE, ...target, installerRole: 'postgres', observedAt: expect.any(String),
+    initialEvidenceDigest: f.digest, postgresVersion: f.installed.catalog.postgresVersion,
+    frozenManifestDigest: catalogModule.FRESH_INSTALL_MANIFEST_SHA256, sourcesDigest: qualificationDigest(f.installed.sources),
+    migrationLedgerDigest: qualificationDigest(f.installed.migrationLedger), catalogDigest: qualificationDigest(f.installed.catalog),
+    phase, mismatch: (failure as catalogModule.FreshInstallCatalogMismatchError).mismatch });
+  expect(diagnostic.observedAt >= f.initial.observedAt && diagnostic.observedAt <= new Date().toISOString()).toBe(true);
+  expect(Buffer.byteLength(serialized)).toBeLessThanOrEqual(FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES);
+  if (phase === 'catalog') expect(diagnostic.mismatch.policyFields).toContainEqual({ field: 'roles',
+    expected: { type: 'array', sha256: expect.stringMatching(/^[a-f0-9]{64}$/u), length: 1 },
+    observed: { type: 'string', sha256: expect.stringMatching(/^[a-f0-9]{64}$/u), length: 20 } });
+  await expect(readFile(join(f.binding.directory, FRESH_INSTALL_FILES.installed))).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(readFreshInstallEvidence(f.binding, target, f.digest)).rejects.toMatchObject({ code: 'ENOENT' });
+  // A diagnostic renamed as installed evidence is still rejected by the accepted-proof validator.
+  await writeFile(join(f.binding.directory, FRESH_INSTALL_FILES.installed), serialized, { flag: 'wx' });
+  await expect(readFreshInstallEvidence(f.binding, target, f.digest)).rejects.toThrow();
+});
+
+it('hashes secret-bearing mismatched policy values without retaining text or error stacks', async () => {
+  const f = await installationFixture();
+  const secret = `postgresql://private_role:private_password@private-host/db?token=private_token ${'private_function_body '.repeat(10000)}`;
+  for (const row of f.installed.catalog.sections.policies) {
+    row.roles = secret; row.using_expression = secret; row.check_expression = secret;
+    row.unexpected_secret = secret;
+  }
+  await expect(writeFreshInstallInstalledEvidence(f.query, f.binding)).rejects.toBeInstanceOf(catalogModule.FreshInstallCatalogMismatchError);
+  const serialized = await readFile(join(f.binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE), 'utf8');
+  for (const marker of ['postgresql:', 'private_role', 'private_password', 'private-host', 'private_token',
+    'private_function_body', 'unexpected_secret', 'stack', 'message']) expect(serialized).not.toContain(marker);
+  expect(Buffer.byteLength(serialized)).toBeLessThan(FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES);
+  expect(JSON.parse(serialized).mismatch.policyFields.map((field: { field: string }) => field.field))
+    .toEqual(['roles', 'using_expression', 'check_expression']);
+});
+
+it('preserves an existing diagnostic and fails closed if exclusive diagnostic persistence fails', async () => {
+  const f = await installationFixture();
+  (f.installed.catalog.sections.relations as unknown[]).pop();
+  const path = join(f.binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE);
+  const original = '{"original":"immutable diagnostic"}';
+  await writeFile(path, original, { flag: 'wx' });
+  await expect(writeFreshInstallInstalledEvidence(f.query, f.binding)).rejects.toMatchObject({
+    message: 'Fresh installation catalog mismatch; diagnostic persistence failed.',
+    cause: expect.any(catalogModule.FreshInstallCatalogMismatchError),
+  });
+  expect(await readFile(path, 'utf8')).toBe(original);
+  await expect(readFile(join(f.binding.directory, FRESH_INSTALL_FILES.installed))).rejects.toMatchObject({ code: 'ENOENT' });
+});
+
+it('preserves an unrelated catalog-read error without inventing a mismatch diagnostic', async () => {
+  const f = await installationFixture();
+  const failure = new Error('catalog reader failed'); f.readCatalog.mockRejectedValue(failure);
+  await expect(writeFreshInstallInstalledEvidence(f.query, f.binding)).rejects.toBe(failure);
+  await expect(readFile(join(f.binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE))).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(readFile(join(f.binding.directory, FRESH_INSTALL_FILES.installed))).rejects.toMatchObject({ code: 'ENOENT' });
+});

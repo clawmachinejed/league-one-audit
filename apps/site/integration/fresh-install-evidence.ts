@@ -7,10 +7,13 @@ import {
 } from './qualification-profile';
 import {
   assertFreshInstallCatalog, assertFreshInstallPrivileges, readFreshInstallCatalog, readFreshInstallSources,
+  FRESH_INSTALL_MANIFEST_SHA256, FreshInstallCatalogMismatchError, type FreshInstallCatalogMismatch,
 } from './fresh-install-catalog';
 
 export const FRESH_INSTALL_INITIAL_DIGEST_ENV = 'PROJECTION_INTEGRATION_FRESH_INSTALL_INITIAL_DIGEST';
 export const FRESH_INSTALL_FILES = { initial: 'fresh-install-initial.json', installed: 'fresh-install-installed.json' } as const;
+export const FRESH_INSTALL_DIAGNOSTIC_FILE = 'fresh-install-diagnostic.json';
+export const FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES = 64 * 1024;
 export const FRESH_INSTALL_ROLES = ['league_one_account', 'league_one_auth', 'league_one_runtime'] as const;
 type Query = (statement: string, parameters?: readonly unknown[]) => Promise<readonly Record<string, unknown>[]>;
 type Target = { databaseName: string; branchId: string };
@@ -25,6 +28,9 @@ export type FreshInstallInitialEvidence = Bound & { kind: 'fresh-install-initial
 export type FreshInstallInstalledEvidence = Bound & { kind: 'fresh-install-installed-v1'; initialEvidenceDigest: string;
   sources: Awaited<ReturnType<typeof readFreshInstallSources>>; migrationLedger: readonly { name: string; checksum: string }[];
   catalog: Awaited<ReturnType<typeof readFreshInstallCatalog>> };
+export type FreshInstallDiagnostic = Bound & { kind: 'fresh-install-diagnostic-v1'; status: 'unverified';
+  initialEvidenceDigest: string; postgresVersion: string; frozenManifestDigest: string; sourcesDigest: string;
+  migrationLedgerDigest: string; catalogDigest: string; phase: 'catalog' | 'privileges'; mismatch: FreshInstallCatalogMismatch };
 const boundKeys = ['contextDigest', 'runId', 'gitSha', 'profile', 'databaseName', 'branchId', 'observedAt', 'installerRole'];
 function keys(value: unknown, expected: readonly string[]): asserts value is Record<string, unknown> {
   assert(value && typeof value === 'object' && !Array.isArray(value), 'Malformed fresh installation evidence.');
@@ -116,7 +122,32 @@ export async function writeFreshInstallInstalledEvidence(query: Query, binding: 
   const migrationLedger = await query('SELECT name, checksum FROM public.app_schema_migrations ORDER BY name') as { name: string; checksum: string }[];
   assert.deepEqual(migrationLedger, sources.migrations.map(({ name, checksum }) => ({ name, checksum })));
   const catalog = await readFreshInstallCatalog(query, initial.installerRole);
-  await assertFreshInstallCatalog(catalog); await assertFreshInstallPrivileges(catalog);
+  let phase: FreshInstallDiagnostic['phase'] = 'catalog';
+  try {
+    await assertFreshInstallCatalog(catalog);
+    phase = 'privileges';
+    await assertFreshInstallPrivileges(catalog);
+  } catch (error) {
+    if (error instanceof FreshInstallCatalogMismatchError) {
+      try {
+        // Retain only the comparator's fixed field names, types, lengths and digests.
+        // This failure artifact is never an installed proof or a qualification input.
+        const diagnostic: FreshInstallDiagnostic = {
+          ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
+          kind: 'fresh-install-diagnostic-v1', status: 'unverified', initialEvidenceDigest: qualificationDigest(initial),
+          postgresVersion: catalog.postgresVersion, frozenManifestDigest: FRESH_INSTALL_MANIFEST_SHA256,
+          sourcesDigest: qualificationDigest(sources), migrationLedgerDigest: qualificationDigest(migrationLedger),
+          catalogDigest: qualificationDigest(catalog), phase, mismatch: error.mismatch,
+        };
+        const serialized = JSON.stringify(diagnostic);
+        assert(Buffer.byteLength(serialized) <= FRESH_INSTALL_DIAGNOSTIC_MAX_BYTES, 'Fresh installation diagnostic exceeds the bounded allowance.');
+        await writeFile(join(binding.directory, FRESH_INSTALL_DIAGNOSTIC_FILE), serialized, { flag: 'wx', mode: 0o600 });
+      } catch {
+        throw new Error('Fresh installation catalog mismatch; diagnostic persistence failed.', { cause: error });
+      }
+    }
+    throw error;
+  }
   const installed: FreshInstallInstalledEvidence = { ...bind(binding, { databaseName: initial.databaseName, branchId: initial.branchId }, initial.installerRole),
     kind: 'fresh-install-installed-v1', initialEvidenceDigest: qualificationDigest(initial), sources, migrationLedger, catalog };
   return writeArtifact(binding, 'installed', installed);
