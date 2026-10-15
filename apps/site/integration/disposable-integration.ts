@@ -12,8 +12,11 @@ import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV 
 import { IntegrationDeadlineError, IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS,
   INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
 
-import { createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
+import { FRESH_INSTALL_PROFILE, createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
   type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
+import { createFreshInstallEmptyEvidence, assertFreshInstallEmptyEvidence, readFreshInstallEvidence,
+  writeFreshInstallInitialEvidence, FRESH_INSTALL_INITIAL_DIGEST_ENV,
+  type FreshInstallEmptyEvidence, type FreshInstallEmptyRow, type FreshInstallRole } from './fresh-install-evidence';
 
 export const DISPOSABLE_AUTHORIZATION = 'I_AUTHORIZE_DISPOSABLE_TEST_BRANCHES';
 const protectedIdentities = ['solitary-base-99261075', 'br-rapid-boat-avgeevye', 'br-still-breeze-avaibago',
@@ -82,6 +85,7 @@ export async function assertEmptyDisposableDatabase(query: Query, target: { data
   assert.deepEqual(result.rows, [{ database: target.database, owner: target.owner, session: target.owner,
     branch: target.branch, schemas: 0, relations: 0, functions: 0, types: 0, roles: 0, sessions: 0 }],
   'Fresh disposable target must prove exact server identity and contain no inherited application/auth data or roles.');
+  return result.rows[0] as FreshInstallEmptyRow;
 }
 
 export type IntegrationRunReceipt = {
@@ -90,6 +94,8 @@ export type IntegrationRunReceipt = {
   attemptedBranchName?: string;
   databaseName?: string;
   postgresqlVersion?: IntegrationPostgresqlVersion;
+  freshInstall?: { empty: FreshInstallEmptyEvidence; initialDigest?: string; installedDigest?: string;
+    initialObservedAt?: string; installedObservedAt?: string; serverVersionNum?: string };
   provisionStep?: string;
   stage: string; tests: 'not-run' | 'passed' | 'failed'; childClosed: boolean; schemaCleanupVerified: boolean;
   credentialsRevoked: boolean; branchDeletionVerified: boolean; failures: string[]; productionWrites: false;
@@ -98,7 +104,8 @@ export type IntegrationRunReceipt = {
   artifactDirectory?: string;
   qualification?: 'unverified' | 'passed' | 'failed';
   testContext?: QualificationContext;
-  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>> & { contextDigest: string };
+  testEvidence?: Awaited<ReturnType<typeof validateQualificationArtifacts>> & { contextDigest: string;
+    freshInstall?: { initialDigest: string; installedDigest: string; initialObservedAt: string; installedObservedAt: string; serverVersionNum: string } };
   testEvidenceFailure?: 'missing-or-invalid';
   cancellationReason?: 'deadline' | 'sigint' | 'sigterm' | 'requested' | 'ownership-lost';
   lifecycle?: { limitMs: number; teardownReserveMs: number; elapsedMs: number };
@@ -181,6 +188,39 @@ export function assertIntegrationPostgresqlVersionEvidence(receipt: IntegrationR
       || receipt.testEvidence.contextDigest !== receipt.postgresqlVersion!.contextDigest
       || !/^[0-9a-f]{64}$/u.test(receipt.testEvidence.reportDigest)) invalidPostgresqlVersion();
   } catch { invalidPostgresqlVersion(); }
+}
+/** The final command checks the independently validated artifact digests retained with the report. */
+export function assertIntegrationFreshInstallEvidence(receipt: IntegrationRunReceipt,
+  expected: { gitSha: string; profile: QualificationProfile }): void {
+  if (expected.profile !== FRESH_INSTALL_PROFILE) return;
+  try {
+    assert.equal(receipt.gitSha, expected.gitSha); assert(receipt.testContext && receipt.freshInstall);
+    assert.equal(receipt.testContext.profile, FRESH_INSTALL_PROFILE);
+    assert.equal(receipt.testContext.gitSha, expected.gitSha); assert.equal(receipt.testContext.runId, receipt.runId);
+    assert(receipt.databaseName && receipt.branchId && receipt.artifactDirectory);
+    assertFreshInstallEmptyEvidence(receipt.freshInstall.empty,
+      { context: receipt.testContext, directory: receipt.artifactDirectory },
+      { databaseName: receipt.databaseName, branchId: receipt.branchId });
+    assert(Date.parse(receipt.freshInstall.empty.observedAt) >= Date.parse(receipt.startedAt));
+    assert(receipt.postgresqlVersion && receipt.freshInstall.empty.observedAt <= receipt.postgresqlVersion.observedAt);
+    assert.equal(receipt.testEvidence?.profile, FRESH_INSTALL_PROFILE);
+    assert.equal(receipt.testEvidence.contextDigest, qualificationDigest(receipt.testContext));
+    assert.match(receipt.testEvidence.reportDigest, /^[0-9a-f]{64}$/u);
+    assert.match(receipt.freshInstall.initialDigest ?? '', /^[0-9a-f]{64}$/u);
+    assert.match(receipt.freshInstall.installedDigest ?? '', /^[0-9a-f]{64}$/u);
+    const times = [receipt.startedAt, receipt.freshInstall.empty.observedAt,
+      receipt.freshInstall.initialObservedAt, receipt.postgresqlVersion.observedAt,
+      receipt.freshInstall.installedObservedAt, receipt.finishedAt ?? new Date().toISOString()].map(value => Date.parse(value ?? ''));
+    assert(times.every(Number.isFinite));
+    assert(times.every((time, index) => index === 0 || time >= times[index - 1]));
+    assert(times.at(-1)! <= Date.now());
+    assert.equal(receipt.freshInstall.serverVersionNum, receipt.postgresqlVersion.serverVersionNum);
+    assert.deepEqual(receipt.testEvidence.freshInstall, {
+      initialDigest: receipt.freshInstall.initialDigest, installedDigest: receipt.freshInstall.installedDigest,
+      initialObservedAt: receipt.freshInstall.initialObservedAt, installedObservedAt: receipt.freshInstall.installedObservedAt,
+      serverVersionNum: receipt.freshInstall.serverVersionNum });
+  } catch { throw Object.assign(new Error('Run-bound fresh installation evidence is missing or invalid.'),
+    { code: 'INVALID_FRESH_INSTALL_EVIDENCE' }); }
 }
 type Runtime = {
   provision: (signal: AbortSignal) => Promise<void>; execute: (signal: AbortSignal) => Promise<{ passed: boolean; closed: boolean }>;
@@ -278,6 +318,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
   const budget = options.budget ?? new IntegrationLifecycleBudget();
   const config = disposableConfiguration(options.environment);
+  const freshInstall = options.profile === FRESH_INSTALL_PROFILE;
   const controller = new AbortController();
   const abort = () => controller.abort(integrationCancellationReason(options.signal.reason));
   options.signal.addEventListener('abort', abort, { once: true });
@@ -367,38 +408,61 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       client = connected; client.on('error', onLoss); client.on('end', onLoss);
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'empty-database-verification';
-      await assertEmptyDisposableDatabase(query, { database: config.databaseName, branch: branch.branchId, owner: config.ownerRoleName });
+      const originalEmpty = await assertEmptyDisposableDatabase(query, { database: config.databaseName, branch: branch.branchId, owner: config.ownerRoleName });
+      if (freshInstall) {
+        receipt.freshInstall = { empty: createFreshInstallEmptyEvidence(qualification, originalEmpty,
+          { databaseName: config.databaseName, branchId: branch.branchId }, config.ownerRoleName) };
+        await save(); // The original absent state is acknowledged before role/sentinel writes.
+      }
       receipt.provisionStep = 'exclusive-admission';
       assert.equal((await query('SELECT pg_try_advisory_lock(hashtextextended($1::text,0)) AS owned', [INTEGRATION_MUTEX])).rows[0].owned, true);
       const applicationName = `integration-owner-${runId}`;
       await query("SELECT set_config('application_name',$1::text,false)", [applicationName]);
       const identity = (await query('SELECT pid,backend_start::text AS "backendStart" FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
       const runtimePassword = randomBytes(32).toString('hex'), authPassword = randomBytes(32).toString('hex');
+      const accountPassword = freshInstall ? randomBytes(32).toString('hex') : undefined;
+      if (accountPassword) secrets.push(accountPassword);
       const sentinel = randomBytes(32).toString('hex'); secrets.push(runtimePassword, authPassword, sentinel);
       receipt.provisionStep = 'restricted-role-bootstrap';
       // Constants and random hex only. SQL parameter placeholders are not allowed in CREATE ROLE PASSWORD.
       await query(`CREATE ROLE league_one_runtime LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD '${runtimePassword}'`);
       await query(`CREATE ROLE league_one_auth LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS PASSWORD '${authPassword}'`);
+      if (accountPassword) await query(`CREATE ROLE league_one_account LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT NOBYPASSRLS PASSWORD '${accountPassword}'`);
       const comment = JSON.stringify({ purpose: 'league-one-projection-store-integration', sentinel,
         branchId: branch.branchId, branchName: branch.branchName });
       await query(`COMMENT ON DATABASE "${config.databaseName}" IS '${comment.replaceAll("'", "''")}'`);
       const roleUrl = (role: string, password: string) => { const url = new URL(ownerUrl); url.username = role; url.password = password; return url.href; };
-      const generated = {
+      const generated: Record<string, string | undefined> = {
         PROJECTION_INTEGRATION_ENV_FILE: '.env.integration.local',
         PROJECTION_INTEGRATION_AUTHORIZATION: 'I_ACKNOWLEDGE_THIS_RESETS_AN_ISOLATED_DATABASE',
         PROJECTION_INTEGRATION_OWNER_DATABASE_URL: ownerUrl,
         PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL: roleUrl('league_one_runtime', runtimePassword),
         AUTH_RESET_INTEGRATION_DATABASE_URL: roleUrl('league_one_auth', authPassword),
+        ...(accountPassword ? { ACCOUNT_FRESH_INSTALL_DATABASE_URL: roleUrl('league_one_account', accountPassword) } : {}),
         PROJECTION_INTEGRATION_EXPECTED_DATABASE: config.databaseName,
         PROJECTION_INTEGRATION_EXPECTED_BRANCH_ID: branch.branchId,
         PROJECTION_INTEGRATION_EXPECTED_BRANCH_NAME: branch.branchName,
         PROJECTION_INTEGRATION_DATABASE_SENTINEL: sentinel,
         PROJECTION_INTEGRATION_PRODUCTION_DENYLIST: [...protectedIdentities, config.parentBranchId, config.parentBranchName].join(','),
       };
-      secrets.push(generated.PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL, generated.AUTH_RESET_INTEGRATION_DATABASE_URL);
+      secrets.push(generated.PROJECTION_INTEGRATION_RUNTIME_DATABASE_URL!, generated.AUTH_RESET_INTEGRATION_DATABASE_URL!);
+      if (generated.ACCOUNT_FRESH_INSTALL_DATABASE_URL) secrets.push(generated.ACCOUNT_FRESH_INSTALL_DATABASE_URL);
       Object.assign(process.env, generated);
       receipt.provisionStep = 'guarded-auth-preflight';
       await assertSafeIntegrationDatabase(integrationEnvironment(), signal);
+      if (freshInstall) {
+        receipt.provisionStep = 'fresh-role-evidence';
+        const roles = (await query(`SELECT role.rolname AS name, role.oid::text AS oid,
+          role.rolcanlogin, role.rolsuper, role.rolcreatedb, role.rolcreaterole,
+          role.rolreplication, role.rolinherit, role.rolbypassrls,
+          EXISTS(SELECT 1 FROM pg_auth_members WHERE member=role.oid) AS has_memberships
+          FROM pg_roles role WHERE role.rolname IN ('league_one_account','league_one_auth','league_one_runtime')
+          ORDER BY role.rolname`)).rows as FreshInstallRole[];
+        receipt.freshInstall!.initialDigest = await writeFreshInstallInitialEvidence(qualification, receipt.freshInstall!.empty, roles);
+        generated[FRESH_INSTALL_INITIAL_DIGEST_ENV] = receipt.freshInstall!.initialDigest;
+        process.env[FRESH_INSTALL_INITIAL_DIGEST_ENV] = receipt.freshInstall!.initialDigest;
+        await save();
+      }
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'shared-ownership-transfer';
       await query('SELECT pg_advisory_lock_shared(hashtextextended($1::text,0))', [INTEGRATION_MUTEX]);
@@ -447,6 +511,24 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
             receipt.testEvidence = { ...await validateQualificationArtifacts(qualification),
               contextDigest: qualificationDigest(qualification.context) };
             assertIntegrationPostgresqlVersionEvidence(receipt, qualification.context);
+            if (freshInstall) {
+              assert(receipt.freshInstall?.initialDigest, 'Fresh installation bootstrap evidence is required.');
+              const evidence = await readFreshInstallEvidence(qualification,
+                { databaseName: config.databaseName, branchId: receipt.branchId! }, receipt.freshInstall.initialDigest);
+              assert.deepEqual(evidence.initial.empty, receipt.freshInstall.empty.empty);
+              assert.equal(evidence.initial.emptyObservedAt, receipt.freshInstall.empty.observedAt);
+              assert(evidence.initial.observedAt <= receipt.postgresqlVersion!.observedAt);
+              assert(evidence.installed.observedAt >= receipt.postgresqlVersion!.observedAt);
+              assert.equal(evidence.installed.catalog.postgresVersion, receipt.postgresqlVersion!.serverVersionNum);
+              receipt.freshInstall.installedDigest = qualificationDigest(evidence.installed);
+              receipt.freshInstall.initialObservedAt = evidence.initial.observedAt;
+              receipt.freshInstall.installedObservedAt = evidence.installed.observedAt;
+              receipt.freshInstall.serverVersionNum = evidence.installed.catalog.postgresVersion;
+              receipt.testEvidence.freshInstall = { initialDigest: receipt.freshInstall.initialDigest,
+                installedDigest: receipt.freshInstall.installedDigest, initialObservedAt: evidence.initial.observedAt,
+                installedObservedAt: evidence.installed.observedAt, serverVersionNum: evidence.installed.catalog.postgresVersion };
+              assertIntegrationFreshInstallEvidence(receipt, qualification.context);
+            }
             evidenceValid = true;
           }
           catch { receipt.testEvidenceFailure = 'missing-or-invalid'; }
@@ -471,7 +553,10 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
     async revoke(signal) {
       await verifyOwner(signal);
       await query('ALTER ROLE league_one_runtime NOLOGIN PASSWORD NULL; ALTER ROLE league_one_auth NOLOGIN PASSWORD NULL', [], signal);
-      const result = await query("SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth') AND rolcanlogin", [], signal);
+      if (freshInstall) await query('ALTER ROLE league_one_account NOLOGIN PASSWORD NULL', [], signal);
+      const result = await query(freshInstall
+        ? "SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth','league_one_account') AND rolcanlogin"
+        : "SELECT count(*)::int AS count FROM pg_roles WHERE rolname IN ('league_one_runtime','league_one_auth') AND rolcanlogin", [], signal);
       assert.equal(result.rows[0].count, 0);
     },
     async close(signal) {

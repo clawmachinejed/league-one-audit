@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IntegrationRunReceipt, runDisposableIntegration } from '../integration/disposable-integration';
-import { parseQualificationArguments, qualificationDigest, type QualificationContext } from '../integration/qualification-profile';
+import { FRESH_INSTALL_PROFILE, parseQualificationArguments, qualificationDigest, type QualificationContext } from '../integration/qualification-profile';
 
 const mocked = vi.hoisted(() => ({ git: vi.fn(), uuid: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), run: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFileSync: mocked.git }));
@@ -77,6 +77,38 @@ afterEach(() => {
 });
 
 describe('disposable integration command cancellation and source evidence', () => {
+  it.each(['valid', 'missing', 'initial-digest', 'installed-digest', 'source', 'run', 'context', 'nonempty',
+    'stale-empty', 'future-installed', 'reversed-order', 'version', 'report-binding'])(
+    'applies the final CP21 %s receipt gate despite reported tests and cleanup', async fault => {
+      process.argv = [process.execPath, 'run-disposable-integration.ts', '--profile=' + FRESH_INSTALL_PROFILE];
+      const result = receipt(), observedAt = '2026-09-28T00:00:00.000Z';
+      const summary = { initialDigest: 'e'.repeat(64), installedDigest: 'f'.repeat(64),
+        initialObservedAt: observedAt, installedObservedAt: observedAt, serverVersionNum: '180006' };
+      result.artifactDirectory = 'C:/fictional-artifacts';
+      result.freshInstall = { ...summary, empty: { kind: 'fresh-install-empty-v1',
+        contextDigest: qualificationDigest(result.testContext), runId: result.runId, gitSha: sha,
+        profile: FRESH_INSTALL_PROFILE, databaseName: result.databaseName!, branchId: result.branchId!,
+        observedAt, installerRole: 'test_owner', empty: { database: result.databaseName!, owner: 'test_owner',
+          session: 'test_owner', branch: result.branchId!, schemas: 0, relations: 0, functions: 0, types: 0, roles: 0, sessions: 0 } } };
+      result.testEvidence!.freshInstall = { ...summary };
+      if (fault === 'missing') delete result.freshInstall;
+      if (fault === 'initial-digest') result.freshInstall!.initialDigest = '1'.repeat(64);
+      if (fault === 'installed-digest') result.freshInstall!.installedDigest = '2'.repeat(64);
+      if (fault === 'source') result.freshInstall!.empty.gitSha = 'b'.repeat(40);
+      if (fault === 'run') result.freshInstall!.empty.runId = secondUuid;
+      if (fault === 'context') result.freshInstall!.empty.contextDigest = '1'.repeat(64);
+      if (fault === 'nonempty') result.freshInstall!.empty.empty.roles = 1;
+      if (fault === 'stale-empty') result.freshInstall!.empty.observedAt = '2020-01-01T00:00:00.000Z';
+      if (fault === 'future-installed') result.freshInstall!.installedObservedAt = '2099-01-01T00:00:00.000Z';
+      if (fault === 'reversed-order') result.freshInstall!.installedObservedAt = '2020-01-01T00:00:00.000Z';
+      if (fault === 'version') result.freshInstall!.serverVersionNum = '180003';
+      if (fault === 'report-binding') delete result.testEvidence!.freshInstall;
+      mocked.run.mockResolvedValue({ passed: true, receipt: result });
+      await import('./run-disposable-integration');
+      expect(process.exitCode).toBe(fault === 'valid' ? 0 : 1);
+      expect(JSON.parse(messages.at(-1)!)).toMatchObject({ outcome: fault === 'valid' ? 'passed' : 'failed',
+        failures: fault === 'valid' ? [] : ['fresh-install-evidence'] });
+    });
   it.each(['missing', 'version-pair', 'source', 'run', 'profile', 'context', 'branch', 'database', 'test-evidence'])(
     'denies final command success for %s PostgreSQL evidence despite passed tests and cleanup', async fault => {
       const result = receipt();

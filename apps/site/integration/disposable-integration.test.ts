@@ -60,7 +60,7 @@ describe('bootstrap identity and emptiness', () => {
   const target = { database: 'integration_test', owner: 'neondb_owner', branch: 'br-run' };
   it('requires a truly empty fresh target before role/comment writes', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [row] });
-    await expect(assertEmptyDisposableDatabase(query, target)).resolves.toBeUndefined();
+    await expect(assertEmptyDisposableDatabase(query, target)).resolves.toEqual(row);
     expect(query).toHaveBeenCalledTimes(1);
     expect(query.mock.calls[0][0]).toMatch(/^SELECT/u);
     expect(query.mock.calls[0][0]).toContain("left(nspname,3) <> 'pg_'");

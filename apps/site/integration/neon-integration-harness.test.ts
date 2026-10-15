@@ -60,6 +60,7 @@ beforeEach(() => {
   vi.stubEnv('PROJECTION_INTEGRATION_OWNER_PROOF', undefined);
   vi.stubEnv('COLLECTION_CAPACITY_OWNER_PROOF', undefined);
   vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', undefined);
+  vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', undefined);
   for (const name of ['DATABASE_URL', 'MIGRATION_DATABASE_URL', 'PRODUCTION_DATABASE_URL',
     'ACCOUNT_DATABASE_URL', 'ACCOUNTS_AUTH_DATABASE_URL']) {
     vi.stubEnv(name, undefined);
@@ -98,6 +99,54 @@ beforeEach(() => {
       branchName: fixture.expectedBranchName,
     }),
   }] }));
+});
+
+describe('fresh-install account LOGIN boundaries', () => {
+  it('independently authenticates the account LOGIN on the guarded target and checks standalone flags', async () => {
+    vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', runtimeUrl.replace('league_one_runtime', 'league_one_account'));
+    await assertSafeIntegrationDatabase();
+    expect(mocked.query.mock.calls.some(([sql, user]) => sql.includes('AS has_memberships') && user === 'league_one_account')).toBe(true);
+    expect(mocked.query.mock.calls.some(([sql, user]) => sql.includes('AS has_memberships') && user === 'league_one_runtime')).toBe(true);
+  });
+  it.each(['foreign-url', 'owner-url', 'missing-password', 'no-tls', 'session-substitution', 'elevated', 'membership'])(
+    'rejects %s before schema reset', async fault => {
+      let url = runtimeUrl.replace('league_one_runtime', 'league_one_account');
+      if (fault === 'foreign-url') url = url.replace('projection_test', 'foreign_test');
+      if (fault === 'owner-url') url = ownerUrl;
+      if (fault === 'missing-password') url = url.replace(':fixture_password', '');
+      if (fault === 'no-tls') url = url.replace('sslmode=require', 'sslmode=disable');
+      vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', url);
+      const original = mocked.query.getMockImplementation()!;
+      mocked.query.mockImplementation(async (sql: string, user: string) => {
+        const result = await original(sql, user);
+        if (user === 'league_one_account') {
+          if (fault === 'session-substitution' && sql.includes('AS session_user')) result.rows[0].session_user = 'fixture_owner';
+          if (fault === 'elevated' && sql.includes('AS has_memberships')) result.rows[0].rolsuper = true;
+          if (fault === 'membership' && sql.includes('AS has_memberships')) result.rows[0].has_memberships = true;
+        }
+        return result;
+      });
+      await expect(prepareIntegrationDatabase()).rejects.toThrow();
+      expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+      expect(mocked.query.mock.calls.some(([sql]) => sql.includes('DROP SCHEMA'))).toBe(false);
+    });
+  it('refuses original nonempty state before resetting a CP21 target', async () => {
+    vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', runtimeUrl.replace('league_one_runtime', 'league_one_account'));
+    mockAccountProvisioning({ includeAuth: true });
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (sql: string, user: string) => sql.includes('AS schemas,')
+      ? { rows: [{ schemas: 0, relations: 1, functions: 0, types: 0 }] } : original(sql, user));
+    await expect(prepareIntegrationDatabase({ freshInstall: true })).rejects.toThrow('before the guarded reset');
+    expect(mocked.query.mock.calls.some(([sql]) => sql.includes('DROP SCHEMA'))).toBe(false);
+    expect(mocked.releaseOwnership).toHaveBeenCalled();
+  });
+  it.each(['account', 'auth'] as const)('pins configured actual %s credentials without owner substitution', async role => {
+    vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', runtimeUrl.replace('league_one_runtime', 'league_one_account'));
+    vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', authUrl);
+    const session = await createPinnedIntegrationDatabase(role);
+    expect(mocked.pool).toHaveBeenLastCalledWith({ connectionString: runtimeUrl.replace('league_one_runtime', 'league_one_' + role), max: 1 });
+    await session.close();
+  });
 });
 
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.useRealTimers(); });

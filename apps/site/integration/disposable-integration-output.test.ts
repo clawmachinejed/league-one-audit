@@ -2,12 +2,18 @@ import { EventEmitter } from 'node:events';
 import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration, type IntegrationRunReceipt } from './disposable-integration';
+import { FRESH_INSTALL_PROFILE } from './qualification-profile';
 
 const mocks = vi.hoisted(() => ({
   pool: vi.fn(), query: vi.fn(), spawn: vi.fn(), context: vi.fn(), evidence: vi.fn(), closure: vi.fn(),
   safe: vi.fn(), owner: vi.fn(), clean: vi.fn(), release: vi.fn(), end: vi.fn(),
+  freshInitial: vi.fn(), freshEvidence: vi.fn(),
   api: { validateTarget: vi.fn(), createBranch: vi.fn(), rotateOwnerCredentials: vi.fn(),
     getOwnerConnectionUri: vi.fn(), ownedReceipts: vi.fn(), reconcileCreation: vi.fn(), deleteBranch: vi.fn() },
+}));
+vi.mock('./fresh-install-evidence', async importOriginal => ({
+  ...await importOriginal<typeof import('./fresh-install-evidence')>(),
+  writeFreshInstallInitialEvidence: mocks.freshInitial, readFreshInstallEvidence: mocks.freshEvidence,
 }));
 vi.mock('./qualification-profile', async importOriginal => ({
   ...await importOriginal<typeof import('./qualification-profile')>(),
@@ -51,8 +57,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   for (const mock of Object.values(mocks)) if (typeof mock === 'function') mock.mockReset();
   for (const mock of Object.values(mocks.api)) mock.mockReset();
-  mocks.context.mockImplementation(async (_root, gitSha, runId) => ({
-    kind: 'integration-qualification-context-v1', profile: 'full', runId, gitSha,
+  mocks.context.mockImplementation(async (_root, gitSha, runId, profile = 'full') => ({
+    kind: 'integration-qualification-context-v1', profile, runId, gitSha,
     nonce: '00000000-0000-4000-8000-000000000002', profileDigest: 'b'.repeat(64),
     modules: [{ path: 'integration/example.integration-case.ts', sourceDigest: 'c'.repeat(64) }] }));
   mocks.evidence.mockResolvedValue({ profile: 'full', collected: 1, executed: 1, passed: 1, skipped: 0, filtered: 0, reportDigest: 'a'.repeat(64) });
@@ -60,6 +66,9 @@ beforeEach(() => {
   mocks.api.createBranch.mockResolvedValue(branch);
   mocks.api.ownedReceipts.mockReturnValue([branch]);
   mocks.query.mockImplementation(async (sql: string) => {
+    if (sql.includes('role.rolname AS name')) return { rows: ['league_one_account', 'league_one_auth', 'league_one_runtime']
+      .map((name, index) => ({ name, oid: String(17000 + index), rolcanlogin: true, rolsuper: false, rolcreatedb: false,
+        rolcreaterole: false, rolreplication: false, rolinherit: false, rolbypassrls: false, has_memberships: false })) };
     if (sql.includes("current_setting('server_version')")) return { rows: [{ database: 'integration_test',
       owner: 'neondb_owner', session: 'neondb_owner', branch: branch.branchId,
       server_version: '18.6', server_version_num: '180006' }] };
@@ -78,6 +87,86 @@ beforeEach(() => {
   });
 });
 
+describe('closed fresh-install supervisor evidence and credentials', () => {
+  function setupFresh() {
+    mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional-owner'));
+    mocks.evidence.mockResolvedValue({ profile: FRESH_INSTALL_PROFILE, collected: 8, executed: 8, passed: 8,
+      skipped: 0, filtered: 0, reportDigest: 'a'.repeat(64) });
+    mocks.freshInitial.mockResolvedValue('e'.repeat(64));
+    mocks.freshEvidence.mockImplementation(async () => {
+      const [, empty] = mocks.freshInitial.mock.calls[0];
+      return { initial: { ...empty, emptyObservedAt: empty.observedAt },
+        installed: { observedAt: new Date().toISOString(), catalog: { postgresVersion: '180006' } } };
+    });
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { pid: 12345 });
+      setImmediate(() => child.emit('close', 0, null)); return child;
+    });
+  }
+  const runFresh = (journal: (receipt: IntegrationRunReceipt) => Promise<void> = async () => {}, output = vi.fn()) =>
+    runDisposableIntegration({ environment, gitSha: 'a'.repeat(40), profile: FRESH_INSTALL_PROFILE,
+      journal, output, signal: new AbortController().signal });
+  it('acknowledges original empty state before any role writes and revokes all three generated logins', async () => {
+    setupFresh();
+    const ready = Promise.withResolvers<void>(), acknowledge = Promise.withResolvers<void>();
+    let held = false;
+    const running = runFresh(async receipt => {
+      if (receipt.freshInstall && !receipt.freshInstall.initialDigest && !held) { held = true; ready.resolve(); await acknowledge.promise; }
+    });
+    await ready.promise;
+    expect(mocks.query.mock.calls.some(([sql]) => sql.includes('CREATE ROLE'))).toBe(false);
+    acknowledge.resolve(); const result = await running;
+    expect(result.passed).toBe(true);
+    expect(mocks.spawn.mock.calls[0][2].env.ACCOUNT_FRESH_INSTALL_DATABASE_URL).toContain('league_one_account:');
+    expect(mocks.spawn.mock.calls[0][2].env.PROJECTION_INTEGRATION_FRESH_INSTALL_INITIAL_DIGEST).toBe('e'.repeat(64));
+    expect(mocks.query.mock.calls.some(([sql]) => sql === 'ALTER ROLE league_one_account NOLOGIN PASSWORD NULL')).toBe(true);
+    expect(mocks.query.mock.calls.some(([sql]) => sql.includes("'league_one_account') AND rolcanlogin"))).toBe(true);
+    expect(result.receipt.testEvidence?.freshInstall?.initialDigest).toBe(result.receipt.freshInstall?.initialDigest);
+    expect(result.receipt.freshInstall?.installedDigest).toMatch(/^[a-f0-9]{64}$/u);
+  });
+  it('redacts the extra account password and URL including split child output', async () => {
+    setupFresh(); const output = vi.fn();
+    mocks.spawn.mockImplementation((_command, _args, options) => {
+      const uri = options.env.ACCOUNT_FRESH_INSTALL_DATABASE_URL, password = new URL(uri).password;
+      const stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
+      const child = Object.assign(new EventEmitter(), { pid: 12345, stdout });
+      setImmediate(() => { stdout.emit('data', password.slice(0, 16)); stdout.emit('data', password.slice(16) + ' ' + uri + '\n');
+        stdout.emit('end'); child.emit('close', 0, null); }); return child;
+    });
+    const result = await runFresh(undefined, output);
+    expect(result.passed).toBe(true); expect(output.mock.calls.flat().join('')).toBe('[REDACTED] [REDACTED_DATABASE_URL]\n');
+    expect(JSON.stringify(result.receipt)).not.toContain('postgresql://');
+  });
+  it.each(['empty-ack', 'initial-artifact', 'installed-artifact', 'installed-version', 'account-revoke'])(
+    'fails %s without weakening cleanup evidence', async fault => {
+      setupFresh();
+      if (fault === 'initial-artifact') mocks.freshInitial.mockRejectedValue(new Error('private filesystem failure'));
+      if (fault === 'installed-artifact') mocks.freshEvidence.mockRejectedValue(new Error('invalid installed evidence'));
+      if (fault === 'installed-version') {
+        const prior = mocks.freshEvidence.getMockImplementation()!;
+        mocks.freshEvidence.mockImplementation(async () => { const evidence = await prior(); evidence.installed.catalog.postgresVersion = '170006'; return evidence; });
+      }
+      if (fault === 'account-revoke') {
+        const prior = mocks.query.getMockImplementation()!;
+        mocks.query.mockImplementation(async (sql: string) => {
+          if (sql === 'ALTER ROLE league_one_account NOLOGIN PASSWORD NULL') throw new Error('private revoke failure');
+          return prior(sql);
+        });
+      }
+      let rejected = false;
+      const result = await runFresh(async receipt => {
+        if (fault === 'empty-ack' && receipt.freshInstall && !rejected) { rejected = true; throw new Error('private journal failure'); }
+      });
+      expect(result.passed).toBe(false); expect(result.receipt.branchDeletionVerified).toBe(true);
+      if (fault === 'empty-ack' || fault === 'initial-artifact') {
+        expect(mocks.spawn).not.toHaveBeenCalled(); expect(result.receipt.schemaCleanupVerified).toBe(false);
+      } else expect(result.receipt.schemaCleanupVerified).toBe(true);
+      if (fault === 'empty-ack') expect(mocks.query.mock.calls.some(([sql]) => sql.includes('CREATE ROLE'))).toBe(false);
+      if (fault === 'account-revoke') expect(result.receipt.credentialsRevoked).toBe(false);
+      expect(JSON.stringify(result.receipt)).not.toContain('private ');
+    });
+});
+
 describe('disposable runner owner credential redaction', () => {
   it.each(['fictional-owner-password', 'fictional@/:plus+percent%2Ftail'])
   ('registers the API owner password before forwarding child diagnostics: %s', async password => {
@@ -86,6 +175,8 @@ describe('disposable runner owner credential redaction', () => {
     mocks.api.getOwnerConnectionUri.mockResolvedValue(uri);
     mocks.spawn.mockImplementation((_command, _args, options) => {
       expect(options.env.PROJECTION_INTEGRATION_OWNER_DATABASE_URL).toBe(uri);
+      expect(options.env.ACCOUNT_FRESH_INSTALL_DATABASE_URL).toBeUndefined();
+      expect(options.env.PROJECTION_INTEGRATION_FRESH_INSTALL_INITIAL_DIGEST).toBeUndefined();
       const stdout = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
       const stderr = Object.assign(new EventEmitter(), { setEncoding: vi.fn() });
       const child = Object.assign(new EventEmitter(), { pid: 12345, stdout, stderr });
