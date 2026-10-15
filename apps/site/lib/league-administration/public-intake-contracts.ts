@@ -1,3 +1,5 @@
+import type { RetainedMatchupSelection } from './retained-matchups-contracts';
+import type { RetainedMatchupManifest, RetainedMatchupCursor } from './retained-matchup-comparison';
 import type { AdministrationSourceMapping } from './source-mapping';
 import type { AdministrationWriteFence } from './store-contracts';
 import type { CapturedAdministrationDocument, PublicCaptureWitness, PublicIntakeWork } from './contracts';
@@ -12,6 +14,8 @@ export type PublicPlayoffBrackets = typeof PUBLIC_PLAYOFF_BRACKETS;
 export const PUBLIC_DRAFT_PICKS = 'sleeper-2026-draft-picks-v1' as const;
 export type PublicDraftPicks = typeof PUBLIC_DRAFT_PICKS;
 export type PublicPeriodInventoryPage = Readonly<{ afterOrdinal?: number; limit?: number }>;
+export type PublicSeasonHistoryRetained = Readonly<{ selection: RetainedMatchupSelection; batchSize?: number;
+  manifest?: RetainedMatchupManifest; cursor?: RetainedMatchupCursor }>;
 export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; periodInventoryPage?: PublicPeriodInventoryPage;
   /** Full transaction history metadata is complete; detailed receipts are bounded to this page. */
   transactionHistoryPage?: PublicPeriodInventoryPage;
@@ -22,7 +26,11 @@ export type PublicIntakeReadOptions = Readonly<{ managerEvidenceVersion?: 'v2'; 
   /** Optional typed native lineup and point evidence for the same detailed period page. */
   exactMatchupValuesVersion?: 'v1';
   /** Independent receipt-bound standings and existing selected result evidence. */
-  officialResultsVersion?: 'v1' }>;
+  officialResultsVersion?: 'v1';
+  /** Stored 2026 history from this request's bounded page and original receipts. */
+  seasonHistoryVersion?: 'v1';
+  /** One explicit source scope; continuation carries its original immutable manifest. */
+  seasonHistoryRetained?: PublicSeasonHistoryRetained }>;
 export type PublicExactPeriod = Readonly<{ season: number; nativeWeek: number }>;
 /** One explicit 2026 transaction period; full history and refresh remain separate. */
 export type PublicTransactionPeriod = Readonly<{ season: 2026; nativeWeek: number }>;
