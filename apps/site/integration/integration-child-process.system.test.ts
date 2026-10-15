@@ -2,7 +2,7 @@ import { once } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
 import { expect, it } from 'vitest';
 import { superviseCapacityChild } from './collection-capacity-supervision';
-import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
+import { spawnIntegrationChild, spawnIntegrationWorker, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 
 const env: NodeJS.ProcessEnv = { NODE_ENV: 'test', ...Object.fromEntries(['PATH', 'Path', 'SystemRoot', 'TEMP', 'TMP', 'HOME']
   .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]])) };
@@ -54,4 +54,51 @@ it('cancellation closes a real child and its inherited-process-group descendant'
     controller.abort();
     await supervised.completion;
   }
+}, 15_000);
+
+it('hard kills a real inherited worker before starting a distinct replacement process', async () => {
+  const source = 'process.stdout.write(String(process.pid) + "\\n"); setInterval(() => {}, 1000);';
+  const child = spawnIntegrationWorker(process.execPath, ['-e', source], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const controller = new AbortController();
+  const supervised = superviseCapacityChild(child, controller.signal, pid => stopIntegrationChildTree(child, pid));
+  try {
+    const pid = await announcedGrandchild(child);
+    expect(pid).toBe(child.pid); expect(() => process.kill(pid, 0)).not.toThrow();
+    controller.abort();
+    expect((await supervised.completion).closed).toBe(true);
+    expect(await verifyIntegrationChildTreeClosed(child)).toBe(process.platform === 'win32' ? 'windows-taskkill' : 'child-close');
+    if (process.platform !== 'win32') expect(child.signalCode).toBe('SIGKILL');
+    expect(() => process.kill(pid, 0)).toThrow();
+    const replacement = spawnIntegrationWorker(process.execPath,
+      ['-e', 'process.stdout.write(String(process.pid) + "\\n");'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const replacementController = new AbortController();
+    const replacementSupervised = superviseCapacityChild(replacement, replacementController.signal,
+      ownedPid => stopIntegrationChildTree(replacement, ownedPid));
+    try {
+      const replacementPid = await announcedGrandchild(replacement);
+      expect(replacementPid).toBe(replacement.pid); expect(replacementPid).not.toBe(pid);
+      expect(await replacementSupervised.completion).toEqual({ closed: true, code: 0, childError: false });
+      expect(await verifyIntegrationChildTreeClosed(replacement)).toBe('child-close');
+    } finally { replacementController.abort(); await replacementSupervised.completion; }
+  } finally { controller.abort(); await supervised.completion; }
+}, 15_000);
+
+it('keeps a real helper-spawned worker inside the outer supervisor cancellation tree', async () => {
+  const helper = new URL('./integration-child-process.ts', import.meta.url).href;
+  const source = `import { spawnIntegrationWorker } from ${JSON.stringify(helper)};
+    spawnIntegrationWorker(process.execPath,
+      ['-e', 'process.stdout.write(String(process.pid) + "\\\\n"); setInterval(() => {}, 1000);'],
+      { env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot }, stdio: 'inherit' });
+    setInterval(() => {}, 1000);`;
+  const child = spawnIntegrationChild(process.execPath, ['--input-type=module', '-e', source],
+    { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const controller = new AbortController();
+  const supervised = superviseCapacityChild(child, controller.signal, pid => stopIntegrationChildTree(child, pid));
+  try {
+    const workerPid = await announcedGrandchild(child);
+    expect(workerPid).not.toBe(child.pid); expect(() => process.kill(workerPid, 0)).not.toThrow();
+    controller.abort(); expect((await supervised.completion).closed).toBe(true);
+    expect(await verifyIntegrationChildTreeClosed(child)).toBe(process.platform === 'win32' ? 'windows-taskkill' : 'posix-process-group');
+    expect(() => process.kill(workerPid, 0)).toThrow();
+  } finally { controller.abort(); await supervised.completion; }
 }, 15_000);

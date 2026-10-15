@@ -21,6 +21,9 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   OFFICIAL_RESULTS_PLAYED_PROFILE, OFFICIAL_RESULTS_PLAYED_FULL_NAMES, OFFICIAL_RESULTS_PLAYED_PATTERN,
   FRESH_INSTALL_PROFILE, FRESH_INSTALL_MODULE, FRESH_INSTALL_SOURCE_DIGEST, FRESH_INSTALL_SUITE,
   FRESH_INSTALL_TESTS, FRESH_INSTALL_FULL_NAMES, FRESH_INSTALL_PATTERN,
+  PROCESS_RECOVERY_PROFILE, PROCESS_RECOVERY_MODULE, PROCESS_RECOVERY_SOURCE_DIGEST, PROCESS_RECOVERY_SUITE,
+  PROCESS_RECOVERY_TESTS, PROCESS_RECOVERY_FULL_NAMES, PROCESS_RECOVERY_PATTERN,
+  PROCESS_RECOVERY_SUPPORT_SOURCES, assertProcessRecoverySupportSources,
   WITHIN_SEASON_HISTORY_PROFILE, WITHIN_SEASON_HISTORY_MODULE, WITHIN_SEASON_HISTORY_SOURCE_DIGEST, WITHIN_SEASON_HISTORY_SUITE,
   WITHIN_SEASON_HISTORY_TESTS, WITHIN_SEASON_HISTORY_FULL_NAMES, WITHIN_SEASON_HISTORY_PATTERN,
   DRAFT_INTAKE_PROFILE, DRAFT_INTAKE_MODULE, DRAFT_INTAKE_SOURCE_DIGEST, DRAFT_INTAKE_SUITE,
@@ -3085,4 +3088,137 @@ it('independently inventories CP21 source names hooks allowance and fixed manual
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
   expect(full.modules).toHaveLength(70); expect(full.modules.filter(module => module.path === FRESH_INSTALL_MODULE)).toHaveLength(0);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+});
+
+async function processRecoveryFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: PROCESS_RECOVERY_MODULE, pattern: PROCESS_RECOVERY_PATTERN, otherFilters: false }];
+  evidence.collected = [PROCESS_RECOVERY_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: PROCESS_RECOVERY_MODULE,
+    suites: [{ id: 'suite', name: PROCESS_RECOVERY_SUITE, mode: 'run', errors: 0 }],
+    cases: PROCESS_RECOVERY_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('binds CP22 to seven closed cases and two hooks with acknowledged cleanup and sticky failure', async () => {
+  expect(parseQualificationArguments(['--profile=' + PROCESS_RECOVERY_PROFILE])).toBe(PROCESS_RECOVERY_PROFILE);
+  expect(qualificationArguments(PROCESS_RECOVERY_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', PROCESS_RECOVERY_MODULE, '--testNamePattern', PROCESS_RECOVERY_PATTERN]);
+  const { binding, evidence } = await processRecoveryFixture();
+  expect(binding.context.modules).toEqual([{ path: PROCESS_RECOVERY_MODULE, sourceDigest: PROCESS_RECOVERY_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([PROCESS_RECOVERY_MODULE]);
+  expect(PROCESS_RECOVERY_FULL_NAMES).toHaveLength(7);
+  const pattern = new RegExp(PROCESS_RECOVERY_PATTERN);
+  for (const name of PROCESS_RECOVERY_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(DRAFT_INTAKE_RECOVERY_FULL_NAMES.some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence); await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: PROCESS_RECOVERY_PROFILE,
+    collected: 7, executed: 7, passed: 7, skipped: 0, filtered: 0 });
+  await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  for (const args of [['--profile=data-process-recovery-v2'], ['--profile', PROCESS_RECOVERY_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + PROCESS_RECOVERY_PROFILE, '--profile=' + SELECTED_PROFILE].map(extra => ['--profile=' + PROCESS_RECOVERY_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+});
+it('rejects CP22 inventory order execution hook filter source and predecessor substitution drift', async () => {
+  const { binding, evidence } = await processRecoveryFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases[0].name += ' extra'; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].suites = []; }, r => { r.modules[0].suites[0].mode = 'skip'; }, r => { r.modules[0].suites[0].name = 'other'; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; }, r => { r.hooks[0].ends = 0; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; }, r => { r.starts = 2; }, r => { r.ends = 0; },
+    r => { r.contextDigest = 'f'.repeat(64); }, r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.flaky = true; }, r => { r.collected.push(OFFICIAL_RESULTS_MODULE); },
+  ];
+  for (const change of changes) { const changed = structuredClone(evidence); change(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+  const predecessor = await draftIntakeProfileFixture(draftIntakeProfiles[2]);
+  expect(() => validateQualificationReport(binding.context, { ...predecessor.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  expect(() => validateQualificationReport(predecessor.binding.context, { ...evidence, contextDigest: qualificationDigest(predecessor.binding.context) })).toThrow();
+  for (const change of [(context: typeof binding.context) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: typeof binding.context) => { context.modules[0].path = OFFICIAL_RESULTS_MODULE; },
+    (context: typeof binding.context) => { context.profileDigest = predecessor.binding.context.profileDigest; },
+    (context: typeof binding.context) => { context.modules.push({ ...context.modules[0] }); }]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toThrow();
+  }
+  await mkdir(join(binding.directory, 'integration'));
+  for (const entry of PROCESS_RECOVERY_SUPPORT_SOURCES) await writeFile(join(binding.directory, entry.path),
+    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  await writeFile(join(binding.directory, PROCESS_RECOVERY_MODULE), 'source drift');
+  await expect(createQualificationContext(binding.directory, 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE)).rejects.toThrow('reviewed LF digest');
+});
+it('independently inventories CP22 source names hooks allowance and fixed manual workflow without SQL execution', async () => {
+  const path = fileURLToPath(new URL('../' + PROCESS_RECOVERY_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(PROCESS_RECOVERY_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text); }
+      if (expression === 'it') { expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text); budgets.push(node.arguments[2]?.getText(tree) ?? 'default'); }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default'); }
+      expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(suites).toEqual([PROCESS_RECOVERY_SUITE]); expect(names).toEqual(PROCESS_RECOVERY_TESTS);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']); expect(budgets).toEqual(['210_000', '270_000', '120_000', '240_000', '120_000', '240_000', '180_000']);
+  expect(hookBudgets).toEqual(['90_000', '90_000']);
+  // Authored allowance only: 26m cases/hooks and 4m for setup, reporting, cleanup and margin.
+  expect(budgets.concat(hookBudgets).reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(26 * 60_000);
+  expect(26 + 4).toBe(30);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-process-recovery-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-process-recovery-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-process-recovery-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain('timeout-minutes: 50');
+  for (const selection of [...historyProfiles, ...draftIntakeProfiles])
+    expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70); expect(full.modules.filter(module => module.path === PROCESS_RECOVERY_MODULE)).toHaveLength(0);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+});
+
+it('binds CP22 worker and protocol source independently from the seven collected cases', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
+  const directory = await mkdtemp(join(tmpdir(), 'process-recovery-support-')); directories.push(directory);
+  await mkdir(join(directory, 'integration'));
+  const source = await readFile(new URL('../' + PROCESS_RECOVERY_MODULE, import.meta.url), 'utf8');
+  await writeFile(join(directory, PROCESS_RECOVERY_MODULE), source);
+  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE)).rejects.toThrow();
+  for (const entry of PROCESS_RECOVERY_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
+    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE);
+  expect(context.modules).toEqual([{ path: PROCESS_RECOVERY_MODULE, sourceDigest: PROCESS_RECOVERY_SOURCE_DIGEST }]);
+  expect(PROCESS_RECOVERY_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
+    'integration/process-recovery-worker.ts', 'integration/process-recovery-protocol.ts',
+  ]);
+  for (const entry of PROCESS_RECOVERY_SUPPORT_SOURCES) {
+    const original = await readFile(join(directory, entry.path), 'utf8');
+    await writeFile(join(directory, entry.path), original + '\n// unreviewed source drift\n');
+    await expect(assertProcessRecoverySupportSources(directory)).rejects.toThrow('reviewed LF digest');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), PROCESS_RECOVERY_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, entry.path), original);
+  }
 });

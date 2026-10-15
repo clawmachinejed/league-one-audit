@@ -5,6 +5,7 @@ const PROBE_INTERVAL_MS = 50;
 type OwnedChild = {
   pid: number | undefined;
   platform: NodeJS.Platform;
+  ownsProcessGroup: boolean;
   exited: boolean;
   closed: boolean;
   stop?: Promise<void>;
@@ -26,17 +27,34 @@ type IntegrationSpawnOptions = Omit<SpawnOptions,
 export function spawnIntegrationChild(
   command: string, args: readonly string[], options: IntegrationSpawnOptions,
 ): ChildProcess {
+  return spawnOwnedIntegrationProcess(command, args, options, true);
+}
+
+/** A worker nested below the disposable test child must stay in that child's
+ * POSIX process group. The outer supervisor then still owns cancellation of
+ * every descendant, including loader helpers. Targeted worker cancellation
+ * proves only this child's closure on POSIX, never a separate subtree closure.
+ * Fixed worker entries must not detach descendants or launch unrelated work.
+ */
+export function spawnIntegrationWorker(
+  command: string, args: readonly string[], options: IntegrationSpawnOptions,
+): ChildProcess {
+  return spawnOwnedIntegrationProcess(command, args, options, false);
+}
+
+function spawnOwnedIntegrationProcess(command: string, args: readonly string[],
+  options: IntegrationSpawnOptions, ownsProcessGroup: boolean): ChildProcess {
   if (!options.env || typeof options.env !== 'object') throw new Error('Integration child needs an explicit environment.');
   const platform = process.platform;
   if (platform !== 'win32' && platform !== 'linux' && platform !== 'darwin') {
     throw new Error('Unsupported integration child platform.');
   }
   const child = spawn(command, args, {
-    ...options, shell: false, windowsHide: true, detached: platform !== 'win32',
+    ...options, shell: false, windowsHide: true, detached: ownsProcessGroup && platform !== 'win32',
     // Also override these at runtime if a JavaScript caller supplies them.
     signal: undefined, timeout: undefined,
   });
-  const owned: OwnedChild = { pid: child.pid, platform, exited: false, closed: false };
+  const owned: OwnedChild = { pid: child.pid, platform, ownsProcessGroup, exited: false, closed: false };
   ownedChildren.set(child, owned);
   // exit invalidates permission to signal before close, which may wait on pipes.
   child.once('exit', () => { owned.exited = true; });
@@ -84,6 +102,17 @@ async function stopPosixGroup(pid: number): Promise<void> {
   await waitForGroupClosure(pid);
 }
 
+async function stopPosixWorker(pid: number): Promise<void> {
+  // Never signal -pid: an inherited worker does not own that process group.
+  // As for the outer group, send once while the tracked child is still live.
+  try { process.kill(pid, 'SIGKILL'); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') {
+      throw new Error('Owned integration worker stop failed.');
+    }
+  }
+}
+
 function stopWindowsTree(pid: number): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const stop = spawn('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
@@ -119,14 +148,16 @@ export async function stopIntegrationChildTree(child: ChildProcess, expectedPid 
   if (owned.exited || owned.closed || child.exitCode !== null || child.signalCode !== null) {
     throw new Error('Integration child exited before tree stop.');
   }
-  owned.stop = owned.platform === 'win32' ? stopWindowsTree(owned.pid) : stopPosixGroup(owned.pid);
+  owned.stop = owned.platform === 'win32' ? stopWindowsTree(owned.pid)
+    : owned.ownsProcessGroup ? stopPosixGroup(owned.pid) : stopPosixWorker(owned.pid);
   return owned.stop;
 }
 
 export type IntegrationChildClosure = 'posix-process-group' | 'windows-taskkill' | 'child-close';
 
-/** Call after superviseCapacityChild.completion. POSIX also checks for leaked
- * group members after natural exit without ever signalling a closed child's PID.
+/** Call after superviseCapacityChild.completion. Owned POSIX groups also check
+ * for leaked members after natural exit without signalling a closed child's PID.
+ * Inherited workers prove child-close only; their outer supervisor owns the group.
  * Windows natural exit proves only ChildProcess/stdio closure; taskkill supplies
  * stronger tree evidence when cancelled. Record this distinction in receipts.
  */
@@ -137,6 +168,7 @@ export async function verifyIntegrationChildTreeClosed(child: ChildProcess): Pro
   if (owned.pid === undefined) return 'child-close'; // A spawn failure has no tree.
   assertPid(owned.pid);
   if (owned.platform === 'win32') return owned.stop ? 'windows-taskkill' : 'child-close';
+  if (!owned.ownsProcessGroup) return 'child-close';
   await waitForGroupClosure(owned.pid);
   return 'posix-process-group';
 }

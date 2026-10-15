@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { superviseCapacityChild } from './collection-capacity-supervision';
-import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
+import { spawnIntegrationChild, spawnIntegrationWorker, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
 
@@ -17,6 +17,10 @@ const setPlatform = (platform: string) => Object.defineProperty(process, 'platfo
 const start = (child = fakeChild()) => {
   vi.mocked(spawn).mockReturnValueOnce(child);
   return spawnIntegrationChild('node', ['vitest.mjs'], { env: { NODE_ENV: 'test', PATH: 'safe-path' }, stdio: 'pipe' });
+};
+const startWorker = (child = fakeChild()) => {
+  vi.mocked(spawn).mockReturnValueOnce(child);
+  return spawnIntegrationWorker('node', ['worker.mjs'], { env: { NODE_ENV: 'test' }, stdio: 'pipe' });
 };
 
 beforeEach(() => {
@@ -51,6 +55,68 @@ describe('owned integration child spawning', () => {
     setPlatform('unsupported');
     expect(() => start()).toThrow('Unsupported');
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+describe('nested integration worker ownership', () => {
+  it.each(['linux', 'darwin', 'win32'])('keeps the %s worker inside the outer process tree and overrides unsafe spawn options', platform => {
+    setPlatform(platform);
+    const child = fakeChild(); vi.mocked(spawn).mockReturnValueOnce(child);
+    const options = { env: { NODE_ENV: 'test' }, detached: true, shell: true, windowsHide: false,
+      signal: new AbortController().signal, timeout: 1 } as SpawnOptions & { env: NodeJS.ProcessEnv };
+    expect(spawnIntegrationWorker('node', ['worker.mjs'], options)).toBe(child);
+    expect(spawn).toHaveBeenCalledWith('node', ['worker.mjs'], {
+      ...options, detached: false, shell: false, windowsHide: true, signal: undefined, timeout: undefined,
+    });
+  });
+  it('requires an explicit worker environment and a supported platform', () => {
+    expect(() => spawnIntegrationWorker('node', [], {} as { env: NodeJS.ProcessEnv })).toThrow('explicit environment');
+    setPlatform('unsupported');
+    expect(() => startWorker()).toThrow('Unsupported');
+    expect(spawn).not.toHaveBeenCalled();
+  });
+  it('kills only the owned POSIX worker PID once and waits for child closure without group probes', async () => {
+    const child = startWorker(); const controller = new AbortController();
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    const supervised = superviseCapacityChild(child, controller.signal, pid => stopIntegrationChildTree(child, pid));
+    let settled = false; void supervised.completion.then(() => { settled = true; });
+    controller.abort(); await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    expect(kill.mock.calls).toEqual([[12345, 'SIGKILL']]);
+    await expect(verifyIntegrationChildTreeClosed(child)).rejects.toThrow('has not closed');
+    child.emit('exit', null, 'SIGKILL'); child.emit('close', null, 'SIGKILL');
+    expect((await supervised.completion).closed).toBe(true);
+    await stopIntegrationChildTree(child);
+    expect(await verifyIntegrationChildTreeClosed(child)).toBe('child-close');
+    expect(kill.mock.calls).toEqual([[12345, 'SIGKILL']]);
+  });
+  it('refuses altered and exited worker identities before any signal', async () => {
+    const child = startWorker(); const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    await expect(stopIntegrationChildTree(child, 9999)).rejects.toThrow('identity changed');
+    child.emit('exit', 0); child.emit('close', 0);
+    await expect(stopIntegrationChildTree(child)).rejects.toThrow('exited before');
+    expect(await verifyIntegrationChildTreeClosed(child)).toBe('child-close');
+    expect(kill).not.toHaveBeenCalled();
+  });
+  it('does not turn a refused worker signal into verified closure', async () => {
+    const child = startWorker(); const controller = new AbortController();
+    vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('denied'), { code: 'EPERM' }); });
+    const supervised = superviseCapacityChild(child, controller.signal, pid => stopIntegrationChildTree(child, pid));
+    controller.abort(); await vi.advanceTimersByTimeAsync(0);
+    child.emit('exit', 1); child.emit('close', 1);
+    expect((await supervised.completion).closed).toBe(false);
+    await expect(verifyIntegrationChildTreeClosed(child)).rejects.toThrow('worker stop failed');
+  });
+  it('retains bounded Windows tree cancellation for nested workers', async () => {
+    setPlatform('win32');
+    const child = startWorker(); const taskkill = fakeChild(45678); vi.mocked(spawn).mockReturnValueOnce(taskkill);
+    const stopping = stopIntegrationChildTree(child);
+    expect(spawn).toHaveBeenLastCalledWith('taskkill.exe', ['/PID', '12345', '/T', '/F'], {
+      windowsHide: true, stdio: 'ignore', shell: false, env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot },
+    });
+    child.emit('exit', null, 'SIGKILL'); child.emit('close', null, 'SIGKILL'); taskkill.emit('close', 0);
+    await stopping;
+    expect(await verifyIntegrationChildTreeClosed(child)).toBe('windows-taskkill');
   });
 });
 
