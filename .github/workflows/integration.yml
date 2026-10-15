@@ -11,6 +11,7 @@ on:
           - full
           - data-official-results-v1
           - data-official-results-played-v1
+          - data-within-season-history-v1
           - data-draft-intake-v1
           - data-draft-refresh-v1
           - data-draft-intake-recovery-v1
@@ -90,6 +91,9 @@ jobs:
           case "$GITHUB_EVENT_NAME:$QUALIFICATION_PROFILE" in
             push:|workflow_dispatch:full)
               pnpm test:integration
+              ;;
+            workflow_dispatch:data-within-season-history-v1)
+              pnpm test:integration --profile=data-within-season-history-v1
               ;;
             workflow_dispatch:data-draft-intake-v1)
               pnpm test:integration --profile=data-draft-intake-v1
