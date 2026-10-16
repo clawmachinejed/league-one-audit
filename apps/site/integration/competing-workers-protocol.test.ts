@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
+import type { PublicDataRefreshStore } from '../lib/league-administration/public-refresh-contracts';
+import type { AdministrationWriteFence } from '../lib/league-administration/contracts';
 import type { DatabaseClient, DatabaseRow } from '../lib/database';
 import { capturePublicSleeperCore } from '../lib/sleeper';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
@@ -10,10 +13,12 @@ import { CONTENTION_CONFIG, CONTENTION_DATABASE, CONTENTION_VERSION, STALE_PROBE
   parseContentionConfig, contentionControl, parseContentionControl, contentionEnvironment,
   parseContentionMessage, assertSameBackend, contentionFixture, contentionFetch,
   assertContentionReader, assertFairness, isContentionFenceRejection,
+  createContentionDiagnostic, parseContentionDiagnostic, createContentionDiagnosticReporter, runContentionSession,
+  createContentionSelectionFault, awaitContentionAcquisitionWindow,
   type ContentionConfig, type ContentionMessage, type FairnessObservation } from './competing-workers-protocol';
 
 vi.mock('server-only', () => ({}));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();});
 const config = (): ContentionConfig => ({ nonce: randomUUID(), contextNonce: randomUUID(), gitSha: 'a'.repeat(40),
   profileDigest: 'b'.repeat(64), expectedDatabase: 'cp23_test', expectedBranch: 'br-cp23-test',
   fixtures: [randomUUID()], requestId: null, action: 'normal', faultFixture: null });
@@ -270,4 +275,146 @@ describe('CP23 oracle against the actual stored reader contract', () => {
     expect(() => assertContentionReader(read,fixture,true)).toThrow();
   });
 
+});
+
+describe('CP23 repaired worker failure boundaries',()=>{
+  it('sanitizes known failures without inspecting getters, prototypes, stacks, causes or unknown messages',()=>{
+    const input=config(), secret='postgresql://owner:DO_NOT_RETAIN@host/db SQL secret';
+    const known=createContentionDiagnostic(input,400,'evidence',Object.assign(new Error('CP23 backend identity changed.'),{code:secret,cause:secret,stack:secret}));
+    expect(known).toMatchObject({code:'backend-identity-changed',sqlState:null,cleanupFailed:false});
+    const getter=vi.fn(()=>{throw new Error(secret);});
+    const hostile=Object.defineProperties({},{message:{get:getter},code:{get:getter},stack:{get:getter},cause:{get:getter}});
+    const values=[new Error(secret),{message:{toString:getter},code:{toString:getter}},hostile,
+      Object.create({message:'CP23 backend identity changed.',code:'P0001'}),new Proxy({},{getOwnPropertyDescriptor:getter}),null,secret];
+    for(const value of values){
+      const diagnostic=createContentionDiagnostic(input,400,'step',value);
+      expect(diagnostic.code).toBe('worker-error');expect(diagnostic.sqlState).toBeNull();
+      expect(JSON.stringify(diagnostic)).not.toContain('DO_NOT_RETAIN');
+      expect(Object.keys(diagnostic).sort()).toEqual(['at','cleanupFailed','code','contextNonce','gitSha','nonce','phase','pid','profileDigest','sqlState','type','version']);
+    }
+    // Only the proxy's own-descriptor traps run; no property getter/toString runs.
+    expect(getter).toHaveBeenCalledTimes(2);
+    expect(createContentionDiagnostic(input,400,'step',Object.assign(new Error(secret),{code:'P0001'}))).toMatchObject({code:'database-error',sqlState:'P0001'});
+    for(const [message,code] of [['CP23 original work missing.','original-work-missing'],['CP23 stale operation was accepted.','stale-operation-accepted'],
+      ['CP23 stale rejection was not an installed SQL guard.','wrong-stale-guard'],['CP23 stale job transition accepted.','stale-job-transition-accepted'],
+      ['CP23 unexpected admitted resource.','unexpected-resource'],['CP23 worker elapsed limit exhausted.','worker-deadline']])
+      expect(createContentionDiagnostic(input,400,'step',new Error(message)).code).toBe(code);
+  });
+
+  it('accepts one source-bound fatal without startup proof and rejects foreign, duplicate, malformed or success-bearing records',()=>{
+    const input=config(),valid=createContentionDiagnostic(input,400,'session-open',new Error('synthetic startup failure'));
+    expect(parseContentionDiagnostic(valid,input,400)).toEqual(valid);
+    expect(()=>parseContentionMessage(valid,input,400)).toThrow();
+    expect(()=>parseContentionDiagnostic(valid,input,400,valid)).toThrow();
+    for(const changes of [{nonce:randomUUID()},{contextNonce:randomUUID()},{gitSha:'c'.repeat(40)},{profileDigest:'d'.repeat(64)},
+      {pid:401},{version:'other'},{type:'ready'},{phase:'unknown'},{code:'raw secret'},{sqlState:'SECRET'},{cleanupFailed:'yes'},
+      {backendPid:401},{currentUser:'league_one_runtime'},{requests:0},{status:'progress'},{message:'secret'},
+      {at:'2026-10-15 (secret)'},{at:'2026-10-15T19:00:00.000Z'+' '.repeat(10_000)},{at:'2026-10-15'},
+      {at:'2026-10-15T19:00:00.000+00:00'}]) expect(()=>parseContentionDiagnostic({...valid,...changes},input,400)).toThrow();
+    const missing=Object.fromEntries(Object.entries(valid).filter(([key])=>key!=='sqlState'));
+    expect(()=>parseContentionDiagnostic(missing,input,400)).toThrow();
+  });
+
+  it('sends at most one fatal and completes a closed or unacknowledged IPC attempt within500ms',async()=>{
+    const input=config(),error=new Error('CP23 backend identity changed.');
+    const accepted=vi.fn((_value:unknown,callback:(error?:Error)=>void)=>callback());
+    const first=createContentionDiagnosticReporter(input,400,accepted);
+    expect(await first('evidence',error)).toBe(true);expect(await first('cleanup',error,true)).toBe(false);
+    expect(accepted).toHaveBeenCalledOnce();
+    const closed=vi.fn(()=>{throw Object.assign(new Error('secret closed peer'),{code:'ERR_IPC_CHANNEL_CLOSED'});});
+    expect(await createContentionDiagnosticReporter(input,400,closed)('evidence',error)).toBe(false);
+    const callbackError=vi.fn((_value:unknown,callback:(error?:Error)=>void)=>callback(new Error('closed peer')));
+    expect(await createContentionDiagnosticReporter(input,400,callbackError)('evidence',error)).toBe(false);
+    expect(await createContentionDiagnosticReporter(input,400)('evidence',error)).toBe(false);
+    vi.useFakeTimers();const noAck=vi.fn(),report=createContentionDiagnosticReporter(input,400,noAck);
+    let done=false;const pending=report('evidence',error).then(value=>{done=true;return value;});
+    await vi.advanceTimersByTimeAsync(499);expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);expect(await pending).toBe(false);
+    expect(await report('cleanup',error,true)).toBe(false);expect(noAck).toHaveBeenCalledOnce();
+  });
+
+  it('preserves the first worker failure and phase when close also fails, with cleanup-only failure explicit',async()=>{
+    const original=new Error('CP23 backend identity changed.'),closeError=new Error('secret close failure');
+    const close=vi.fn(async()=>{throw closeError;});
+    const failure=await runContentionSession(async()=>{throw original;},close,()=> 'evidence');
+    expect(failure).toEqual({phase:'evidence',error:original,cleanupFailed:true});expect(close).toHaveBeenCalledOnce();
+    expect(createContentionDiagnostic(config(),400,failure!.phase,failure!.error,failure!.cleanupFailed))
+      .toMatchObject({phase:'evidence',code:'backend-identity-changed',cleanupFailed:true});
+    expect(await runContentionSession(async()=>{},close,()=> 'step')).toEqual({phase:'cleanup',error:closeError,cleanupFailed:true});
+    const normalClose=vi.fn(async()=>{});
+    expect(await runContentionSession(async()=>{},normalClose,()=> 'step')).toBeNull();expect(normalClose).toHaveBeenCalledOnce();
+  });
+
+  it('injects one failure only after the real selector identifies F and never on the normal competitor',()=>{
+    const input=config(),f=contentionFixture(input.fixtures[0]),h=contentionFixture(randomUUID());
+    const fail=createContentionSelectionFault({...input,action:'selection-failure',faultFixture:f.id});
+    expect(()=>fail(h.manager)).not.toThrow();expect(()=>fail(f.manager)).toThrow('Declared CP23 pre-admission');
+    expect(()=>fail(f.manager)).not.toThrow();expect(()=>fail(h.manager)).not.toThrow();
+    const normal=createContentionSelectionFault({...input,action:'normal',faultFixture:f.id});
+    expect(()=>normal(f.manager)).not.toThrow();expect(()=>normal(f.manager)).not.toThrow();
+  });
+
+  it('waits for both observed SQL gates, rejects malformed gates and cannot accept a late observation',async()=>{
+    let clock=0;const seen:number[]=[];
+    await awaitContentionAcquisitionWindow(async()=>{seen.push(clock);return {job_eligible:clock>=500,admission_eligible:clock>=1_000};},2_000,
+      ()=>clock,async ms=>{expect(ms).toBeLessThanOrEqual(500);clock+=ms;});
+    expect(seen).toEqual([0,500,1_000]);
+    await expect(awaitContentionAcquisitionWindow(async()=>({job_eligible:true,admission_eligible:undefined as unknown as boolean}),1_000,()=>0,async()=>{})).rejects.toThrow('observation');
+    clock=0;await expect(awaitContentionAcquisitionWindow(async()=>({job_eligible:false,admission_eligible:true}),1_000,()=>clock,async ms=>{clock+=ms;})).rejects.toThrow('exhausted');
+    clock=0;await expect(awaitContentionAcquisitionWindow(async()=>{clock=1_000;return {job_eligible:true,admission_eligible:true};},1_000,()=>clock,async()=>{})).rejects.toThrow('exhausted');
+    for(const ms of [0,-1,75_001,NaN,Infinity]) await expect(awaitContentionAcquisitionWindow(async()=>({job_eligible:true,admission_eligible:true}),ms)).rejects.toThrow('budget');
+  });
+});
+
+/** Synthetic durable timeline + actual ordinary runner and fixture callbacks.
+ * This proves orchestration, not PostgreSQL selectors, receipts or hosted acceptance. */
+function selectionTimeline(repaired:boolean){
+  const input=config(),f=contentionFixture(input.fixtures[0]),h=contentionFixture(randomUUID());
+  let clock=30_000,retryAt=0,lastAdmission=0,completedAt:number|null=null,generation=0;
+  let selected:{target:'F'|'H';requestId:string;fence:AdministrationWriteFence}|undefined;
+  const failures:Array<{target:string;owner:string;generation:number;at:number}>=[],admissions:Array<{target:string;at:number}>=[];
+  const oneShot=createContentionSelectionFault({...input,action:'selection-failure',faultFixture:f.id});
+  const fault=(manager:string)=>{if(repaired)oneShot(manager);else if(manager===f.manager)throw new Error('Declared CP23 pre-admission boundary failure.');};
+  const dependencies={now:()=>new Date(clock),jobs:{
+    acquireJob:async(input:Parameters<PublicIntakeDependencies['jobs']['acquireJob']>[0])=>{
+      expect(input.leaseSeconds).toBe(25);expect(input.minimumIntervalSeconds).toBe(60);
+      if(completedAt!==null&&clock<completedAt+60_000)return {kind:'busy'};
+      return {kind:'acquired',attempt:++generation,leaseUntil:new Date(clock+25_000).toISOString()};
+    },completeJob:async()=>{completedAt=clock;return true;},failJob:async()=>{completedAt=null;return true;},
+  },refresh:{select:async(fence:AdministrationWriteFence)=>{
+    const target=clock>=retryAt?'F':'H',fixture=target==='F'?f:h;
+    selected={target,requestId:fixture.id,fence};fault(fixture.manager);
+    return {status:'selected',targetId:fixture.id,configurationRevision:1,cycleConfigurationRevision:1,cycle:1,requestId:fixture.id};
+  },recordSelectionFailure:async(_selection:unknown,fence:AdministrationWriteFence)=>{
+    expect(selected).toMatchObject({target:'F',fence});expect(_selection).toBeNull();
+    failures.push({target:'F',owner:fence.workerId,generation:fence.generation,at:clock});retryAt=clock+60_000;
+    return {status:'recorded',retryAt:new Date(retryAt).toISOString()};
+  }},intake:{recover:async()=>{},next:async(requestId:string)=>({kind:'core',requestId,externalLeagueId:h.external,season:2026}),
+    admit:async()=>{if(clock<lastAdmission+60_000)return false;admissions.push({target:selected!.target,at:clock});lastAdmission=clock;return true;},fail:async()=>{},
+  },administration:{readSourceMapping:async()=>{throw new Error('Offline test stops after the actual admission boundary.');}}} as unknown as PublicIntakeDependencies&{refresh:PublicDataRefreshStore};
+  return {run:()=>runPublicDataRefreshStep(dependencies,new AbortController().signal),fault,failures,admissions,
+    now:()=>clock,advance:(ms:number)=>{clock+=ms;},retry:()=>retryAt,
+    probe:async()=>({job_eligible:completedAt===null||clock>=completedAt+60_000,admission_eligible:clock>=lastAdmission+60_000})};
+}
+describe('CP23 actual runner selection-failure chronology with synthetic stores',()=>{
+  it('reproduces the old healthy admission backoff, completed cooldown and second failing selection',async()=>{
+    const model=selectionTimeline(false);
+    expect(await model.run()).toMatchObject({status:'unavailable',providerRequests:0});
+    expect(await model.run()).toEqual({status:'backoff',providerRequests:0});
+    expect(model.failures).toHaveLength(1);expect(model.admissions).toEqual([]);
+    model.advance(60_000);
+    expect(await model.run()).toMatchObject({status:'unavailable',providerRequests:0});
+    expect(model.failures.map(row=>row.at)).toEqual([30_000,90_000]);expect(model.admissions).toEqual([]);
+  });
+  it('uses the actual prewait and one-shot path before allowing H admission inside the original F retry window',async()=>{
+    const model=selectionTimeline(true);
+    await awaitContentionAcquisitionWindow(async()=>{expect(model.failures).toEqual([]);return model.probe();},75_000,model.now,async ms=>model.advance(ms));
+    expect(model.now()).toBe(60_000);
+    expect(await model.run()).toMatchObject({status:'unavailable',providerRequests:0});
+    expect(model.failures).toHaveLength(1);expect(model.failures[0]).toMatchObject({target:'F',at:60_000,generation:1});
+    expect(model.failures[0].owner).toMatch(/^[0-9a-f-]{36}$/);
+    await model.run(); // Stops deliberately after admission: no synthetic typed receipt or success credit.
+    expect(model.admissions).toEqual([{target:'H',at:60_000}]);
+    expect(model.admissions[0].at).toBeLessThan(model.retry());expect(model.failures).toHaveLength(1);
+  });
 });

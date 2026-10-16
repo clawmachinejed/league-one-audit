@@ -3400,7 +3400,7 @@ it('independently inventories CP23 source names hooks allowance and fixed manual
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
 });
 
-it('binds CP23 worker and protocol source independently from the five collected cases', async () => {
+it('binds CP23 worker, protocol and pinned harness source independently from the five collected cases', async () => {
   const siteRoot = fileURLToPath(new URL('..', import.meta.url));
   await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
   const directory = await mkdtemp(join(tmpdir(), 'competing-workers-support-')); directories.push(directory);
@@ -3413,7 +3413,7 @@ it('binds CP23 worker and protocol source independently from the five collected 
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
   expect(context.modules).toEqual([{ path: COMPETING_WORKERS_MODULE, sourceDigest: COMPETING_WORKERS_SOURCE_DIGEST }]);
   expect(COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
-    'integration/competing-workers-worker.ts', 'integration/competing-workers-protocol.ts',
+    'integration/competing-workers-worker.ts', 'integration/competing-workers-protocol.ts', 'integration/neon-integration-harness.ts',
   ]);
   for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) {
     const original = await readFile(join(directory, entry.path), 'utf8');

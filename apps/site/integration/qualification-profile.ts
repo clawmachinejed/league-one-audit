@@ -52,7 +52,7 @@ export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 export const COMPETING_WORKERS_PROFILE = 'data-competing-workers-v1';
 export const COMPETING_WORKERS_MODULE = 'integration/competing-workers.qualification-case.ts';
 // CP23 closed source inventory only; no hosted SQL execution authority.
-export const COMPETING_WORKERS_SOURCE_DIGEST = '11663d347f0a96126eb2feaf61a59d15cfa98c02fe5810d379ca8a2536ae5b07';
+export const COMPETING_WORKERS_SOURCE_DIGEST = '7f5475f5ffa27debcf8253a5a53c3f9521b813cbbe12c7d8740b4207b977dd1f';
 export const COMPETING_WORKERS_SUITE = 'fenced DATA ownership and bounded fairness under competing live workers';
 export const COMPETING_WORKERS_TESTS = [
   'admits and accepts one core capture while independent worker processes compete for the same job',
@@ -64,8 +64,9 @@ export const COMPETING_WORKERS_TESTS = [
 export const COMPETING_WORKERS_FULL_NAMES = COMPETING_WORKERS_TESTS.map(name => COMPETING_WORKERS_SUITE + ' > ' + name);
 export const COMPETING_WORKERS_PATTERN = closedPattern(COMPETING_WORKERS_FULL_NAMES);
 export const COMPETING_WORKERS_SUPPORT_SOURCES = [
-  { path: 'integration/competing-workers-worker.ts', sourceDigest: 'a87f42f9f1a3036d684ef507cdb1fa0bc0109af795ffcc05bd6d9ac1a9c8a2ff' },
-  { path: 'integration/competing-workers-protocol.ts', sourceDigest: '0c80ecf840b199482db974c1140557382efed3332234e78ec0ce743cf9de3c81' },
+  { path: 'integration/competing-workers-worker.ts', sourceDigest: '158bdbd119e52801253108378aa9ea768ffce93079a671e51a5edf39545fe7ee' },
+  { path: 'integration/competing-workers-protocol.ts', sourceDigest: '1dfbe3d458471b67df69e2d30233fcd966ee7cd35250351bb803194601aeb8e2' },
+  { path: 'integration/neon-integration-harness.ts', sourceDigest: 'a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783' },
 ] as const;
 export const PROCESS_RECOVERY_PROFILE = 'data-process-recovery-v1';
 export const PROCESS_RECOVERY_MODULE = 'integration/process-recovery.qualification-case.ts';

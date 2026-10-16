@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { integrationChildEnvironment } from './disposable-integration';
 
 export const CONTENTION_VERSION = 'cp23-competing-workers-v1';
@@ -52,6 +53,108 @@ export function parseContentionControl(value: unknown, config: ContentionConfig,
   }
   return row.command as Control;
 }
+/** Fatal diagnostics never establish a LOGIN, backend, claim, acquisition or pass. */
+export const CONTENTION_PHASES = ['configuration','source','session-open','session-identity','control','step','evidence','cleanup'] as const;
+export type ContentionPhase = typeof CONTENTION_PHASES[number];
+const FAILURE_CODES = ['backend-identity-changed','restricted-login-rejected','control-rejected','ipc-failed','acquisition-accounting','original-work-missing','wrong-stale-guard','stale-operation-accepted','stale-job-transition-accepted','unexpected-resource','worker-deadline','database-error','worker-error'] as const;
+const SQL_STATES = ['P0001','25P02','57014','08000','08001','08003','08004','08006','08P01','53300','57P01','57P02','57P03'] as const;
+export type ContentionDiagnostic = Readonly<{ version: typeof CONTENTION_VERSION; nonce: string; contextNonce: string;
+  gitSha: string; profileDigest: string; pid: number; type: 'fatal'; at: string; phase: ContentionPhase;
+  code: typeof FAILURE_CODES[number]; sqlState: typeof SQL_STATES[number] | null; cleanupFailed: boolean }>;
+function errorData(error: unknown, key: string): unknown {
+  try { return error && (typeof error === 'object' || typeof error === 'function')
+    ? Object.getOwnPropertyDescriptor(error,key)?.value : undefined; } catch { return undefined; }
+}
+export function createContentionDiagnostic(config: ContentionConfig, pid: number, phase: ContentionPhase,
+  error: unknown, cleanupFailed = false): ContentionDiagnostic {
+  const message = errorData(error,'message'), state = errorData(error,'code');
+  const sqlState = SQL_STATES.find(value => value === state) ?? null;
+  const code = message === 'CP23 backend identity changed.' ? 'backend-identity-changed'
+    : message === 'CP23 requires actual restricted LOGIN.' ? 'restricted-login-rejected'
+    : typeof message === 'string' && ['CP23 control lifecycle failed.','CP23 invalid control.','CP23 barrier requires its fixed release.','CP23 received release outside its barrier.'].includes(message) ? 'control-rejected'
+    : message === 'CP23 IPC failed.' ? 'ipc-failed'
+    : message === 'CP23 actual acquisition accounting differs.' ? 'acquisition-accounting'
+    : message === 'CP23 original work missing.' ? 'original-work-missing'
+    : message === 'CP23 stale rejection was not an installed SQL guard.' ? 'wrong-stale-guard'
+    : message === 'CP23 stale operation was accepted.' ? 'stale-operation-accepted'
+    : message === 'CP23 stale job transition accepted.' ? 'stale-job-transition-accepted'
+    : message === 'CP23 unexpected admitted resource.' ? 'unexpected-resource'
+    : message === 'CP23 worker elapsed limit exhausted.' ? 'worker-deadline'
+    : sqlState ? 'database-error' : 'worker-error';
+  return { version: CONTENTION_VERSION, nonce: config.nonce, contextNonce: config.contextNonce,
+    gitSha: config.gitSha, profileDigest: config.profileDigest, pid, type: 'fatal', at: new Date().toISOString(),
+    phase, code, sqlState, cleanupFailed };
+}
+export function parseContentionDiagnostic(value: unknown, config: ContentionConfig, pid: number,
+  previous?: ContentionDiagnostic): ContentionDiagnostic {
+  const row=object(value);
+  if (previous || Object.keys(row).sort().join('|') !== 'at|cleanupFailed|code|contextNonce|gitSha|nonce|phase|pid|profileDigest|sqlState|type|version'
+    || row.version!==CONTENTION_VERSION || row.type!=='fatal' || row.nonce!==config.nonce || row.contextNonce!==config.contextNonce
+    || row.gitSha!==config.gitSha || row.profileDigest!==config.profileDigest || row.pid!==pid || !Number.isSafeInteger(pid) || pid<1
+    || typeof row.at!=='string' || row.at.length!==24 || !Number.isFinite(Date.parse(row.at)) || new Date(row.at).toISOString()!==row.at || typeof row.cleanupFailed!=='boolean'
+    || !CONTENTION_PHASES.includes(row.phase as ContentionPhase) || !FAILURE_CODES.includes(row.code as typeof FAILURE_CODES[number])
+    || row.sqlState!==null && !SQL_STATES.includes(row.sqlState as typeof SQL_STATES[number])) throw new Error('Invalid CP23 fatal diagnostic.');
+  return row as ContentionDiagnostic;
+}
+export type ContentionDiagnosticSender = (value: ContentionDiagnostic, callback: (error?: Error | null) => void) => void;
+export function createContentionDiagnosticReporter(config: ContentionConfig, pid: number, send?: ContentionDiagnosticSender) {
+  let reported=false;
+  return async (phase: ContentionPhase, error: unknown, cleanupFailed=false): Promise<boolean> => {
+    if (reported) return false;
+    reported=true;
+    if (!send) return false;
+    const diagnostic=createContentionDiagnostic(config,pid,phase,error,cleanupFailed);
+    return new Promise<boolean>(resolve => {
+      const timer=setTimeout(()=>resolve(false),500);
+      const finish=(success:boolean)=>{clearTimeout(timer);resolve(success);};
+      try {send(diagnostic,error=>finish(!error));} catch {finish(false);}
+    });
+  };
+}
+/** The only injected selection fault is after the real selector chose F. */
+export function createContentionSelectionFault(config: ContentionConfig): (selectedUsername: string) => void {
+  const manager=config.action==='selection-failure' && config.faultFixture ? contentionFixture(config.faultFixture).manager : null;
+  let used=false;
+  return selectedUsername => {
+    if (!used && manager!==null && selectedUsername===manager) {
+      used=true;
+      throw new Error('Declared CP23 pre-admission boundary failure.');
+    }
+  };
+}
+
+/** Parent-side fixture wait only. Eligibility is observed from the existing SQL gates. */
+export async function awaitContentionAcquisitionWindow(
+  probe: () => Promise<{ job_eligible: boolean; admission_eligible: boolean }>, milliseconds: number,
+  now: () => number = Date.now, wait: (milliseconds: number) => Promise<void> = delay,
+): Promise<void> {
+  if (!Number.isFinite(milliseconds) || milliseconds<=0 || milliseconds>75_000) throw new Error('Invalid CP23 acquisition wait budget.');
+  const deadline=now()+milliseconds;
+  while (now()<deadline) {
+    const observed=await probe();
+    if (typeof observed?.job_eligible!=='boolean' || typeof observed?.admission_eligible!=='boolean') throw new Error('Invalid CP23 acquisition gate observation.');
+    if (now()>=deadline) break;
+    if (observed.job_eligible && observed.admission_eligible) return;
+    await wait(Math.min(500,deadline-now()));
+  }
+  throw new Error('CP23 acquisition eligibility wait exhausted.');
+}
+
+export type ContentionFailure = Readonly<{ phase: ContentionPhase; error: unknown; cleanupFailed: boolean }>;
+/** Preserves the first failure while retaining the existing serial close ordering. */
+export async function runContentionSession(operation: () => Promise<void>, close: () => Promise<void>,
+  phase: () => ContentionPhase): Promise<ContentionFailure | null> {
+  let failure: ContentionFailure | null=null;
+  try {await operation();} catch(error) {failure={phase:phase(),error,cleanupFailed:false};}
+  try {await close();} catch(error) {
+    failure=failure ? {...failure,cleanupFailed:true} : {phase:'cleanup',error,cleanupFailed:true};
+  }
+  return failure;
+}
+export function assertContentionBackendIdentity(session: Readonly<Record<string,unknown>>, live: Readonly<Record<string,unknown>>): void {
+  if (live.pid !== session.pid || live.backend_start !== session.backend_start) throw new Error('CP23 backend identity changed.');
+}
+
 export type ContentionMessage = Readonly<{ version: typeof CONTENTION_VERSION; nonce: string; contextNonce: string;
   gitSha: string; profileDigest: string; pid: number; backendPid: number; backendStart: string;
   database: string; branch: string; currentUser: 'league_one_runtime'; sessionUser: 'league_one_runtime';

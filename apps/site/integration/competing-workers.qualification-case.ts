@@ -15,11 +15,11 @@ import { createProjectionStore } from '../lib/projection-store';
 import { createIndependentDatabase, createPinnedIntegrationDatabase, integrationEnvironment, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { spawnIntegrationWorker, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 import { assertCompetingWorkersSupportSources, qualificationBinding, COMPETING_WORKERS_TESTS, type QualificationBinding } from './qualification-profile';
-import { CONTENTION_VERSION, STALE_PROBES, assertContentionReader, assertFairness, assertSameBackend, contentionControl, contentionEnvironment,
-  contentionFixture, parseContentionMessage, type ContentionConfig, type ContentionMessage, type Control, type FairnessObservation } from './competing-workers-protocol';
+import { CONTENTION_VERSION, STALE_PROBES, assertContentionReader, assertFairness, assertSameBackend, awaitContentionAcquisitionWindow, contentionControl, contentionEnvironment,
+  contentionFixture, parseContentionDiagnostic, parseContentionMessage, type ContentionConfig, type ContentionDiagnostic, type ContentionMessage, type Control, type FairnessObservation } from './competing-workers-protocol';
 
 type Worker = { child: ChildProcess; config: ContentionConfig; messages: ContentionMessage[]; ready?: ContentionMessage;
-  sequence: number; step: number; isClosed: boolean; exitCode: number | null; error?: Error; closed: Promise<void> };
+  sequence: number; step: number; isClosed: boolean; exitCode: number | null; protocolFailed: boolean; error?: Error; diagnostic?: ContentionDiagnostic; closed: Promise<void> };
 type Fixture = ReturnType<typeof contentionFixture> & { requestId: string; target?: PublicDataRefreshConfiguration };
 const siteRoot = fileURLToPath(new URL('..',import.meta.url));
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -73,19 +73,30 @@ describe.sequential('fenced DATA ownership and bounded fairness under competing 
   async function launch(fixtures: readonly Fixture[], requestId: string|null = null, action: ContentionConfig['action']='normal', faultFixture: string|null=null) {
     if (!binding) throw new Error('CP23 context missing.');
     await assertCompetingWorkersSupportSources(siteRoot);
-    const env=integrationEnvironment();
+    const env=integrationEnvironment(),launchedCaseIndex=caseIndex;
     const config: ContentionConfig={ nonce:randomUUID(),contextNonce:binding.context.nonce,gitSha:binding.context.gitSha,profileDigest:binding.context.profileDigest,
       expectedDatabase:env.expectedDatabase,expectedBranch:env.expectedBranchId,fixtures:fixtures.map(f=>f.id),requestId,action,faultFixture };
     const child=spawnIntegrationWorker(process.execPath,['--conditions=react-server','--import=tsx',fileURLToPath(new URL('./competing-workers-worker.ts',import.meta.url))],
       {cwd:siteRoot,env:contentionEnvironment(process.env,env.runtimeDatabaseUrl,config),stdio:['ignore','ignore','ignore','ipc']});
-    const worker={child,config,messages:[],sequence:0,step:0,isClosed:false,exitCode:null} as unknown as Worker;
-    worker.closed=new Promise(resolve=>child.once('close',code=>{worker.isClosed=true;worker.exitCode=code;resolve();}));
+    const worker={child,config,messages:[],sequence:0,step:0,isClosed:false,exitCode:null,protocolFailed:false} as unknown as Worker;
+    worker.closed=new Promise(resolve=>child.once('close',code=>{
+      worker.isClosed=true;worker.exitCode=code;
+      events.push({type:'parent-observed-process-close',caseIndex:launchedCaseIndex,nonce:config.nonce,pid:child.pid,at:new Date().toISOString(),exitCode:code,
+        startupEvidenceReceived:worker.messages.some(value=>value.type==='ready'),diagnosticReceived:!!worker.diagnostic,
+        cause:'not-established-by-parent-exit-observation'});resolve();
+    }));
     child.on('error',()=>{worker.error=new Error('CP23 child launch failed.');});
-    child.on('message',value=>{try { const parsed=parseContentionMessage(value,config,child.pid!);
+    child.on('message',value=>{try {
+      if(worker.diagnostic)throw new Error('CP23 evidence arrived after fatal closure.');
+      if(value&&typeof value==='object'&&'type' in value&&value.type==='fatal') {
+        worker.diagnostic=parseContentionDiagnostic(value,config,child.pid!,worker.diagnostic);
+        worker.error=new Error('CP23 worker reported a fatal lifecycle failure.');return;
+      }
+      const parsed=parseContentionMessage(value,config,child.pid!);
       if (!worker.messages.length && parsed.type!=='ready') throw new Error('CP23 missing startup proof.');
       if (worker.messages.length) assertSameBackend(worker.messages[0],parsed);
       if(worker.messages.length>=4_000)throw new Error('CP23 bounded event inventory exhausted.');worker.messages.push(parsed);
-    } catch {worker.error=new Error('CP23 process evidence rejected.');} });
+    } catch {worker.protocolFailed=true;worker.error=new Error('CP23 process evidence rejected.');} });
     active.add(worker);allWorkers.push(worker);
     worker.ready=await message(worker,'ready',15_000);
     return worker;
@@ -177,6 +188,35 @@ describe.sequential('fenced DATA ownership and bounded fairness under competing 
     expect(await query('SELECT last_served_at FROM public_data_refresh_targets WHERE id=ANY($1::uuid[])',[output.map(f=>f.target!.id)])).toEqual(output.map(()=>({last_served_at:null})));
     return output;
   }
+  async function awaitAcquisitionWindow(milliseconds:number) {
+    let first=true,lastObserved:DatabaseRow|undefined;
+    await awaitContentionAcquisitionWindow(async()=>{
+      // Read the same incoming minute and durable gates used by the ordinary
+      // runner. This wait neither claims a job nor changes any stored clock.
+      const scheduledFor=new Date(Math.floor(Date.now()/60_000)*60_000).toISOString();
+      const rows=await query(`SELECT job.state,job.scheduled_for::text,job.lease_until::text,job.completed_at::text,
+        clock.observed_at::text,latest.admitted_at::text AS latest_admitted_at,$2::text AS incoming_scheduled_for,
+        CASE job.state WHEN 'pending' THEN $2::timestamptz>=job.scheduled_for
+          WHEN 'failed' THEN $2::timestamptz>=job.scheduled_for
+          WHEN 'running' THEN $2::timestamptz>=job.scheduled_for AND job.lease_until<clock.observed_at
+          WHEN 'completed' THEN $2::timestamptz>job.scheduled_for AND job.completed_at+interval '60 seconds'<=clock.observed_at
+          ELSE false END AS job_eligible,
+        latest.admitted_at IS NULL OR latest.admitted_at+interval '60 seconds'<=clock.observed_at AS admission_eligible
+        FROM projection_jobs job CROSS JOIN (SELECT clock_timestamp() AS observed_at) clock
+        CROSS JOIN (SELECT max(admitted_at) AS admitted_at FROM public_data_dispatches) latest
+        WHERE job.job_key=$1`,[PUBLIC_INTAKE_JOB,scheduledFor]);
+      expect(rows).toHaveLength(1);const observed=rows[0];
+      expect(['pending','failed','running','completed']).toContain(observed.state);
+      for(const field of ['scheduled_for','observed_at','incoming_scheduled_for'])expect(Number.isFinite(Date.parse(String(observed[field])))).toBe(true);
+      if(observed.state==='running')expect(Number.isFinite(Date.parse(String(observed.lease_until)))).toBe(true);
+      if(observed.state==='completed')expect(Number.isFinite(Date.parse(String(observed.completed_at)))).toBe(true);
+      expect(typeof observed.job_eligible).toBe('boolean');expect(typeof observed.admission_eligible).toBe('boolean');
+      if(first){events.push({type:'pre-failure-eligibility-start',caseIndex,observed});first=false;}
+      lastObserved=observed;
+      return {job_eligible:observed.job_eligible as boolean,admission_eligible:observed.admission_eligible as boolean};
+    },milliseconds);
+    events.push({type:'pre-failure-eligibility-ready',caseIndex,observed:lastObserved});
+  }
   async function releaseAdmission(winner:Worker,contender?:Worker) {
     const admitted=await message(winner,'admitted');await message(winner,'barrier',10_000,'admitted');
     if(contender) {
@@ -261,7 +301,7 @@ describe.sequential('fenced DATA ownership and bounded fairness under competing 
         planned:{admissions:12,gets:21,minimumOrdinaryClaims:15},observed,durableDispatches:durable,targets:targets.map(f=>({fixtureId:f.id,requestId:f.requestId,configuration:f.target})),
         getAccounting:'Maximum observed requests per worker step; an incomplete step is a lower bound, never a zero-request assertion.',
         incompleteSteps:allWorkers.flatMap(w=>[...new Set(w.messages.filter(m=>m.type==='attempt').map(m=>m.step))].filter(step=>!w.messages.some(m=>m.type==='result'&&m.step===step)).map(step=>({nonce:w.config.nonce,step}))),
-        workers:allWorkers.map(w=>({config:w.config,pid:w.child.pid,exitCode:w.exitCode,isClosed:w.isClosed,protocolFailed:!!w.error,messages:w.messages}))},null,2)+'\n';
+        workers:allWorkers.map(w=>({config:w.config,pid:w.child.pid,exitCode:w.exitCode,isClosed:w.isClosed,protocolFailed:w.protocolFailed,diagnostic:w.diagnostic??null,messages:w.messages}))},null,2)+'\n';
         if(Buffer.byteLength(serialized,'utf8')>8*1024*1024)throw new Error('CP23 evidence artifact budget exceeded.');
         if(binding)await writeFile(join(binding.directory,'competing-workers-evidence.json'),serialized,{encoding:'utf8',flag:'wx',mode:0o600});
       }
@@ -314,16 +354,29 @@ describe.sequential('fenced DATA ownership and bounded fairness under competing 
     }finally{try{if(transaction){await cleanupWorkers();await blocker.database.query('ROLLBACK');}}finally{await blocker.close();}}
   }),240_000);
   it('isolates a pre-admission selection failure while another target acquires and accepts official data',()=>guarded(3,async()=>{
-    const [failed,healthy]=await refreshFixtures(2);const workers=[await launch([failed,healthy],null,'selection-failure',failed.id),await launch([failed,healthy],null,'selection-failure',failed.id)];await overlap(workers);
-    await control(workers[0],'step');expect(await message(workers[0],'result')).toMatchObject({status:'unavailable',requests:0});
-    const deadline=Date.now()+140_000;let success:ContentionMessage|undefined;
+    const [failed,healthy]=await refreshFixtures(2);await awaitAcquisitionWindow(75_000);
+    const workers=[await launch([failed,healthy],null,'selection-failure',failed.id),await launch([failed,healthy])];await overlap(workers);
+    await control(workers[0],'step');const initialFailure=await message(workers[0],'result');
+    expect(initialFailure).toMatchObject({status:'unavailable',requestId:failed.requestId,requests:0});
+    const failureRows=()=>query(`SELECT failure.*,failure.next_eligible_at::text AS retry_at,
+      cycle.intake_id AS request_id,cycle.configuration_revision AS cycle_configuration_revision
+      FROM public_data_refresh_selection_failures failure JOIN public_data_refresh_cycles cycle
+        ON cycle.target_id=failure.target_id AND cycle.cycle=failure.cycle WHERE failure.target_id=$1`,[failed.target!.id]);
+    const firstFailures=await failureRows();expect(firstFailures).toHaveLength(1);
+    expect(firstFailures[0]).toMatchObject({worker_id:initialFailure.workerId,generation:initialFailure.generation,target_id:failed.target!.id,request_id:failed.requestId,reason:'selection-failed'});
+    expect(Number(firstFailures[0].configuration_revision)).toBe(failed.target!.expectedRevision);
+    const retryAt=String(firstFailures[0].retry_at);expect(Number.isFinite(Date.parse(retryAt))).toBe(true);
+    cases[3].evidence.push({type:'single-pre-admission-failure',result:initialFailure,failures:firstFailures});
+    const deadline=Math.min(Date.now()+140_000,Date.parse(retryAt));let success:ContentionMessage|undefined;
     while(!success&&Date.now()<deadline){const results=await round(workers);success=results.find(result=>result.status==='progress');
       expect(results.every(result=>['busy','backoff','unavailable','progress'].includes(result.status!))).toBe(true);if(!success)await delay(500);}
     expect(success).toMatchObject({status:'progress',resource:'core',requestId:healthy.requestId,requests:2});
-    const failures=await query('SELECT * FROM public_data_refresh_selection_failures WHERE target_id=$1',[failed.target!.id]);expect(failures).toHaveLength(1);
+    const failures=await failureRows();expect(failures).toEqual(firstFailures);
     expect(await dispatches(failed.requestId)).toEqual([]);expect(await receiptRows(failed.requestId)).toEqual([]);
     expect((await query('SELECT last_served_at,selection_failure_count FROM public_data_refresh_targets WHERE id=$1',[failed.target!.id]))[0]).toEqual({last_served_at:null,selection_failure_count:1});
-    expect(await dispatches(healthy.requestId)).toHaveLength(1);await readback(healthy);cases[3].evidence.push({type:'pre-admission-failure-isolated',failures,failedRequest:failed.requestId,healthyRequest:healthy.requestId});for(const worker of workers)await close(worker);
+    expect(await dispatches(healthy.requestId)).toHaveLength(1);
+    expect(await query('SELECT admitted_at<$2::timestamptz AS before_original_retry FROM public_data_dispatches WHERE intake_id=$1',[healthy.requestId,retryAt])).toEqual([{before_original_retry:true}]);
+    await readback(healthy);cases[3].evidence.push({type:'pre-admission-failure-isolated',failures,failedRequest:failed.requestId,healthyRequest:healthy.requestId,healthyAdmittedBeforeOriginalRetry:true});for(const worker of workers)await close(worker);
   }),210_000);
   it('bounds per-target accepted progress across repeated competing-worker rounds with a failing target',()=>guarded(4,async()=>{
     const fixtures=await refreshFixtures(3),[failed,a,b]=fixtures;const observations:FairnessObservation[]=[];

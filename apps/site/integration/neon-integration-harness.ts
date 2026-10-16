@@ -708,6 +708,20 @@ export async function createPinnedIntegrationDatabase(
   const connectionString = role === 'owner' ? env.ownerDatabaseUrl : role === 'runtime' ? env.runtimeDatabaseUrl
     : requiredEnvironment(role === 'account' ? 'ACCOUNT_FRESH_INSTALL_DATABASE_URL' : 'AUTH_RESET_INTEGRATION_DATABASE_URL');
   if (role === 'account' || role === 'auth') await assertSafeIntegrationDatabase(env);
+  return pinIntegrationSession(connectionString);
+}
+
+/** Explicit-URL counterpart for an already-guarded, stripped worker environment.
+ * Retains one checked-out session until close; never reads inherited PG defaults.
+ * The caller still verifies the actual restricted LOGIN and isolated target. */
+export async function createIndependentPinnedDatabase(databaseUrl: string): Promise<IndependentDatabase> {
+  if (typeof databaseUrl !== 'string' || !databaseUrl.trim()) throw new Error('A pinned worker requires an explicit database URL.');
+  const identity = parseDatabaseUrl(databaseUrl, 'Pinned worker URL');
+  if (!identity.user || !identity.database) throw new Error('A pinned worker requires an explicit database and LOGIN.');
+  return pinIntegrationSession(databaseUrl);
+}
+
+async function pinIntegrationSession(connectionString: string): Promise<IndependentDatabase> {
   const pool = new Pool({ connectionString, max: 1 });
   const client = await pool.connect().catch(async (error: unknown) => {
     await pool.end();
