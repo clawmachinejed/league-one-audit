@@ -14,7 +14,7 @@ import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLE
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
   qualificationBinding, qualificationCleanup, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
-  validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
+  validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact, assertBatchCalibrationCaseOrder,
   LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
   JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
   OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN, GUARDS_PROFILE, GUARDS_FULL_NAMES, GUARDS_PATTERN,
@@ -4129,16 +4129,48 @@ it('CP26 calibration selects only its three closed cases and one protected manua
   for (const extra of ['--retry=1', '--repeat=2', '--testNamePattern=one', BATCH_CALIBRATION_MODULE])
     expect(() => parseQualificationArguments(['--profile=' + BATCH_CALIBRATION_PROFILE, extra])).toThrow();
 });
-it('CP26 calibration rejects missing reordered overlapping repeated skipped and errored cases', async () => {
+it('CP26 calibration rejects missing reordered repeated skipped and errored cases', async () => {
   const { binding, evidence } = await batchCalibrationReportFixture();
   for (const mutate of [
     (row: QualificationReport) => { row.modules[0].cases.pop(); },
     (row: QualificationReport) => { row.modules[0].cases.reverse(); },
-    (row: QualificationReport) => { row.modules[0].cases[1].diagnostic!.startTime = row.modules[0].cases[0].diagnostic!.startTime; },
+    (row: QualificationReport) => { row.modules[0].cases[1].diagnostic!.startTime = row.modules[0].cases[0].diagnostic!.startTime - 1; },
     (row: QualificationReport) => { row.modules[0].cases[0].diagnostic!.retryCount = 1; },
     (row: QualificationReport) => { row.modules[0].cases[0].state = 'skipped'; },
     (row: QualificationReport) => { row.hooks.pop(); },
   ]) { const changed = structuredClone(evidence); mutate(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+});
+it('CP26 calibration keeps Vitest wall starts separate from fractional monotonic durations', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  // Exact diagnostics from failed hosted run 38971925652; its original status remains failed.
+  const observed = [[1792187437246, 354.35534199999984], [1792187437600, 2095.4420159999995],
+    [1792187439696, 954.8459750000002]];
+  for (const [index, [startTime, duration]] of observed.entries()) {
+    Object.assign(evidence.modules[0].cases[index].diagnostic!, { startTime, duration });
+  }
+  const [first, second] = evidence.modules[0].cases.map(row => row.diagnostic!);
+  expect(second.startTime).toBeLessThan(first.startTime + first.duration);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  // Equal millisecond wall starts do not establish overlap; the companion's precise spans decide it.
+  second.startTime = first.startTime;
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  second.startTime = first.startTime - 1;
+  expect(() => validateQualificationReport(binding.context, evidence)).toThrow('chronological source order');
+});
+it('CP26 calibration requires exact companion monotonic nonoverlap without relaxing any case limit', () => {
+  const cases = BATCH_CASE_NAMES.map((name, index) => ({ name, limitMs: BATCH_CASE_LIMITS[index], state: 'passed' as const,
+    span: { startedAt: '2026-10-16T00:00:00.000Z', endedAt: '2026-10-16T00:00:00.001Z',
+      monotonicStartMs: 100 + index, monotonicEndMs: 101 + index } }));
+  expect(() => assertBatchCalibrationCaseOrder(cases)).not.toThrow();
+  for (const index of [1, 2]) {
+    const overlapping = structuredClone(cases);
+    overlapping[index].span.monotonicStartMs -= 0.000_001;
+    expect(() => assertBatchCalibrationCaseOrder(overlapping)).toThrow('must not overlap');
+  }
+  const missing = structuredClone(cases) as import('./batch-calibration-evidence').BatchCalibrationEvidence['cases'];
+  missing[1].span = null;
+  expect(() => assertBatchCalibrationCaseOrder(missing)).toThrow();
+  expect(BATCH_CASE_LIMITS).toEqual([60_000, 90_000, 60_000]);
 });
 it('CP26 calibration requires a complete companion after ordinary report and cleanup evidence', async () => {
   const { binding, evidence } = await batchCalibrationReportFixture();

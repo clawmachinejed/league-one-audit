@@ -1199,7 +1199,10 @@ export function validateQualificationReport(context: QualificationContext, repor
       for (const hook of report.hooks) assert.equal(hook.starts, 1);
       for (let index = 1; index < entry.cases.length; index++) {
         const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
-        assert(previous && current && current.startTime >= previous.startTime + previous.duration);
+        // Vitest 4 records startTime with Date.now(), but duration with performance.now().
+        // Their sum is not a wall-clock finish; actual case spans prove nonoverlap below.
+        assert(previous && current && current.startTime >= previous.startTime,
+          'CP26 calibration cases must execute in chronological source order.');
       }
     }
     if (context.profile === RUNNER_CYCLES_PROFILE) {
@@ -1603,6 +1606,14 @@ export function validateQualificationReport(context: QualificationContext, repor
     for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Core compatibility hooks must execute exactly once.');
   }
 }
+/** Compare the already validated case spans from the same parent process, without rounding. */
+export function assertBatchCalibrationCaseOrder(cases: import('./batch-calibration-evidence').BatchCalibrationEvidence['cases']): void {
+  for (let index = 1; index < cases.length; index++) {
+    const previous = cases[index - 1].span, current = cases[index].span;
+    assert(previous && current && current.monotonicStartMs >= previous.monotonicEndMs,
+      'CP26 calibration case spans must not overlap on their shared monotonic clock.');
+  }
+}
 /** Only after independently verified child-tree closure; a late timeout marker always wins. */
 export async function validateQualificationArtifacts(binding: QualificationBinding): Promise<{ profile: QualificationProfile; collected: number; executed: number; passed: number; skipped: number; filtered: number; reportDigest: string; companionDigest?: string }> {
   try { await lstat(join(binding.directory, QUALIFICATION_FILES.failure)); throw new Error('Sticky qualification failure.'); }
@@ -1618,7 +1629,9 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
   if (binding.context.profile === BATCH_CALIBRATION_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'batch-calibration-evidence.json');
     const companion = await import('./batch-calibration-evidence');
-    companion.assertCompleteBatchCalibrationEvidence(JSON.parse(rawEvidence), binding);
+    const evidence = JSON.parse(rawEvidence) as import('./batch-calibration-evidence').BatchCalibrationEvidence;
+    companion.assertCompleteBatchCalibrationEvidence(evidence, binding);
+    assertBatchCalibrationCaseOrder(evidence.cases);
     companionDigest = qualificationSourceDigest(rawEvidence);
   }
   if (binding.context.profile === RUNNER_CYCLES_PROFILE) {
