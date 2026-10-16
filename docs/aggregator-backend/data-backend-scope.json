@@ -1990,6 +1990,70 @@
       "proof": "Four exact ordered cases and one balanced hook pair; 4 collected/selected/executed/passed required in a later separately authorized hosted attempt. Local closed-profile/protocol/evidence/source diagnostics and independent final review are required; authored tests do not establish SQL qualification. Planned 14 admissions, 18 synthetic GETs and 18 acquired claims retain every extra/busy attempt. Original 20-second fences, 25-second leases, 60-second admission, 30/40/50-minute limits, 0.25 CU, source/identity/TLS/sentinel/role/denylist/cleanup guards and no automatic retry remain. No paid SQL run, credentials, provisioning, migration application, retained installation, DATA activation, merge or production release. CP25 registry-oracle repair: independently reproduced ordinary registry three-second signal misclassification; require actual-facade network-free regression and adverse SQL envelope/counter tests, complete source verification and exact-source review. Preserve failed run38939114958/closeout11357b28befa73fdb5112aec03f969d10e294579d707894feb686c35afa92acb; no partial qualification. New source remains unqualified pending separately approved4/4 hosted evidence and cleanup. No paid execution, credentials, provisioning, migration, merge or release authorized.",
       "reviewer": "Independent nonauthor GPT-6 Astra ultra /root/scope_review confirmed these exact files and purposes before authoring; coordinating root accepted the four-case denominator and 27m30 allocation. Final nonauthor source review remains separate. CP25 registry-oracle repair: independent nonauthor GPT-6 Astra ultra /root/scope_review confirmed exact existing11file purposes and two unchanged support-owner pins before authoring; final actual-diff review remains separate.",
       "reviewReference": "DATA-CP25-2026-10-16-RUNNER-SCOPE; docs/aggregator-backend/data-backend-cp25-plan.md; DATA-CP25-2026-10-16-REGISTRY-ORACLE-REPAIR"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-manifest.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-manifest.test.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-evidence.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-evidence.test.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-model.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-model.test.ts",
+      "resource": "CP26 frozen 2026 fleet freshness, acquisition capacity, request budgets, backlog and failure measurement",
+      "purpose": "Add pure offline workload/event/sample manifest validation, per-pair evidence arithmetic or source-grounded capacity model and adversarial tests within the existing qualification owner. No runtime, SQL, acquisition, executable profile, workflow, deadline, admission, permission or production change.",
+      "proof": "Independent source scope review DATA-CP26-2026-10-16-MEASUREMENT-SCOPE; targeted offline regressions and actual-diff review required. Generated arithmetic/manifests are not actual PostgreSQL, elapsed operating or cleanup evidence; CP26 remains unqualified.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-fixtures.ts",
+      "resource": "CP26 source-grounded synthetic 2026 native fixture/event bindings",
+      "purpose": "Build offline native workload/event payloads, exact hashes and reader/history expectations through existing pure normalizer/projector owners. Preserve actual source provenance and any2025 witness year separately. No network, database, runtime invocation, profile, harness, migration or production change.",
+      "proof": "Independent exact scope confirmation DATA-CP26-2026-10-16-MEASUREMENT-SCOPE. Require actual-source normalization/projector regressions, exact event denominators and independent diff review; unsupported source/reader bindings remain readiness gaps. Offline fixtures never establish actual SQL or elapsed qualification.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
+    },
+    {
+      "path": "apps/site/integration/freshness-capacity-fixtures.test.ts",
+      "resource": "CP26 source-grounded synthetic 2026 native fixture/event bindings",
+      "purpose": "Build offline native workload/event payloads, exact hashes and reader/history expectations through existing pure normalizer/projector owners. Preserve actual source provenance and any2025 witness year separately. No network, database, runtime invocation, profile, harness, migration or production change.",
+      "proof": "Independent exact scope confirmation DATA-CP26-2026-10-16-MEASUREMENT-SCOPE. Require actual-source normalization/projector regressions, exact event denominators and independent diff review; unsupported source/reader bindings remain readiness gaps. Offline fixtures never establish actual SQL or elapsed qualification.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/contract_audit in CP26 task 01a1462d-1a25-7d02-bd12-81f41fa59c64",
+      "reviewReference": "DATA-CP26-2026-10-16-MEASUREMENT-SCOPE"
     }
   ],
   "governanceChanges": [
