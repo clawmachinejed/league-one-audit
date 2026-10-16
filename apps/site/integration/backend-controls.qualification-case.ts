@@ -291,7 +291,7 @@ describe.sequential('controlled DATA submission configuration pause and stored s
     expect(unavailable).toMatchObject({status:'unavailable',request:{terminal:true,failure_count:0,revision:0}});expect(unavailable).not.toHaveProperty('reason','submission-capacity');
     expect(progressRead).toMatchObject({status:'pending',request:{revision:2,failure_count:1,terminal:false,external_manager_id:native}});
     expect(refresh).toMatchObject({status:'available',target:{configurationRevision:revision,paused:true},cycle:{requestId:cycleRequest,configurationRevision:2}});
-    if(progressRead.status==='missing')throw new Error('Missing actual retry status.');expect(new Date(String(progressRead.request.next_attempt_at)).toISOString()).toBe(recordedRetryAt);
+    if(progressRead.status==='missing')throw new Error('Missing actual retry status.');expect((progressRead.request.next_attempt_at instanceof Date?progressRead.request.next_attempt_at:new Date(String(progressRead.request.next_attempt_at))).toISOString()).toBe(recordedRetryAt);
     expect(await invariant()).toEqual(before);expect(measuredGets+prerequisiteGets).toBe(gets);expect(forbiddenGets).toBe(forbiddenBefore);
     event('status',{identityRequestId:identityId,requestId:cycleRequest,capacityRequestId:capacityId,unavailableHeadroomFixtureId:headroomId,unavailableSourceCredit:0,beforeDigest:qualificationDigest(before),readerDigest:qualificationDigest({missing,pending,available,capacity,unavailable,progressRead,refresh}),failureCount:1});
   }),90_000);
@@ -305,7 +305,7 @@ describe.sequential('controlled DATA submission configuration pause and stored s
     for(const role of ['league_one_runtime','league_one_auth','league_one_account']){const [privileges]=await query(`SELECT rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolinherit,rolbypassrls,
       EXISTS(SELECT 1 FROM pg_auth_members WHERE member=pg_roles.oid) AS memberships FROM pg_roles WHERE rolname=$1`,[role]);expect(privileges).toEqual({rolsuper:false,rolcreatedb:false,rolcreaterole:false,rolreplication:false,rolinherit:false,rolbypassrls:false,memberships:false});}
     const before=await invariant();
-    for(const sql of ["SELECT public.submit_public_data_intake('{}'::jsonb,true)","SELECT public.configure_public_data_refresh('{}'::jsonb)",'SELECT * FROM public_data_intakes','SET ROLE league_one_runtime','CREATE TABLE public.cp24_forbidden(id integer)'])await expect(auth.database.query(sql)).rejects.toMatchObject({code:'42501'});
+    for(const sql of ["SELECT public.submit_public_data_intake('{}'::jsonb,true)","SELECT public.configure_public_data_refresh('{}'::jsonb)",'SELECT * FROM public.public_data_intakes','SET ROLE league_one_runtime','CREATE TABLE public.cp24_forbidden(id integer)'])await expect(auth.database.query(sql)).rejects.toMatchObject({code:'42501'});
     for(const sql of ["UPDATE public_data_intakes SET username='forged' WHERE id=$1",'DELETE FROM public_data_intakes WHERE id=$1'])await expect(query(sql,[capacityId])).rejects.toMatchObject({code:'42501'});
     for(const sql of ['SET ROLE league_one_account','SET ROLE league_one_auth','CREATE TABLE public.cp24_forbidden(id integer)'])await expect(query(sql)).rejects.toMatchObject({code:'42501'});
     await expect(query('SELECT public.assert_public_data_owner($1,$2::jsonb)',[capacityId,'{}'])).rejects.toMatchObject({code:'42501'});

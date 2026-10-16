@@ -51,7 +51,7 @@ export const FRESH_INSTALL_FULL_NAMES = FRESH_INSTALL_TESTS.map(name => FRESH_IN
 export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 export const BACKEND_CONTROLS_PROFILE = 'data-backend-controls-v1';
 export const BACKEND_CONTROLS_MODULE = 'integration/backend-controls.qualification-case.ts';
-export const BACKEND_CONTROLS_SOURCE_DIGEST = '8102743af08b5f7c865340faf132918f55fc55248942c3b6cd0d815023397a1e';
+export const BACKEND_CONTROLS_SOURCE_DIGEST = 'cec47909eb8eff1bff09c2e7d7e9f914e9413502ea68c96174afbfebaa8170a3';
 export const BACKEND_CONTROLS_SUITE = 'controlled DATA submission configuration pause and stored status';
 export const BACKEND_CONTROLS_TESTS = [
   'validates controlled submissions and retains canonical replay and conflict outcomes',

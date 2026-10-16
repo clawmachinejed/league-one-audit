@@ -3717,3 +3717,66 @@ it('binds CP24 evidence and fetch helpers and collected source independently and
     await writeFile(join(directory, path), original);
   }
 });
+
+async function backendControlCaseSource(index: number) {
+  const path = fileURLToPath(new URL('../' + BACKEND_CONTROLS_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8'), tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const cases: ts.CallExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'it'
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === frozenBackendControlCases[index]) cases.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(cases).toHaveLength(1);
+  return { tree, callback: cases[0].arguments[1] };
+}
+
+it('preserves exact milliseconds in the actual CP24 stored-status oracle for Date and ISO-string values', async () => {
+  const { tree, callback } = await backendControlCaseSource(7), assertions: ts.CallExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'toBe' && node.arguments[0]?.getText(tree) === 'recordedRetryAt') assertions.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(callback); expect(assertions).toHaveLength(1);
+  const assertion = assertions[0].getText(tree);
+  for (const milliseconds of ['001', '780', '999']) {
+    const recordedRetryAt = `2026-10-16T13:57:19.${milliseconds}Z`, date = new Date(recordedRetryAt);
+    // The failed fixture's String(Date) round-trip drops nonzero milliseconds.
+    expect(new Date(String(date)).toISOString()).not.toBe(recordedRetryAt);
+    for (const value of [date, recordedRetryAt]) {
+      expect(() => runInNewContext(assertion, { Date, expect, recordedRetryAt,
+        progressRead: { request: { next_attempt_at: value } } })).not.toThrow();
+      for (const offset of [-1, 1]) expect(() => runInNewContext(assertion, { Date, expect,
+        recordedRetryAt: new Date(date.getTime() + offset).toISOString(),
+        progressRead: { request: { next_attempt_at: value } } })).toThrow();
+    }
+  }
+});
+
+it('keeps actual CP24 auth probes schema-qualified and requires the exact permission-denied code', async () => {
+  const { tree, callback } = await backendControlCaseSource(8), loops: ts.ForOfStatement[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isForOfStatement(node)) {
+      const calls: ts.CallExpression[] = [];
+      const findAuthQuery = (child: ts.Node) => {
+        if (ts.isCallExpression(child) && child.expression.getText(tree) === 'auth.database.query') calls.push(child);
+        ts.forEachChild(child, findAuthQuery);
+      };
+      findAuthQuery(node.statement);
+      if (calls.length) { expect(calls).toHaveLength(1); expect(calls[0].arguments[0].getText(tree)).toBe('sql'); loops.push(node); }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(callback); expect(loops).toHaveLength(1);
+  expect(ts.isArrayLiteralExpression(loops[0].expression)).toBe(true);
+  const probes = (loops[0].expression as ts.ArrayLiteralExpression).elements.map(node => {
+    expect(ts.isStringLiteral(node)).toBe(true); return (node as ts.StringLiteral).text;
+  });
+  expect(probes).toEqual([
+    "SELECT public.submit_public_data_intake('{}'::jsonb,true)", "SELECT public.configure_public_data_refresh('{}'::jsonb)",
+    'SELECT * FROM public.public_data_intakes', 'SET ROLE league_one_runtime', 'CREATE TABLE public.cp24_forbidden(id integer)',
+  ]);
+  expect(loops[0].statement.getText(tree).replace(/\s+/gu, '')).toBe(
+    "awaitexpect(auth.database.query(sql)).rejects.toMatchObject({code:'42501'});");
+});
