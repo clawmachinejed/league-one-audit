@@ -15,6 +15,7 @@ import {
   assertSafeIntegrationDatabase,
   cleanIntegrationDatabase,
   createIndependentDatabase,
+  createIndependentPinnedDatabase,
   createReceiptDiagnosticReader,
   ReceiptDiagnosticReadError,
   createPinnedIntegrationDatabase,
@@ -996,4 +997,38 @@ it.each(['fetch', 'body'] as const)('consumes late installed-driver %s rejection
   pending.reject(new Error('fictional late transport failure'));
   expect(await outcome).toBe('failed');
   expect(mocked.pool).not.toHaveBeenCalled();
+});
+
+
+describe('explicit pinned worker session boundaries', () => {
+  it('does not inherit owner environment and retains its session through a negative transaction', async () => {
+    vi.stubEnv('PROJECTION_INTEGRATION_AUTHORIZATION', undefined);
+    vi.stubEnv('PROJECTION_INTEGRATION_OWNER_DATABASE_URL', undefined);
+    const session=await createIndependentPinnedDatabase(runtimeUrl);
+    expect(mocked.pool).toHaveBeenCalledExactlyOnceWith({ connectionString: runtimeUrl, max: 1 });
+    mocked.sessionQuery.mockImplementation(async (statement:string)=>{
+      if(statement==='reject')throw Object.assign(new Error('public intake lease lost'),{code:'P0001'});
+      return {rows:[]};
+    });
+    await expect(session.database.queryAfterLock!('reject',[],{statement:'SELECT 1',parameters:[]})).rejects.toThrow('public intake lease lost');
+    await session.database.query('after rollback');
+    expect(mocked.sessionQuery.mock.calls.map(([sql])=>sql)).toEqual(['BEGIN ISOLATION LEVEL READ COMMITTED','SELECT 1','reject','ROLLBACK','after rollback']);
+    expect(mocked.release).not.toHaveBeenCalled();
+    await session.close();await session.close();
+    expect(mocked.release).toHaveBeenCalledOnce();expect(mocked.end).toHaveBeenCalledOnce();
+    expect(mocked.query).not.toHaveBeenCalled();
+  });
+  it('rejects incomplete URLs before pool construction instead of inheriting PG defaults', async () => {
+    for(const value of [undefined,null,'','  ','not a URL','postgresql://example.test?sslmode=require',
+      'postgresql://example.test/cp23_test?sslmode=require','postgresql://league_one_runtime@example.test?sslmode=require',
+      runtimeUrl.replace('sslmode=require','sslmode=disable')]) {
+      await expect(createIndependentPinnedDatabase(value as string)).rejects.toThrow();
+    }
+    expect(mocked.pool).not.toHaveBeenCalled();
+  });
+  it('closes the explicit pinned pool when initial session acquisition fails', async () => {
+    mocked.connect.mockRejectedValueOnce(new Error('synthetic connection failure'));
+    await expect(createIndependentPinnedDatabase(runtimeUrl)).rejects.toThrow('synthetic connection failure');
+    expect(mocked.end).toHaveBeenCalledOnce();expect(mocked.release).not.toHaveBeenCalled();
+  });
 });
