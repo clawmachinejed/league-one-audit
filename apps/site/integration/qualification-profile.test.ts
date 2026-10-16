@@ -3818,8 +3818,9 @@ async function runnerCyclesFixture(): Promise<{
     const gets = resource ? ['core', 'exact-matchups'].includes(resource) ? 2 : 1 : 0;
     const duration = variant === 2 && resource === 'identity' ? 5 : 1;
     invocations.push({ pid, invocation: invocations.length + 1,
-      selection, variant, startedAt: at(second), invocationStartedAt: at(second), endedAt: at(second + duration), gets, sqlRequests: 1,
-      signalRequests: resource ? 1 : 0, claimBefore: before, claimAfter: claims, facade: 'registry-unavailable',
+      selection, variant, startedAt: at(second), invocationStartedAt: at(second), endedAt: at(second + duration), gets,
+      sqlRequests: selection === 'enabled' ? 2 : 1, signalRequests: selection === 'enabled' ? 2 : 1,
+      registrySqlRequests: 1, registrySignalRequests: 1, claimBefore: before, claimAfter: claims, facade: 'registry-unavailable',
       paths: Array.from({ length: gets }, () => '/v1/league/synthetic'),
       admissions: resource ? [{ resource, requestId: requests[variant - 1], generation: claims,
         admittedAt: at(second), deadlineAt: at(second + 20), outcomeAt: at(second + duration),
@@ -3998,6 +3999,13 @@ it('rejects missing malformed foreign and incomplete CP25 companions and never o
     value => { value.cycles[1].dueAt = new Date(Date.parse(value.cycles[0].nextDueAt) + 1_000).toISOString(); },
     value => { value.cycles.pop(); },
     value => { value.invocations.pop(); }, value => { value.prerequisiteGets = 0; },
+    value => { value.invocations[0].sqlRequests++; },
+    value => { value.invocations[0].signalRequests = 0; },
+    value => { value.invocations[0].registrySqlRequests = 0; },
+    value => { value.invocations[1].registrySignalRequests = 0; },
+    value => { value.invocations[0].registrySqlRequests = 2; value.invocations[0].sqlRequests = 2; },
+    value => { const admitted = value.invocations.find(row => row.admissions.length)!;
+      admitted.signalRequests = admitted.registrySignalRequests; },
     value => { value.cleanupComplete = false; }, value => { value.admissionSpacingVerified = false; },
   ];
   for (const change of changes) {
@@ -4068,6 +4076,7 @@ it('binds every CP25 support source independently without changing historical so
     'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/store.ts',
     'lib/database.ts', 'lib/projection-store.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/projections/adapters/neon/jobs.ts',
+    'lib/league-administration/registry.ts', 'lib/league-administration/neon/enrollment.ts',
   ]);
   await expect(assertRunnerCyclesSupportSources(siteRoot)).resolves.toBeUndefined();
   const directory = await mkdtemp(join(tmpdir(), 'runner-cycles-support-')); directories.push(directory);

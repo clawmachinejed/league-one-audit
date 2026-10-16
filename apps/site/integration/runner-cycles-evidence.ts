@@ -23,7 +23,8 @@ export type RunnerEvent = { at: string; data: Record<string,Scalar|readonly Scal
 export type RunnerCaseEvidence = { name: string; limitMs: number; state: 'unserved'|'running'|'passed'|'failed'; startedAt: string|null; endedAt: string|null; events: RunnerEvent[] };
 export type RunnerAdmission = { resource: string; requestId: string; generation: number; admittedAt: string; deadlineAt: string; outcomeAt: string; outcome: 'checkpoint-committed' };
 export type RunnerInvocation = { pid: number; invocation: number; selection: 'omitted'|'false'|'enabled'; variant: 1|2;
-  startedAt: string; invocationStartedAt:string; endedAt: string; gets: number; sqlRequests: number; signalRequests: number; claimBefore: number; claimAfter: number;
+  startedAt: string; invocationStartedAt:string; endedAt: string; gets: number; sqlRequests: number; signalRequests: number;
+  registrySqlRequests: number; registrySignalRequests: number; claimBefore: number; claimAfter: number;
   facade: 'registry-unavailable'; paths: string[]; admissions: RunnerAdmission[] };
 export type RunnerCycleEvidence = { number: 1|2; requestId: string; configurationRevision: number; historyDigest: string;
   dueAt:string; disposition:'complete'; recordedAt: string; nextDueAt: string; directoryContentId: string; directoryCaptureId: string; directoryCapturedAt: string; exactContentId: string };
@@ -63,7 +64,7 @@ export function assertRunnerCyclesEvidence(value:RunnerCyclesEvidence,binding:Qu
   let priorClaim=value.prerequisiteClaims;
   let priorEnd:string|null=null;
   for(const row of value.invocations) {
-    keys(row,['pid','invocation','selection','variant','startedAt','invocationStartedAt','endedAt','gets','sqlRequests','signalRequests','claimBefore','claimAfter','facade','paths','admissions']);
+    keys(row,['pid','invocation','selection','variant','startedAt','invocationStartedAt','endedAt','gets','sqlRequests','signalRequests','registrySqlRequests','registrySignalRequests','claimBefore','claimAfter','facade','paths','admissions']);
     assert(Number.isInteger(row.pid)&&row.pid>1&&Number.isInteger(row.invocation)&&row.invocation>0);
     assert(['omitted','false','enabled'].includes(row.selection)&&[1,2].includes(row.variant));assert.equal(row.facade,'registry-unavailable');
     timestamp(row.startedAt);timestamp(row.invocationStartedAt);timestamp(row.endedAt);assert(Date.parse(row.endedAt)>=Date.parse(row.startedAt)&&Date.parse(row.endedAt)-Date.parse(row.startedAt)<=30_000);
@@ -74,13 +75,20 @@ export function assertRunnerCyclesEvidence(value:RunnerCyclesEvidence,binding:Qu
     for(const path of row.paths)assert(/^\/v1\/(?:user|league)\/[a-zA-Z0-9_/-]{1,100}$/u.test(path));
     assert(Number.isInteger(row.sqlRequests)&&row.sqlRequests>=1&&row.sqlRequests<=100);
     assert(Number.isInteger(row.signalRequests)&&row.signalRequests>=0&&row.signalRequests<=row.sqlRequests);
-    assert(row.admissions.length<=1);if(row.selection!=='enabled'){assert.equal(row.gets,0);assert.equal(row.claimAfter,row.claimBefore);assert.equal(row.admissions.length,0);assert.equal(row.signalRequests,0);}
+    // The real empty registry issues exactly one independently bounded SELECT.
+    // Keep total transport counts: only this positively identified read may be
+    // present while DATA is disabled, and its signal cannot prove DATA bounds.
+    assert.equal(row.registrySqlRequests,1);assert.equal(row.registrySignalRequests,1);
+    assert(row.registrySqlRequests<=row.sqlRequests&&row.registrySignalRequests<=row.signalRequests);
+    assert(row.signalRequests-row.registrySignalRequests<=row.sqlRequests-row.registrySqlRequests);
+    assert(row.admissions.length<=1);if(row.selection!=='enabled'){assert.equal(row.gets,0);assert.equal(row.claimAfter,row.claimBefore);assert.equal(row.admissions.length,0);
+      assert.equal(row.sqlRequests,row.registrySqlRequests);assert.equal(row.signalRequests,row.registrySignalRequests);}
     for(const admission of row.admissions){keys(admission,['resource','requestId','generation','admittedAt','deadlineAt','outcomeAt','outcome']);
       assert(RUNNER_STAGES.includes(admission.resource as typeof RUNNER_STAGES[number]));assert.match(admission.requestId,uuid);assert.equal(admission.generation,row.claimAfter);
       assert.equal(admission.outcome,'checkpoint-committed');timestamp(admission.admittedAt);timestamp(admission.deadlineAt);timestamp(admission.outcomeAt);
       assert(Date.parse(admission.outcomeAt)>=Date.parse(admission.admittedAt)&&Date.parse(admission.outcomeAt)<=Date.parse(admission.deadlineAt));
       assert.equal(Date.parse(admission.deadlineAt),Date.parse(row.invocationStartedAt)+20_000);
-      assert.equal(row.gets,['core','exact-matchups'].includes(admission.resource)?2:1);assert(row.signalRequests>0);
+      assert.equal(row.gets,['core','exact-matchups'].includes(admission.resource)?2:1);assert(row.signalRequests>row.registrySignalRequests);
     }
   }
   assert(Array.isArray(value.cycles)&&value.cycles.length<=2);

@@ -52,7 +52,7 @@ export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 export const RUNNER_CYCLES_PROFILE = 'data-runner-cycles-v1';
 export const RUNNER_CYCLES_MODULE = 'integration/runner-cycles.qualification-case.ts';
 // CP25 closed source inventory only; hosted execution requires separate authority.
-export const RUNNER_CYCLES_SOURCE_DIGEST = 'd6855d02bcaecb535dbef796d9dd556e02c46ee2160db740abbcfd3d1bbd5d4e';
+export const RUNNER_CYCLES_SOURCE_DIGEST = '07cbe0462988ce9fca97cfd89f34db76e22857422adaa98acc53a203cbd3e896';
 export const RUNNER_CYCLES_SUITE = 'complete opt-in DATA cycles through the production runner';
 export const RUNNER_CYCLES_TESTS = [
   'keeps omitted and explicit false selections free of DATA acquisition and writes',
@@ -63,9 +63,9 @@ export const RUNNER_CYCLES_TESTS = [
 export const RUNNER_CYCLES_FULL_NAMES = RUNNER_CYCLES_TESTS.map(name => RUNNER_CYCLES_SUITE + ' > ' + name);
 export const RUNNER_CYCLES_PATTERN = closedPattern(RUNNER_CYCLES_FULL_NAMES);
 export const RUNNER_CYCLES_SUPPORT_SOURCES = [
-  { path: 'integration/runner-cycles-worker.ts', sourceDigest: 'cfe775c72b04ccabc8ef3ab7e01679f69fdd8f7c9504db57b3c46d040c1b2a1f' },
-  { path: 'integration/runner-cycles-protocol.ts', sourceDigest: 'f744bf319fab078d962607ed11038dec2787e1c8bc509d95918e8a5a84198304' },
-  { path: 'integration/runner-cycles-evidence.ts', sourceDigest: 'cfc5ee85a3b932941c499279b175d1bd3b80ab60448f165ff06d2ec612d2f956' },
+  { path: 'integration/runner-cycles-worker.ts', sourceDigest: '93fa9a18fc945541a5b27f3d830b9d2056d429859297b7983130453e0a4ca06d' },
+  { path: 'integration/runner-cycles-protocol.ts', sourceDigest: 'e77fabcb702b7f861b660c70332b5231eeff68d8bcce076e74cc886cd37681c3' },
+  { path: 'integration/runner-cycles-evidence.ts', sourceDigest: '8b95b2613bf344a9c52d420cd41dd1fe20c1fda3dc3e4d3c81697e9225c6ef2e' },
   { path: 'integration/integration-child-process.ts', sourceDigest: 'c53e2e61042e031df57b0c99ddbc019adbbc29ea78a43ff96ca92b964953ab9a' },
   { path: 'integration/neon-integration-harness.ts', sourceDigest: 'a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783' },
   { path: 'integration/integration-database-ownership.ts', sourceDigest: 'cd7bd531f4dd0a649fb8cf8031ec87c09e1a7f63b1169f752758b6a6b57fbd19' },
@@ -81,6 +81,8 @@ export const RUNNER_CYCLES_SUPPORT_SOURCES = [
   { path: 'lib/projection-store.ts', sourceDigest: 'a921e870093fe021f0fb1a7ad51b785f808616745dfc1473bc26cce40ce1a03e' },
   { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'e071249425a7aa0d0448f962fd059a4e5b2ada2d5d1ae762f30f77a66ee5f456' },
   { path: 'lib/projections/adapters/neon/jobs.ts', sourceDigest: '6636413d4a922b1249041dc81aaad4fff87806da9f484167085c099a2140f839' },
+  { path: 'lib/league-administration/registry.ts', sourceDigest: '551a570a9701122844d58a38d9db54f432d9b09a4db50f38feb9a937dcb2f8f9' },
+  { path: 'lib/league-administration/neon/enrollment.ts', sourceDigest: '4927f30b3737d826972c4db9acd71fd0692beefff13a7c4c8509b1916767c0d3' },
 ] as const;
 export const BACKEND_CONTROLS_PROFILE = 'data-backend-controls-v1';
 export const BACKEND_CONTROLS_MODULE = 'integration/backend-controls.qualification-case.ts';

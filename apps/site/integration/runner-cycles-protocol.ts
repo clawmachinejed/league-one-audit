@@ -5,6 +5,24 @@ import { createBackendControlsDatabaseFetchGuard } from './backend-controls-fetc
 export const RUNNER_CONFIG = 'CP25_WORKER_CONFIG';
 export const RUNNER_VERSION = 'cp25-runner-cycles-v1';
 export const RUNNER_STAGES = ['identity', 'leagues', 'bootstrap', 'exact-matchups', 'core', 'users'] as const;
+/** Exact unscoped readEnrollmentInventory statement, independently reproduced
+ * through the real facade/store/Neon client. Registry reads have their own 3s
+ * abort signal; that signal is not evidence of opt-in DATA work. */
+export const RUNNER_REGISTRY_SQL_DIGEST = '5e84998e81647f3fec082ccebacef64c5664b33cf3bf8c45252599ef88f4455c';
+export type RunnerSqlObservation = Readonly<{ signal: boolean; registry: boolean }>;
+function registryEnvelope(body: BodyInit|null|undefined): boolean {
+  // The installed Neon client supplies a string body. Never consume a Request
+  // stream or parse potentially large DATA payloads to exempt a registry read.
+  if (typeof body !== 'string' || Buffer.byteLength(body,'utf8') > 8_192) return false;
+  try {
+    const value: unknown = JSON.parse(body);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const row = value as Record<string,unknown>;
+    if (Object.keys(row).sort().join('|') !== 'params|query' || typeof row.query !== 'string'
+      || !Array.isArray(row.params) || row.params.length !== 0) return false;
+    return createHash('sha256').update(row.query.replace(/\r\n?/gu,'\n')).digest('hex') === RUNNER_REGISTRY_SQL_DIGEST;
+  } catch { return false; }
+}
 /** Exact protected publication/account inventory reviewed against the57 installed
  * migrations. Canonical identities/settings are legitimate DATA owners. */
 export const RUNNER_PROTECTED_PUBLIC_TABLES = [
@@ -79,11 +97,12 @@ export function parseRunnerCommand(value: unknown, config: RunnerConfig, sequenc
 export type RunnerMessage = { version: typeof RUNNER_VERSION; nonce: string; contextNonce: string; gitSha: string; profileDigest: string;
   pid: number; backendPid: number; backendStart: string; database: string; branch: string; sessionUser: 'league_one_runtime'; currentUser: 'league_one_runtime';
   httpSessionUser: 'league_one_runtime'; httpCurrentUser: 'league_one_runtime'; type: 'ready'|'barrier'|'result'; invocation: number; at: string;
-  gets: number; sqlRequests: number; signalRequests: number; facade: 'not-run'|'registry-unavailable'; paths: string[]; invocationStartedAt: string|null };
+  gets: number; sqlRequests: number; signalRequests: number; registrySqlRequests: number; registrySignalRequests: number;
+  facade: 'not-run'|'registry-unavailable'; paths: string[]; invocationStartedAt: string|null };
 export function parseRunnerMessage(value: unknown, config: RunnerConfig, pid: number): RunnerMessage {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid CP25 evidence.');
   exactKeys(value, ['version','nonce','contextNonce','gitSha','profileDigest','pid','backendPid','backendStart','database','branch','sessionUser','currentUser',
-    'httpSessionUser','httpCurrentUser','type','invocation','at','gets','sqlRequests','signalRequests','facade','paths','invocationStartedAt']);
+    'httpSessionUser','httpCurrentUser','type','invocation','at','gets','sqlRequests','signalRequests','registrySqlRequests','registrySignalRequests','facade','paths','invocationStartedAt']);
   const row = value as RunnerMessage;
   if (row.version !== RUNNER_VERSION || row.nonce !== config.nonce || row.contextNonce !== config.contextNonce || row.gitSha !== config.gitSha
     || row.profileDigest !== config.profileDigest || row.pid !== pid || !Number.isSafeInteger(row.backendPid) || row.backendPid <= 1
@@ -94,6 +113,9 @@ export function parseRunnerMessage(value: unknown, config: RunnerConfig, pid: nu
     || !Number.isInteger(row.gets) || row.gets < 0 || row.gets > 2
     || !Number.isInteger(row.sqlRequests) || row.sqlRequests < 0 || row.sqlRequests > 100
     || !Number.isInteger(row.signalRequests) || row.signalRequests < 0 || row.signalRequests > row.sqlRequests
+    || !Number.isInteger(row.registrySqlRequests) || row.registrySqlRequests < 0 || row.registrySqlRequests > row.sqlRequests
+    || !Number.isInteger(row.registrySignalRequests) || row.registrySignalRequests < 0 || row.registrySignalRequests > row.registrySqlRequests
+    || row.registrySignalRequests > row.signalRequests || row.signalRequests-row.registrySignalRequests > row.sqlRequests-row.registrySqlRequests
     || !Array.isArray(row.paths) || row.paths.length !== row.gets || row.paths.some(path => !/^\/v1\/(?:user|league)\/[a-zA-Z0-9_/-]{1,100}$/u.test(path))
     || row.type === 'ready' && (row.invocation !== 0 || row.gets !== 0 || row.facade !== 'not-run')
     || row.type !== 'ready' && row.invocation < 1 || row.type === 'result' && row.facade !== 'registry-unavailable') throw new Error('Invalid CP25 evidence.');
@@ -129,10 +151,13 @@ export function runnerFixture(fixtureId: string, variant: 1|2, emptyList = false
   return { manager, external, username, league, rosters, matchups, payloads };
 }
 export function runnerFetch(options: { runtimeUrl: string; fixtureId: string; variant: () => 1|2; emptyList?: boolean;
-  originalFetch: typeof fetch; sql: (signal: boolean) => void; source: (path: string, signal: AbortSignal|null|undefined) => Promise<void>|void }): typeof fetch {
+  originalFetch: typeof fetch; sql: (observation: RunnerSqlObservation) => void; source: (path: string, signal: AbortSignal|null|undefined) => Promise<void>|void }): typeof fetch {
   const isDatabase = createBackendControlsDatabaseFetchGuard(options.runtimeUrl);
   return async (input, init) => {
-    if (isDatabase(input,init)) { options.sql(Boolean(init?.signal ?? (input instanceof Request ? input.signal : undefined))); return options.originalFetch(input,init); }
+    if (isDatabase(input,init)) {
+      options.sql({ signal: Boolean(init?.signal ?? (input instanceof Request ? input.signal : undefined)), registry: registryEnvelope(init?.body) });
+      return options.originalFetch(input,init);
+    }
     const request = input instanceof Request ? input : undefined, url = new URL(request ? request.url : String(input));
     const fixture = runnerFixture(options.fixtureId,options.variant(),options.emptyList);
     if (url.origin !== 'https://api.sleeper.app' || url.search || url.hash || !fixture.payloads.has(url.pathname)

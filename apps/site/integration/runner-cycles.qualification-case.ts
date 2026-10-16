@@ -107,13 +107,14 @@ describe.sequential('complete opt-in DATA cycles through the production runner',
       FROM public.public_data_dispatches d JOIN public.public_data_dispatch_outcomes o USING(worker_id,generation)
       WHERE d.generation>$1 AND d.generation<=$2 ORDER BY d.generation`,[claimBefore,claimAfter]);
     const row:RunnerInvocation={pid:worker.child.pid!,invocation:ordinal,selection,variant,startedAt,invocationStartedAt:result.invocationStartedAt!,endedAt:now(),gets:result.gets,sqlRequests:result.sqlRequests,
-      signalRequests:result.signalRequests,claimBefore,claimAfter,facade:result.facade as 'registry-unavailable',paths:result.paths,
+      signalRequests:result.signalRequests,registrySqlRequests:result.registrySqlRequests,registrySignalRequests:result.registrySignalRequests,
+      claimBefore,claimAfter,facade:result.facade as 'registry-unavailable',paths:result.paths,
       admissions:rows.map(item=>({resource:String(item.resource),requestId:String(item.intake_id),generation:Number(item.generation),admittedAt:runnerTimestamp(item.admitted_at),
         deadlineAt:runnerTimestamp(item.deadline_at),outcomeAt:runnerTimestamp(item.recorded_at),outcome:item.outcome as 'checkpoint-committed'}))};
     invocations.push(row);return row;}
   async function stage(resource:typeof RUNNER_STAGES[number],variant:1|2,onBarrier?:(message:RunnerMessage)=>Promise<void>){await eligible();const row=await invoke('enabled',variant,onBarrier);
     expect(row.claimAfter).toBe(row.claimBefore+1);expect(row.admissions).toHaveLength(1);expect(row.admissions[0]).toMatchObject({resource,outcome:'checkpoint-committed'});
-    expect(row.gets).toBe(['core','exact-matchups'].includes(resource)?2:1);expect(row.signalRequests).toBeGreaterThan(0);return row.admissions[0];}
+    expect(row.gets).toBe(['core','exact-matchups'].includes(resource)?2:1);expect(row.signalRequests).toBeGreaterThan(row.registrySignalRequests);return row.admissions[0];}
   async function settled(number:1|2){await eligible();const beforeOutcome=await query('SELECT * FROM public.public_data_refresh_cycle_outcomes WHERE target_id=$1 AND cycle=$2',[targetId,number]);expect(beforeOutcome).toEqual([]);
     const row=await invoke('enabled',number);expect(row.claimAfter).toBe(row.claimBefore+1);expect(row.gets).toBe(0);expect(row.admissions).toEqual([]);
     const read=await refresh();expect(read).toMatchObject({status:'available',cycle:{number,outcome:{disposition:'complete'}},intake:{status:'available',request:{terminal:true}}});
@@ -162,7 +163,9 @@ describe.sequential('complete opt-in DATA cycles through the production runner',
   }finally{if(originalFetch)globalThis.fetch=originalFetch;vi.restoreAllMocks();}},90_000);
 
   it('keeps omitted and explicit false selections free of DATA acquisition and writes',()=>guarded(0,async()=>{const before=await allTables();
-    for(const selection of ['omitted','false'] as const){const result=await invoke(selection);expect(result.gets).toBe(0);expect(result.claimAfter).toBe(result.claimBefore);expect(result.signalRequests).toBe(0);
+    for(const selection of ['omitted','false'] as const){const result=await invoke(selection);expect(result.gets).toBe(0);expect(result.claimAfter).toBe(result.claimBefore);
+      expect(result.registrySqlRequests).toBe(1);expect(result.registrySignalRequests).toBe(1);
+      expect(result.sqlRequests).toBe(result.registrySqlRequests);expect(result.signalRequests).toBe(result.registrySignalRequests);
       const after=await allTables();expect(after).toEqual(before);event({witness:'disabled',selection,pid:result.pid,invocation:result.invocation,beforeDigest:qualificationDigest(before),afterDigest:qualificationDigest(after)});}
   }),60_000);
   it('completes the first cycle across pending pause expiry and an inter-invocation process restart',()=>guarded(1,async()=>{const admitted=await stage('identity',1);firstRequest=admitted.requestId;

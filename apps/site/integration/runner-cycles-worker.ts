@@ -33,7 +33,7 @@ async function main() {
     const [httpIdentity] = await http.query(identity);
     for (const row of [session,httpIdentity]) if (row.current_user !== 'league_one_runtime' || row.session_user !== 'league_one_runtime'
       || row.database !== config.expectedDatabase || row.branch !== config.expectedBranch || row.elevated !== false) throw new Error('CP25 actual restricted LOGIN mismatch.');
-    let invocation = 0, gets = 0, sqlRequests = 0, signalRequests = 0, variant: 1|2 = 1, holdIdentity = false;
+    let invocation = 0, gets = 0, sqlRequests = 0, signalRequests = 0, registrySqlRequests = 0, registrySignalRequests = 0, variant: 1|2 = 1, holdIdentity = false;
     let paths: string[] = [], invocationStartedAt: string|null = null;
     const send = async (type: RunnerMessage['type']) => {
       const [live] = await connection.database.query('SELECT pg_backend_pid() AS pid');
@@ -42,11 +42,12 @@ async function main() {
         profileDigest: config.profileDigest, pid: process.pid, backendPid: Number(session.pid), backendStart: String(session.backend_start),
         database: String(session.database), branch: String(session.branch), sessionUser: 'league_one_runtime', currentUser: 'league_one_runtime',
         httpSessionUser: 'league_one_runtime', httpCurrentUser: 'league_one_runtime', type, invocation, at: new Date().toISOString(), gets,
-        sqlRequests, signalRequests, paths, invocationStartedAt, facade: type === 'result' ? 'registry-unavailable' : 'not-run' };
+        sqlRequests, signalRequests, registrySqlRequests, registrySignalRequests, paths, invocationStartedAt, facade: type === 'result' ? 'registry-unavailable' : 'not-run' };
       await new Promise<void>((resolve,reject) => process.send!(message,error => error ? reject(new Error('CP25 evidence unavailable.')) : resolve()));
     };
     globalThis.fetch = runnerFetch({ runtimeUrl: url, fixtureId: config.fixtureId, variant: () => variant, originalFetch: globalThis.fetch,
-      sql: signal => { sqlRequests++; if (signal) signalRequests++; }, source: async (path,signal) => {
+      sql: ({ signal, registry }) => { sqlRequests++; if (signal) signalRequests++;
+        if (registry) { registrySqlRequests++; if (signal) registrySignalRequests++; } }, source: async (path,signal) => {
         gets++; paths.push(path);
         if (holdIdentity && /^\/v1\/user\/[^/]+$/u.test(path)) { holdIdentity = false; await send('barrier'); if ((await command(signal)).action !== 'release') throw new Error('CP25 barrier release missing.'); }
       } });
@@ -54,7 +55,8 @@ async function main() {
     while (Date.now() < expires) {
       const next = await command(); if (next.action === 'stop') return;
       if (next.action !== 'invoke') throw new Error('CP25 release outside acquisition.');
-      invocation++; gets = 0; sqlRequests = 0; signalRequests = 0; paths = []; variant = next.variant; holdIdentity = next.holdIdentity;
+      invocation++; gets = 0; sqlRequests = 0; signalRequests = 0; registrySqlRequests = 0; registrySignalRequests = 0;
+      paths = []; variant = next.variant; holdIdentity = next.holdIdentity;
       let rejected = false;
       const startedAt = Date.now(); invocationStartedAt = runnerTimestamp(new Date(startedAt));
       try {

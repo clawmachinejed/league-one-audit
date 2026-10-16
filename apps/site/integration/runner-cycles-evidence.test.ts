@@ -42,11 +42,28 @@ it('rejects binding drift unsafe strings malformed timestamps version conflicts 
 it('requires original absolute worker deadlines and keeps actual busy calls in the invocation inventory',async()=>{
   const{binding,evidence}=await fixture();evidence.prerequisiteClaims=2;
   evidence.invocations=[{pid:40,invocation:1,selection:'enabled',variant:1,startedAt:'2026-10-16T12:00:00.770Z',invocationStartedAt:'2026-10-16T12:00:00.780Z',
-    endedAt:'2026-10-16T12:00:00.990Z',gets:0,sqlRequests:2,signalRequests:1,claimBefore:2,claimAfter:2,facade:'registry-unavailable',paths:[],admissions:[]}];
+    endedAt:'2026-10-16T12:00:00.990Z',gets:0,sqlRequests:3,signalRequests:3,registrySqlRequests:1,registrySignalRequests:1,
+    claimBefore:2,claimAfter:2,facade:'registry-unavailable',paths:[],admissions:[]}];
   expect(()=>assertRunnerCyclesEvidence(evidence,binding)).not.toThrow();expect(()=>assertCompleteRunnerCyclesEvidence(evidence,binding)).toThrow();
   const row=evidence.invocations[0];row.gets=1;row.paths=['/v1/user/7001'];row.claimAfter=3;
   row.admissions=[{resource:'identity',requestId:randomUUID(),generation:3,admittedAt:'2026-10-16T12:00:00.800Z',deadlineAt:'2026-10-16T12:00:20.780Z',outcomeAt:'2026-10-16T12:00:00.900Z',outcome:'checkpoint-committed'}];
   expect(()=>assertRunnerCyclesEvidence(evidence,binding)).not.toThrow();
   for(const [key,value] of [['deadlineAt','2026-10-16T12:00:20.781Z'],['admittedAt','2026-10-16T12:00:00.950Z'],['outcomeAt','2026-10-16T12:00:20.781Z']] as const){
     const changed=structuredClone(evidence);changed.invocations[0].admissions[0][key]=value;expect(()=>assertRunnerCyclesEvidence(changed,binding)).toThrow();}
+  const registryOnlySignal=structuredClone(evidence);registryOnlySignal.invocations[0].signalRequests=1;
+  expect(()=>assertRunnerCyclesEvidence(registryOnlySignal,binding)).toThrow();
+});
+it('retains positive registry provenance for omitted and false while rejecting every extra SQL request signal claim or acquisition',async()=>{
+  const{binding,evidence}=await fixture();evidence.prerequisiteClaims=2;
+  evidence.invocations=(['omitted','false'] as const).map((selection,index)=>({pid:40,invocation:index+1,selection,variant:1,
+    startedAt:`2026-10-16T12:00:0${index}.770Z`,invocationStartedAt:`2026-10-16T12:00:0${index}.780Z`,endedAt:`2026-10-16T12:00:0${index}.990Z`,
+    gets:0,sqlRequests:1,signalRequests:1,registrySqlRequests:1,registrySignalRequests:1,claimBefore:2,claimAfter:2,facade:'registry-unavailable',paths:[],admissions:[]}));
+  expect(()=>assertRunnerCyclesEvidence(evidence,binding)).not.toThrow();await writeRunnerCyclesEvidence(binding,evidence);
+  expect(JSON.parse(await readFile(join(binding.directory,RUNNER_CYCLES_EVIDENCE_FILE),'utf8')).invocations).toEqual(evidence.invocations);
+  expect(()=>assertCompleteRunnerCyclesEvidence(evidence,binding)).toThrow();
+  for(const mutation of [
+    {sqlRequests:2},{sqlRequests:2,signalRequests:2},{signalRequests:0},{registrySqlRequests:0},{registrySignalRequests:0},
+    {sqlRequests:2,signalRequests:2,registrySqlRequests:2,registrySignalRequests:2},{claimAfter:3},{gets:1,paths:['/v1/user/7001']},
+  ]){for(const index of [0,1]){const changed=structuredClone(evidence);Object.assign(changed.invocations[index],mutation);
+    expect(()=>assertRunnerCyclesEvidence(changed,binding)).toThrow();}}
 });
