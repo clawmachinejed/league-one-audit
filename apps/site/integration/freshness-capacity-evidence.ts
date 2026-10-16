@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { assertCapacityManifest, CAPACITY_EXTERNAL_GAPS, CAPACITY_LIMITS, capacityDigest, capacityTime,
   type CapacityManifest, type ReaderExpectation } from './freshness-capacity-manifest';
 
@@ -20,11 +21,13 @@ function indexed<T>(rows: readonly T[], key: (row: T) => string, allowed?: reado
     if (allowedIds) assert(allowedIds.has(id), `undeclared evidence: ${id}`); map.set(id, row); }
   return map;
 }
-export type GetAttempt = { id: string; owner: string; path: string; sequence: number; at: number; endedAt: number;
+type Attempt = { id: string; owner: string; sequence: number; at: number; endedAt: number;
   purpose: 'intake' | 'refresh' | 'retry' | 'redirect' | 'independent-measurement' | 'other';
   outcome: 'success' | 'failed' | 'timeout'; responseSha256: string | null };
+export type HttpAttempt = Attempt & ({ method: 'GET'; path: string; report?: never }
+  | { method: 'POST'; path: '/graphql'; report: { family: 'weekly_report'; externalLeagueId: string; nativeWeek: number; bodySha256: string } });
 export type RequestAccounting = { coverageStartedAt: number; coverageEndedAt: number;
-  ownerTotals: { owner: string; attempts: number }[]; attempts: GetAttempt[] };
+  ownerTotals: { owner: string; attempts: number }[]; attempts: HttpAttempt[] };
 export function evaluateRequestEnvelope(owners: readonly string[], ledger: RequestAccounting, start: number, end: number) {
   capacityTime(start); capacityTime(end); assert(end >= start); capacityTime(ledger.coverageStartedAt); capacityTime(ledger.coverageEndedAt);
   const totals = indexed(ledger.ownerTotals, row => row.owner, owners);
@@ -37,7 +40,21 @@ export function evaluateRequestEnvelope(owners: readonly string[], ledger: Reque
     if (rows.some((row, index) => row.sequence !== index + 1)) errors.push(`missing transport sequence: ${owner}`);
   }
   for (const row of attempts.values()) {
-    assert(owners.includes(row.owner), 'unaccounted request owner'); assert(typeof row.path === 'string' && row.path.startsWith('/v1/')); assert(typeof row.id === 'string' && row.id.length > 0);
+    assert(owners.includes(row.owner), 'unaccounted request owner'); assert(typeof row.id === 'string' && row.id.length > 0);
+    assert(row.method === 'GET' || row.method === 'POST', 'explicit GET or POST method required');
+    if (row.method === 'GET') {
+      assert(typeof row.path === 'string' && row.path.startsWith('/v1/'), 'invalid native GET path');
+      assert(!Object.hasOwn(row, 'report'), 'GET cannot carry a report POST binding');
+    } else {
+      assert.equal(row.path, '/graphql', 'invalid weekly report POST path');
+      assert(row.report && row.report.family === 'weekly_report', 'weekly report POST resource binding required');
+      assert.match(row.report.externalLeagueId, /^[1-9][0-9]{0,31}$/u);
+      assert(Number.isInteger(row.report.nativeWeek) && row.report.nativeWeek >= 1 && row.report.nativeWeek <= 18, 'invalid report native period');
+      // Bind the sanitized hash to the maintained anonymous metadata request, without retaining its raw body.
+      const body = JSON.stringify({ operationName: 'metadata', variables: {},
+        query: `query metadata { metadata(type: "league_report", key: "${row.report.externalLeagueId}_${row.report.nativeWeek}") { key type data last_updated created } }` });
+      assert.equal(row.report.bodySha256, createHash('sha256').update(body).digest('hex'), 'weekly report POST body/resource mismatch');
+    }
     capacityTime(row.at); capacityTime(row.endedAt); assert(row.endedAt >= row.at);
     assert(row.at >= ledger.coverageStartedAt && row.endedAt <= ledger.coverageEndedAt);
     assert(['intake', 'refresh', 'retry', 'redirect', 'independent-measurement', 'other'].includes(row.purpose));
@@ -45,8 +62,7 @@ export function evaluateRequestEnvelope(owners: readonly string[], ledger: Reque
     if (row.responseSha256 !== null) assert.match(row.responseSha256, /^[a-f0-9]{64}$/u);
     if (row.outcome === 'success') assert(row.responseSha256, 'successful source response needs a hash');
   }
-  const ordered = [...attempts.values()].sort((a, b) => a.at - b.at);
-  const peak = (span: number) => {
+  const peak = (ordered: readonly HttpAttempt[], span: number) => {
     let left = 0, maximum = 0;
     for (let right = 0; right < ordered.length; right++) {
       // Rolling interval (t-span,t]; attempts exactly one interval apart do not overlap.
@@ -56,10 +72,20 @@ export function evaluateRequestEnvelope(owners: readonly string[], ledger: Reque
     // Include lookback demand at the start even if no new request occurs then.
     return Math.max(maximum, ordered.filter(row => row.at > start - span && row.at <= start).length);
   };
-  const minutePeak = peak(60_000), hourPeak = peak(3_600_000);
+  const demand = (rows: readonly HttpAttempt[]) => {
+    const ordered = [...rows].sort((a, b) => a.at - b.at);
+    return { totalAttempts: rows.length, minutePeak: peak(ordered, 60_000), hourPeak: peak(ordered, 3_600_000) };
+  };
+  const byMethod = { GET: demand(ledger.attempts.filter(row => row.method === 'GET')),
+    POST: demand(ledger.attempts.filter(row => row.method === 'POST')) };
+  const withinLimits = (value: ReturnType<typeof demand>) => errors.length === 0
+    && value.minutePeak <= CAPACITY_LIMITS.minuteGets && value.hourPeak <= CAPACITY_LIMITS.hourGets;
+  const getEnvelope = { policy: 'cp1-get-envelope' as const, ...byMethod.GET, pass: withinLimits(byMethod.GET) };
+  const allHttp = demand(ledger.attempts);
+  const allHttpEnvelope = { policy: 'candidate-all-http-envelope' as const, ...allHttp, pass: withinLimits(allHttp) };
   return { totalAttempts: attempts.size, byPurpose: Object.fromEntries(['intake', 'refresh', 'retry', 'redirect', 'independent-measurement', 'other']
-    .map(purpose => [purpose, ledger.attempts.filter(row => row.purpose === purpose).length])), minutePeak, hourPeak, errors,
-    pass: errors.length === 0 && minutePeak <= CAPACITY_LIMITS.minuteGets && hourPeak <= CAPACITY_LIMITS.hourGets };
+    .map(purpose => [purpose, ledger.attempts.filter(row => row.purpose === purpose).length])), byMethod, getEnvelope, allHttpEnvelope, errors,
+    pass: getEnvelope.pass && allHttpEnvelope.pass };
 }
 export type OriginObservation = { id: string; pairId: string; version: string; payloadSha256: string;
   observedAt: number; attemptId: string; kind: 'successful-provider-observation' };
@@ -104,7 +130,7 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
     assert(pairIds.includes(origin.pairId)); capacityTime(origin.observedAt);
     assert.equal(origin.kind, 'successful-provider-observation', 'cache/read/retry cannot reset source age');
     assert(knownVersions.get(origin.pairId)!.has(`${origin.version}/${origin.payloadSha256}`), 'unbound source version');
-    const attempt = attempts.get(origin.attemptId); assert(attempt && attempt.outcome === 'success', 'origin needs successful GET attempt');
+    const attempt = attempts.get(origin.attemptId); assert(attempt && attempt.method === 'GET' && attempt.outcome === 'success', 'origin needs successful GET attempt');
     assert.equal(origin.observedAt, attempt.endedAt, 'origin clock must be the completed provider observation');
     assert.equal(origin.payloadSha256, attempt.responseSha256, 'origin response hash mismatch');
     const pair = plan.pairs.find(row => row.id === origin.pairId)!;
@@ -234,7 +260,7 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
       assert.equal(row.dependencyRestoredAt - row.startedAt, manifest.lane.durationMs, 'dependency outage must be the frozen thirty minutes');
       assert(row.runnerRestoredAt >= row.startedAt);
       const during = (at: number) => at >= row.startedAt && at < row.dependencyRestoredAt;
-      assert(!evidence.requests.attempts.some(attempt => attempt.outcome === 'success' && during(attempt.endedAt)), 'successful provider GET during declared outage');
+      assert(!evidence.requests.attempts.some(attempt => attempt.outcome === 'success' && during(attempt.endedAt)), 'successful provider HTTP attempt during declared outage');
       const recovered = indexed(row.recovered, item => item.pairId, pairIds);
       const recoveryTimes = pairIds.map(pairId => {
         const read = recovered.get(pairId)?.read; if (!read) return 'infinity' as const;

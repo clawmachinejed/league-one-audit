@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { bindCapacityManifest, createCapacityPlan, type BoundEvent, type CapacitySource, type CapacityLane } from './freshness-capacity-manifest';
 import { evaluateCapacityEvidence, evaluateRequestEnvelope, summarizeCapacity, type CapacityEvidence,
-  type GetAttempt, type OriginObservation, type ResourceRead } from './freshness-capacity-evidence';
+  type HttpAttempt, type OriginObservation, type ResourceRead } from './freshness-capacity-evidence';
 
 const start = 1_000_000_000;
 // Synthetic witnesses test the offline arithmetic only. They are never SQL or elapsed-run evidence.
@@ -28,7 +28,7 @@ function fixture() {
   const anchor = (pairId: string) => { const index = plan.pairs.findIndex(pair => pair.id === pairId);
     return start + (index < 32 ? 0 : 120_000 + index * 2_000 + 2); };
   const end = start + 246_002 + plan.observationHorizonMs;
-  const attempts: GetAttempt[] = [], origins: OriginObservation[] = [];
+  const attempts: HttpAttempt[] = [], origins: OriginObservation[] = [];
   for (const [index, pair] of plan.pairs.entries()) {
     const league = source.leagues.find(row => row.key === pair.leagueKey)!;
     const resource = pair.family === 'rosters' ? 'rosters' : pair.family === 'transactions' ? 'transactions/1' : 'matchups/1';
@@ -36,7 +36,7 @@ function fixture() {
       if (index >= 32 && at < start + 60_010) continue;
       const ordinal = Math.max(0, Math.min(20, Math.floor((at - anchor(pair.id) - 60_000) / 360_000) + 1));
       const native = payload(pair.id, ordinal), id = `get-${attempts.length + 1}`;
-      attempts.push({ id, owner: 'ordinary-runner', sequence: attempts.length + 1, path: `/v1/league/${league.nativeLeagueId}/${resource}`,
+      attempts.push({ id, method: 'GET', owner: 'ordinary-runner', sequence: attempts.length + 1, path: `/v1/league/${league.nativeLeagueId}/${resource}`,
         at, endedAt: at + 1, purpose: 'refresh', outcome: 'success', responseSha256: native.sha256 });
       origins.push({ id: `origin-${id}`, pairId: pair.id, version: native.version, payloadSha256: native.sha256,
         observedAt: at + 1, attemptId: id, kind: 'successful-provider-observation' });
@@ -63,6 +63,13 @@ function fixture() {
 }
 const base = fixture();
 function fresh() { return { manifest: base.manifest, evidence: structuredClone(base.evidence) }; }
+function reportPost(attempt: HttpAttempt): HttpAttempt {
+  const externalLeagueId = '123456789012345678', nativeWeek = 6;
+  const body = JSON.stringify({ operationName: 'metadata', variables: {},
+    query: `query metadata { metadata(type: "league_report", key: "${externalLeagueId}_${nativeWeek}") { key type data last_updated created } }` });
+  return { ...attempt, method: 'POST', path: '/graphql', report: { family: 'weekly_report', externalLeagueId, nativeWeek,
+    bodySha256: createHash('sha256').update(body).digest('hex') } };
+}
 
 describe('CP26 denominator and correctness reconciliation', () => {
   it('passes the bounded synthetic arithmetic without claiming actual CP26 qualification', () => {
@@ -70,7 +77,7 @@ describe('CP26 denominator and correctness reconciliation', () => {
     expect(report.offlineChecksPass).toBe(true); expect(report.pairs).toHaveLength(64);
     expect(report.pairs.every(row => row.sourceAge.scheduled === 121 && row.visibility.scheduled === 20)).toBe(true);
     expect(report.pairs[0].sampleTiming[0]).toMatchObject({ scheduledAt: start + 60_000, startedAt: start + 60_000, endedAt: start + 60_010, dispatchLatenessMs: 0 });
-    expect(report.requestEnvelope.minutePeak).toBeLessThanOrEqual(40);
+    expect(report.requestEnvelope.getEnvelope.minutePeak).toBeLessThanOrEqual(40);
     expect(report.checkpoint26Qualified).toBe(false); expect(report.executionReady).toBe(false);
     expect(report.externalEvidenceRequired.join(' ')).toMatch(/Real elapsed/);
   });
@@ -154,6 +161,10 @@ describe('CP26 denominator and correctness reconciliation', () => {
     expect(report.pairs[0].correctnessPass).toBe(true);
     expect(report.errors).toContain('accepted head regression: league-01/rosters'); expect(report.offlineChecksPass).toBe(false);
   });
+  it('does not allow a successful report POST to reset active resource freshness', () => {
+    const { manifest, evidence } = fresh(); evidence.requests.attempts[0] = reportPost(evidence.requests.attempts[0]);
+    expect(() => evaluateCapacityEvidence(manifest, evidence)).toThrow('origin needs successful GET attempt');
+  });
   it('does not hide import failure behind new-cohort freshness or a shifted acceptance anchor', () => {
     const { manifest, evidence } = fresh(); evidence.intakes[0].coverage = 'incomplete';
     expect(evaluateCapacityEvidence(manifest, evidence).intakes[0].pass).toBe(false);
@@ -167,13 +178,13 @@ describe('CP26 denominator and correctness reconciliation', () => {
   });
 });
 
-describe('nearest-rank and shared rolling GET envelope', () => {
+describe('nearest-rank and method-aware shared rolling HTTP envelopes', () => {
   it('orders explicit infinity and rejects empty/negative/nonfinite data', () => {
     expect(summarizeCapacity([...Array<number>(19).fill(10), 'infinity'])).toMatchObject({ p50Ms: 10, p95Ms: 10, p99Ms: 'infinity' });
     for (const values of [[], [-1], [NaN], [Infinity]]) expect(() => summarizeCapacity(values)).toThrow();
   });
   function ledger(times: number[]) {
-    const attempts: GetAttempt[] = times.map((offset, index) => ({ id: `attempt-${index}`, owner: index % 2 ? 'other-owner' : 'independent-measurement',
+    const attempts: HttpAttempt[] = times.map((offset, index) => ({ id: `attempt-${index}`, method: 'GET', owner: index % 2 ? 'other-owner' : 'independent-measurement',
       sequence: Math.floor(index / 2) + 1, path: '/v1/league/shared/rosters', at: start + offset, endedAt: start + offset,
       purpose: index % 3 === 0 ? 'retry' : index % 3 === 1 ? 'redirect' : 'independent-measurement', outcome: 'failed', responseSha256: null }));
     return { coverageStartedAt: start - 3_600_000, coverageEndedAt: start + 7_200_000,
@@ -182,14 +193,14 @@ describe('nearest-rank and shared rolling GET envelope', () => {
   const owners = ['independent-measurement', 'other-owner'];
   it('counts failures, retries, redirects and independent GETs across owners and exact rolling boundaries', () => {
     const times = [...Array<number>(40).fill(0), 59_999];
-    expect(evaluateRequestEnvelope(owners, ledger(times), start, start + 7_200_000)).toMatchObject({ totalAttempts: 41, minutePeak: 41, pass: false });
+    expect(evaluateRequestEnvelope(owners, ledger(times), start, start + 7_200_000)).toMatchObject({ totalAttempts: 41, getEnvelope: { minutePeak: 41, pass: false }, allHttpEnvelope: { minutePeak: 41, pass: false }, pass: false });
     times[40] = 60_000;
     expect(evaluateRequestEnvelope(owners, ledger(times), start, start + 7_200_000).pass).toBe(true);
   });
   it('rejects hourly overflow even when each minute fits', () => {
     const times = Array.from({ length: 1_801 }, (_, index) => index * 1_999);
     const report = evaluateRequestEnvelope(owners, ledger(times), start, start + 7_200_000);
-    expect(report.minutePeak).toBeLessThanOrEqual(40); expect(report.hourPeak).toBe(1_801); expect(report.pass).toBe(false);
+    expect(report.getEnvelope.minutePeak).toBeLessThanOrEqual(40); expect(report.getEnvelope.hourPeak).toBe(1_801); expect(report.pass).toBe(false);
   });
   it('detects missing attempts/owners/lookback rather than trusting a successful subset', () => {
     const rows = ledger([0, 1, 2]); rows.attempts.splice(0, 1); rows.ownerTotals.pop(); rows.coverageStartedAt = start;
@@ -199,6 +210,53 @@ describe('nearest-rank and shared rolling GET envelope', () => {
   it('counts a shared HTTP attempt once and rejects duplicate IDs', () => {
     const rows = ledger([0]); expect(evaluateRequestEnvelope(owners, rows, start, start + 7_200_000).totalAttempts).toBe(1);
     rows.attempts.push(rows.attempts[0]); expect(() => evaluateRequestEnvelope(owners, rows, start, start + 7_200_000)).toThrow();
+  });
+  it('preserves the CP1 GET result while a mixed GET/POST burst exceeds the candidate all-HTTP limit', () => {
+    const rows = ledger(Array<number>(41).fill(0));
+    rows.attempts = rows.attempts.map((attempt, index) => index < 30 ? attempt : reportPost(attempt));
+    const result = evaluateRequestEnvelope(owners, rows, start, start + 7_200_000);
+    expect(result).toMatchObject({ totalAttempts: 41, byMethod: { GET: { totalAttempts: 30 }, POST: { totalAttempts: 11 } },
+      getEnvelope: { policy: 'cp1-get-envelope', minutePeak: 30, pass: true },
+      allHttpEnvelope: { policy: 'candidate-all-http-envelope', minutePeak: 41, pass: false }, pass: false });
+    expect(Object.values(result.byPurpose).reduce((sum, count) => sum + count, 0)).toBe(41);
+  });
+  it('charges failed POSTs, timeouts and retries in hourly and exact-boundary demand', () => {
+    const rows = ledger(Array.from({ length: 1_801 }, (_, index) => index * 1_999));
+    rows.attempts = rows.attempts.map((attempt, index) => index % 2 ? { ...reportPost(attempt), outcome: 'timeout' } : attempt);
+    const result = evaluateRequestEnvelope(owners, rows, start, start + 7_200_000);
+    expect(result.getEnvelope).toMatchObject({ totalAttempts: 901, pass: true });
+    expect(result.byMethod.POST).toMatchObject({ totalAttempts: 900 });
+    expect(result.allHttpEnvelope).toMatchObject({ hourPeak: 1_801, pass: false });
+    const edge = ledger([...Array<number>(40).fill(0), 60_000]);
+    edge.attempts[40] = reportPost(edge.attempts[40]);
+    expect(evaluateRequestEnvelope(owners, edge, start, start + 7_200_000).allHttpEnvelope).toMatchObject({ minutePeak: 40, pass: true });
+    edge.attempts[40].at--; edge.attempts[40].endedAt--;
+    expect(evaluateRequestEnvelope(owners, edge, start, start + 7_200_000).allHttpEnvelope).toMatchObject({ minutePeak: 41, pass: false });
+  });
+  it.each(['missing-method', 'unknown-method', 'get-report', 'post-get-path', 'post-missing-binding', 'post-wrong-family',
+    'post-wrong-league', 'post-wrong-week', 'post-invalid-week', 'post-wrong-body'] as const)('rejects incomplete method/resource evidence: %s', failure => {
+    const rows = ledger([0]);
+    if (failure.startsWith('post-')) rows.attempts[0] = reportPost(rows.attempts[0]);
+    const row = rows.attempts[0];
+    if (failure === 'missing-method') Reflect.deleteProperty(row, 'method');
+    if (failure === 'unknown-method') Object.assign(row, { method: 'HEAD' });
+    if (failure === 'get-report') Object.assign(row, { report: null });
+    if (failure === 'post-get-path') row.path = '/v1/league/123/rosters';
+    if (failure === 'post-missing-binding') Reflect.deleteProperty(row, 'report');
+    if (row.method === 'POST') {
+      if (failure === 'post-wrong-family') Object.assign(row.report, { family: 'rosters' });
+      if (failure === 'post-wrong-league') row.report.externalLeagueId = '987654321';
+      if (failure === 'post-wrong-week') row.report.nativeWeek++;
+      if (failure === 'post-invalid-week') row.report.nativeWeek = 0;
+      if (failure === 'post-wrong-body') row.report.bodySha256 = 'f'.repeat(64);
+    }
+    expect(() => evaluateRequestEnvelope(owners, rows, start, start + 7_200_000)).toThrow();
+  });
+  it('does not treat missing POST accounting as a complete GET-only ledger', () => {
+    const rows = ledger([0, 1, 2]); rows.attempts[1] = reportPost(rows.attempts[1]); rows.attempts.splice(1, 1);
+    const result = evaluateRequestEnvelope(owners, rows, start, start + 7_200_000);
+    expect(result.errors).toContain('missing transport attempts: other-owner');
+    expect(result.getEnvelope.pass).toBe(false); expect(result.allHttpEnvelope.pass).toBe(false);
   });
 });
 
@@ -294,7 +352,7 @@ describe('declared outage and complete backlog recovery', () => {
     evidence.manifestDigest = provider.digest;
     const successful = structuredClone(base.evidence.requests.attempts.find(row => row.endedAt >= start + 1_800_000 && row.endedAt < start + 3_600_000)!);
     successful.sequence = evidence.requests.attempts.length + 1; evidence.requests.attempts.push(successful); evidence.requests.ownerTotals[0].attempts++;
-    expect(() => evaluateCapacityEvidence(provider, evidence)).toThrow(/successful provider GET/);
+    expect(() => evaluateCapacityEvidence(provider, evidence)).toThrow(/successful provider HTTP attempt/);
     evidence.manifestDigest = base.manifest.digest;
     expect(() => evaluateCapacityEvidence(base.manifest, evidence)).toThrow(/undeclared outage/);
   });

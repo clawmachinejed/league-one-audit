@@ -2,6 +2,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
@@ -4094,7 +4096,7 @@ it('binds every CP25 support source independently without changing historical so
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
   expect(changed.sort()).toEqual(['lib/league-administration/neon/public-intake.ts',
-    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts']);
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
@@ -4102,7 +4104,13 @@ it('binds every CP25 support source independently without changing historical so
 
 async function batchCalibrationReportFixture() {
   const previous = await officialResultsEvidenceFixture();
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE);
+  // Historical report-oracle fixture only. The resource scheduler intentionally
+  // changes pinned runtime bytes; this is never a current-source qualification.
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: BATCH_CALIBRATION_PROFILE, modules: [{ path: BATCH_CALIBRATION_MODULE, sourceDigest: BATCH_CALIBRATION_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: BATCH_CALIBRATION_PROFILE,
+      module: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, sourceDigest: BATCH_CALIBRATION_SOURCE_DIGEST,
+      inventory: BATCH_CALIBRATION_FULL_NAMES, supportSources: BATCH_CALIBRATION_SUPPORT_SOURCES }) };
   const evidence = structuredClone(previous.evidence);
   evidence.contextDigest = qualificationDigest(context);
   evidence.specifications = [{ path: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, otherFilters: false }];
@@ -4196,12 +4204,29 @@ it('CP26 calibration independently inventories literal ordered cases hooks and b
   expect(budgets.reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(330_000);
   expect(source).toContain("const result=await command('enabled')"); expect(source.match(/command\('enabled'\)/gu)).toHaveLength(1);
 });
-it('CP26 calibration binds every new source pin and rejects source drift without changing old profile pins', async () => {
-  const siteRoot = fileURLToPath(new URL('..', import.meta.url)); await expect(assertBatchCalibrationSupportSources(siteRoot)).resolves.toBeUndefined();
+it('CP26 calibration preserves historical source pins and rejects current scheduler drift', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertBatchCalibrationSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const changed: string[] = [];
+  for (const entry of BATCH_CALIBRATION_SUPPORT_SOURCES) {
+    if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
+  }
+  expect(changed.sort()).toEqual(['lib/league-administration/neon/public-intake.ts',
+    'lib/league-administration/public-intake-contracts.ts', 'lib/league-administration/public-intake-reader.ts',
+    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'scripts/provision-runtime-role.sql']);
+  // Read the actual reviewed historical bytes from local Git objects. The verify
+  // workflow checks out full history; no test-time network or substitute source.
+  const historicalSha = '5baa4498f04b77b436668b7193da69cfec787ae1';
+  const git = promisify(execFile);
   const directory = await mkdtemp(join(tmpdir(), 'batch-calibration-support-')); directories.push(directory);
   for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
-    await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), await readFile(join(siteRoot, path), 'utf8'));
+    let source: string;
+    try { source = (await git('git', ['show', `${historicalSha}:apps/site/${path}`], { cwd: siteRoot, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 })).stdout; }
+    catch { throw new Error(`Historical CP26 source object required locally: ${historicalSha}:apps/site/${path}`); }
+    await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), source);
   }
+  await expect(assertBatchCalibrationSupportSources(directory)).resolves.toBeUndefined();
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE);
   for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
     const original = await readFile(join(directory, path), 'utf8'); await writeFile(join(directory, path), original + '\n// source drift\n');

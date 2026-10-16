@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient } from '../database';
 import { createPublicDataRefreshStore } from './neon/public-intake';
-import { validatePublicDataRefresh } from './public-refresh-contracts';
+import { validatePublicDataRefresh, validatePublicDataResourceSchedule, PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY } from './public-refresh-contracts';
 import { PUBLIC_TRANSACTION_HISTORY } from './public-intake-contracts';
 import { readPublicDataRefresh } from './public-refresh-reader';
 import { createLeagueAdministrationStore } from './store';
@@ -181,4 +181,65 @@ describe('explicit period recurrence scope', () => {
       intake: { request: { exactPeriods: original }, exactPeriods: [] } });
     expect(query).toHaveBeenCalledTimes(6);
   });
+});
+
+describe('closed resource schedule configuration and SQL transport', () => {
+  const configuration = { targetId, expectedRevision: 3, activePeriods: [{ season: 2026 as const, externalLeagueId: '99', nativeWeek: 7 }] };
+  const resource = { status: 'selected', selectionId: managerId, requestId, lane: 'active', resourceId: targetId, configurationRevision: 3 };
+  it('canonicalizes a copied declaration without advancing the existing approval revision', () => {
+    const original = { ...configuration, targetId: targetId.toUpperCase(), activePeriods: [...configuration.activePeriods,
+      { season: 2026 as const, externalLeagueId: '11', nativeWeek: 1 }] };
+    expect(validatePublicDataResourceSchedule(original)).toEqual({ ...configuration, activePeriods: [...original.activePeriods].reverse() });
+    expect(original.activePeriods[0].externalLeagueId).toBe('99');
+    expect(validatePublicDataResourceSchedule({ ...configuration, activePeriods: [] }).activePeriods).toEqual([]);
+  });
+  it.each([null, [], { ...configuration, extra: true }, { ...configuration, targetId: [targetId] },
+    { ...configuration, expectedRevision: 0 }, { ...configuration, expectedRevision: '3' },
+    ...[0, 19, 1.1, '7'].map(nativeWeek => ({ ...configuration, activePeriods: [{ ...configuration.activePeriods[0], nativeWeek }] })),
+    ...[2025, '2026'].map(season => ({ ...configuration, activePeriods: [{ ...configuration.activePeriods[0], season }] })),
+    ...['0', '01', ['99']].map(externalLeagueId => ({ ...configuration, activePeriods: [{ ...configuration.activePeriods[0], externalLeagueId }] })),
+    { ...configuration, activePeriods: [{ ...configuration.activePeriods[0], unapproved: true }] },
+    { ...configuration, activePeriods: [...configuration.activePeriods, ...configuration.activePeriods] },
+    { ...configuration, activePeriods: Array.from({ length: 21 }, (_, i) => ({ ...configuration.activePeriods[0], externalLeagueId: String(i + 1) })) },
+  ])('rejects a widened or ambiguous declaration: %#', value => {
+    expect(() => validatePublicDataResourceSchedule(value as never)).toThrow();
+  });
+  it('requires capability and an exact existing revision acknowledgment', async () => {
+    const query = vi.fn().mockResolvedValueOnce([{ policy: PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY }])
+      .mockResolvedValueOnce([{ result: { targetId, configurationRevision: 3 } }]);
+    const store = createPublicDataRefreshStore({ enabled: true, query } as unknown as DatabaseClient);
+    expect(await store.configureResourceSchedule!(configuration)).toEqual({ targetId, configurationRevision: 3 });
+    expect(query).toHaveBeenNthCalledWith(1, expect.stringContaining('public_data_resource_schedule_capability'));
+    expect(query).toHaveBeenNthCalledWith(2, expect.stringContaining('configure_public_data_resource_schedule'), [JSON.stringify(configuration)]);
+    for (const result of [{ targetId, configurationRevision: 4 }, { targetId: requestId, configurationRevision: 3 },
+      { targetId, configurationRevision: '3' }, { targetId, configurationRevision: 3, extra: true }]) {
+      query.mockResolvedValueOnce([{ policy: PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY }]).mockResolvedValueOnce([{ result }]);
+      await expect(store.configureResourceSchedule!(configuration)).rejects.toThrow();
+    }
+  });
+  it.each([resource, { ...resource, lane: 'history', resourceId: null, configurationRevision: null },
+    { ...resource, lane: 'history', resourceId: null }, { status: 'idle' }, { status: 'capacity', reason: 'budget' },
+    { status: 'backoff', nextEligibleAt: time }])('retains the exact SQL selection disposition: %j', async result => {
+    const f = database(result); expect(await createPublicDataRefreshStore(f.client).selectResourceWork!(fence)).toEqual(result);
+    expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('select_public_data_resource_work'), [JSON.stringify(fence)]);
+  });
+  it.each([{ ...resource, requestId: 'wrong' }, { ...resource, selectionId: [managerId] }, { ...resource, extra: true },
+    { ...resource, resourceId: null }, { ...resource, configurationRevision: null }, { ...resource, configurationRevision: '3' },
+    { ...resource, lane: 'history' }, { ...resource, lane: 'other' }, { status: ['idle'] }, { status: 'idle', reason: false },
+    { status: 'backoff', nextEligibleAt: 'never' }, { status: 'idle', requestId }, { status: 'selected' }])(
+    'rejects a malformed or rebound resource selection: %#', async result => {
+      const f = database(result); await expect(createPublicDataRefreshStore(f.client).selectResourceWork!(fence)).rejects.toThrow();
+    });
+  it.each([null, resource])('reconciles the exact selection or unknown acknowledgment using fixed SQL: %j', async selection => {
+    const f = database({ status: 'admitted' });
+    expect(await createPublicDataRefreshStore(f.client).recordResourceSelectionFailure!(selection as never, fence, 'admission-unconfirmed'))
+      .toEqual({ status: 'admitted' });
+    expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('fail_public_data_resource_selection'),
+      [selection ? JSON.stringify(selection) : null, 'admission-unconfirmed', JSON.stringify(fence)]);
+  });
+  it.each([{ status: ['recorded'] }, { status: 'recorded', retryAt: false }, { status: 'recorded', extra: true }, { status: 'other' }])(
+    'rejects malformed reconciliation without retry: %j', async result => {
+      const f = database(result); await expect(createPublicDataRefreshStore(f.client).recordResourceSelectionFailure!(null, fence, 'selection-failed')).rejects.toThrow();
+      expect(f.query).toHaveBeenCalledOnce();
+    });
 });

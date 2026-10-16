@@ -24,6 +24,24 @@ describe('SQL-issued batch ownership and atomic admission', () => {
     const query = vi.fn().mockResolvedValue(rows);
     return { query, store: createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient) };
   };
+  it('starts only the global resource batch with the original SQL deadlines', async () => {
+    const { store, query } = setup([{ result: owner }]);
+    expect(await store.beginResourceBatch!(worker, origin)).toEqual(owner);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.begin_public_data_resource_batch('), [worker, origin]);
+    query.mockResolvedValue([{ result: { ...owner, admissionDeadlineAt: '2026-10-16T12:00:11Z' } }]);
+    await expect(store.beginResourceBatch!(worker, origin)).rejects.toThrow();
+  });
+  it.each([[], [{ policy: 'future' }], [{ policy: ['public-data-resource-schedule-v1'] }],
+    [{ policy: 'public-data-resource-schedule-v1' }, { policy: 'public-data-resource-schedule-v1' }]].map(rows => ({ rows })))(
+    'requires the exact resource capability without fallback: %#', async ({ rows }) => {
+      const { store, query } = setup(rows); await expect(store.requireResourceScheduleCapability!()).rejects.toThrow('capability');
+      expect(query).toHaveBeenCalledOnce();
+    });
+  it('reads the resource capability using fixed SQL', async () => {
+    const { store, query } = setup([{ policy: 'public-data-resource-schedule-v1' }]);
+    await store.requireResourceScheduleCapability!();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.public_data_resource_schedule_capability()'));
+  });
   it('preserves exact SQL-issued fence strings and binds the direct request', async () => {
     const { store, query } = setup([{ result: owner }]);
     expect(await store.beginBatch!(worker, origin, requestId)).toEqual(owner);

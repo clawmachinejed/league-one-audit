@@ -3,7 +3,7 @@ import { getDatabase, withDatabaseAbortSignal } from '../database';
 import { createProjectionStore } from '../projection-store';
 import { createLeagueAdministrationStore, createPublicIntakeStore, createPublicDataRefreshStore } from './store';
 import { validatePublicIntake, PUBLIC_DATA_BATCH_POLICY, type PublicIntakeInput } from './public-intake-contracts';
-import { validatePublicDataRefresh, refreshUuid, type PublicDataRefreshConfiguration } from './public-refresh-contracts';
+import { validatePublicDataRefresh, validatePublicDataResourceSchedule, PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY, refreshUuid, type PublicDataRefreshConfiguration, type PublicDataResourceScheduleConfiguration } from './public-refresh-contracts';
 import { runPublicDataBatch, runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep } from './public-intake';
 
 /** Operator/backend composition only. No current route supplies this selection.
@@ -42,10 +42,12 @@ export async function runSelectedPublicIntake(selection: PublicIntakeSelection, 
 
 /** Explicit backend composition. Merely importing this module does not query R036. */
 export type PublicDataRefreshSelection = Readonly<{ enabled: true; managerEvidenceVersion?: 'v2';
-  batchPolicy?: typeof PUBLIC_DATA_BATCH_POLICY }>;
+  batchPolicy?: typeof PUBLIC_DATA_BATCH_POLICY; schedulingPolicy?: typeof PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY }>;
 export async function configurePublicSleeperRefresh(input: PublicDataRefreshConfiguration, selection: PublicDataRefreshSelection | null | undefined) {
   if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2'
-    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY) {
+    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY
+    || selection.schedulingPolicy !== undefined && (selection.schedulingPolicy !== PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY
+      || selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY)) {
     return { status: 'disabled' } as const;
   }
   const validated = validatePublicDataRefresh(input);
@@ -54,6 +56,21 @@ export async function configurePublicSleeperRefresh(input: PublicDataRefreshConf
   const bounded = withDatabaseAbortSignal(database, AbortSignal.timeout(3_000));
   if (!bounded.enabled) return { status: 'disabled' } as const;
   return createPublicDataRefreshStore(bounded).configure(validated);
+}
+
+export async function configurePublicSleeperResourceSchedule(input: PublicDataResourceScheduleConfiguration,
+  selection: PublicDataRefreshSelection | null | undefined) {
+  if (selection?.enabled !== true || selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY
+    || selection.schedulingPolicy !== PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY
+    || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2') return { status: 'disabled' } as const;
+  const validated = validatePublicDataResourceSchedule(input);
+  const database = getDatabase();
+  if (!database.enabled) return { status: 'disabled' } as const;
+  const bounded = withDatabaseAbortSignal(database, AbortSignal.timeout(3_000));
+  if (!bounded.enabled) return { status: 'disabled' } as const;
+  const store = createPublicDataRefreshStore(bounded);
+  if (!store.configureResourceSchedule) throw new Error('Resource scheduling configuration unavailable.');
+  return store.configureResourceSchedule(validated);
 }
 
 export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshSelection | null | undefined, invocationStartedAt: number) {
@@ -72,9 +89,12 @@ export async function runSelectedPublicIntakeBatch(selection: PublicIntakeSelect
 async function runSelectedPublicDataWork(selection: PublicDataRefreshSelection | null | undefined, invocationStartedAt: number,
   requestId?: string) {
   if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2'
-    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY) {
+    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY
+    || selection.schedulingPolicy !== undefined && (selection.schedulingPolicy !== PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY
+      || selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY)) {
     return { status: 'disabled', providerRequests: 0 } as const;
   }
+  if (requestId !== undefined && selection.schedulingPolicy !== undefined) return { status: 'disabled', providerRequests: 0 } as const;
   const startedAt = Date.now();
   const workDeadline = invocationStartedAt + 20_000;
   const deadline = invocationStartedAt + 22_000;
@@ -108,6 +128,7 @@ async function runSelectedPublicDataWork(selection: PublicDataRefreshSelection |
   const dependencies = { refresh: createPublicDataRefreshStore(bounded), intake: createPublicIntakeStore(bounded),
     administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded),
     deadlineAt: new Date(workDeadline).toISOString(),
+    ...(selection.schedulingPolicy ? { schedulingPolicy: selection.schedulingPolicy } : {}),
     ...(selection.managerEvidenceVersion ? { managerEvidenceVersion: selection.managerEvidenceVersion } : {}),
     preAdmission: { signal: phaseSignal, refresh: createPublicDataRefreshStore(phaseDatabase),
       intake: createPublicIntakeStore(phaseDatabase), jobs: createProjectionStore(phaseDatabase),

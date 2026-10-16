@@ -84,6 +84,8 @@ export type PublicWeeklyReportCheckpoint = Readonly<{
   receipts: Readonly<{ weekly_report: string }>;
 }>;
 export type PublicIntakeStore = Readonly<{
+  requireResourceScheduleCapability?: () => Promise<void>;
+  beginResourceBatch?: (workerId: string, invocationStartedAt: string) => Promise<PublicDataBatchClaim>;
   requireBatchCapability?: () => Promise<void>;
   beginBatch?: (workerId: string, invocationStartedAt: string, requestId?: string) => Promise<PublicDataBatchClaim>;
   advanceBatch?: (fence: AdministrationWriteFence, nextWorkerId: string) => Promise<PublicDataBatchClaim>;

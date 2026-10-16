@@ -10,13 +10,14 @@ import { recordCapturedAdministration, recordCapturedPlayerDirectory } from './r
 import { loadCompletePlayerCatalog } from '../sleeper-player-catalog';
 import type { BracketFamily } from '../aggregator/playoff-brackets';
 import type { PlayerDirectoryOutcome } from './player-directory-contracts';
+import { PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY, type PublicDataResourceSchedulingPolicy, type PublicDataResourceSelected } from './public-refresh-contracts';
 import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRefreshSelectionFailure, PublicDataRefreshStore } from './public-refresh-contracts';
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore, type PublicDataBatchOutcome, type PublicDataBatchOwner } from './public-intake-contracts';
 import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness, type PublicCaptureWitness } from './public-capture-witness';
 import type { AdministrationSourceMapping } from './source-mapping';
 
 type PublicIntakeCleanup = Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
-  refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure'> }>;
+  refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure' | 'recordResourceSelectionFailure'> }>;
 export type PublicIntakeDependencies = Readonly<{
   intake: PublicIntakeStore;
   administration: LeagueAdministrationStore;
@@ -31,11 +32,13 @@ export type PublicIntakeDependencies = Readonly<{
   now?: () => Date;
   /** Requires installed R035; adds evidence without replacing either v1 reservation. */
   managerEvidenceVersion?: 'v2';
+  /** Explicit policy on the existing global batch; SQL owns selection and service debt. */
+  schedulingPolicy?: PublicDataResourceSchedulingPolicy;
   /** Absolute work deadline, including time already spent obtaining the owner. */
   deadlineAt?: string;
   /** Optional early abort-aware database phase; manual intake does not use it. */
   preAdmission?: Readonly<{ signal: AbortSignal; jobs: Pick<ProjectionStore, 'acquireJob'>;
-    intake: Pick<PublicIntakeStore, 'recover' | 'next' | 'admit' | 'requireBatchCapability' | 'beginBatch' | 'advanceBatch' | 'nextBatch' | 'admitBatch'>; refresh: Pick<PublicDataRefreshStore, 'select'>;
+    intake: Pick<PublicIntakeStore, 'recover' | 'next' | 'admit' | 'requireBatchCapability' | 'beginBatch' | 'advanceBatch' | 'nextBatch' | 'admitBatch' | 'requireResourceScheduleCapability' | 'beginResourceBatch'>; refresh: Pick<PublicDataRefreshStore, 'select' | 'selectResourceWork'>;
     cleanup: () => PublicIntakeCleanup }>;
   cleanup?: () => PublicIntakeCleanup;
 }>;
@@ -65,6 +68,7 @@ export async function runPublicDataBatch(requestId: string | undefined,
   const now = dependencies.now ?? (() => new Date());
   const phase = dependencies.preAdmission;
   const store = phase?.intake ?? dependencies.intake;
+  const scheduled = dependencies.schedulingPolicy === PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY;
   const workDeadline = invocationStartedAt + 20_000;
   const admissionDeadline = invocationStartedAt + 10_000;
   let owner: PublicDataBatchOwner | undefined;
@@ -82,10 +86,18 @@ export async function runPublicDataBatch(requestId: string | undefined,
     if (!requestId && !dependencies.refresh || !store.requireBatchCapability || !store.beginBatch
       || !store.advanceBatch || !store.nextBatch || !store.admitBatch) throw new Error('Batch capability unavailable.');
     signal.throwIfAborted(); phase?.signal.throwIfAborted();
+    if (dependencies.schedulingPolicy !== undefined && (!scheduled || requestId !== undefined
+      || !store.requireResourceScheduleCapability || !store.beginResourceBatch
+      || !(phase?.refresh ?? dependencies.refresh)?.selectResourceWork
+      || !dependencies.refresh?.recordResourceSelectionFailure)) throw new Error('Resource scheduling capability unavailable.');
     await store.requireBatchCapability();
     signal.throwIfAborted(); phase?.signal.throwIfAborted();
+    if (scheduled) await store.requireResourceScheduleCapability!();
+    signal.throwIfAborted(); phase?.signal.throwIfAborted();
     if (now().getTime() >= admissionDeadline) return result('deadline', 'admission-deadline');
-    const claim = await store.beginBatch(randomUUID(), new Date(invocationStartedAt).toISOString(), requestId);
+    const claim = scheduled
+      ? await store.beginResourceBatch!(randomUUID(), new Date(invocationStartedAt).toISOString())
+      : await store.beginBatch(randomUUID(), new Date(invocationStartedAt).toISOString(), requestId);
     if (claim.kind !== 'acquired') return result(claim.kind, 'owner-unavailable');
     owner = claim;
     // Every progress step reserves at least one HTTP attempt. This is a defensive
@@ -126,6 +138,7 @@ export async function runPublicDataBatch(requestId: string | undefined,
 async function runOwnedPublicIntakeStep(requestId: string | undefined,
   dependencies: PublicIntakeDependencies & Readonly<{ refresh?: PublicDataRefreshStore }>,
   signal: AbortSignal, mode: 'intake' | 'player-directory' = 'intake'): Promise<PublicDataRefreshOutcome | PlayerDirectoryOutcome> {
+  if (dependencies.schedulingPolicy !== undefined) return { status: 'unavailable', providerRequests: 0 };
   const phase = mode === 'intake' && requestId === undefined && dependencies.refresh ? dependencies.preAdmission : undefined;
   const now = dependencies.now ?? (() => new Date());
   signal.throwIfAborted(); phase?.signal.throwIfAborted();
@@ -171,6 +184,8 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
   let work: Awaited<ReturnType<PublicIntakeStore['next']>> | undefined;
   let requests = 0;
   let selected: PublicDataRefreshSelected | null = null;
+  let resourceSelected: PublicDataResourceSelected | null = null;
+  const scheduled = batch && dependencies.schedulingPolicy === PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY;
   let selectionFailure: PublicDataRefreshSelectionFailure | undefined;
   try {
     signal.throwIfAborted();
@@ -199,13 +214,16 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
       // No target failure can be attributed to setup/claim exhaustion. Once this
       // call starts, a null acknowledgment may still have a durable owner binding.
       selectionFailure = 'selection-failed';
-      const selection = await (phase?.refresh ?? refresh).select(fence);
+      const selection = scheduled
+        ? await (phase?.refresh ?? refresh).selectResourceWork!(fence)
+        : await (phase?.refresh ?? refresh).select(fence);
       if (selection.status !== 'selected') {
         selectionFailure = undefined;
         await finishOwner();
         return { status: selection.status, providerRequests: 0 };
       }
-      selected = selection;
+      if (scheduled) resourceSelected = selection as PublicDataResourceSelected;
+      else selected = selection as PublicDataRefreshSelected;
       requestId = selection.requestId;
       selectionFailure = 'request-state-failed';
     }
@@ -462,7 +480,9 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
     if (refresh && selectionFailure && !signal.aborted) {
       // SQL first reconciles this exact owner's persisted selection/dispatch. An
       // unknown acknowledgment must never create another cycle or double credit.
-      await (cleanup.refresh ?? refresh).recordSelectionFailure(selected, fence, selectionFailure).catch(() => undefined);
+      if (scheduled) {
+        await (cleanup.refresh ?? refresh).recordResourceSelectionFailure!(resourceSelected, fence, selectionFailure).catch(() => undefined);
+      } else await (cleanup.refresh ?? refresh).recordSelectionFailure(selected, fence, selectionFailure).catch(() => undefined);
     }
     if (work && typeof work === 'object') await cleanup.intake.fail(work, fence).catch(() => undefined);
     await cleanup.jobs.failJob(PUBLIC_INTAKE_JOB, workerId, 'public-data-intake-step-failed').catch(() => false);

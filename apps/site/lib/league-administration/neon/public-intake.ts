@@ -1,5 +1,6 @@
 import 'server-only';
-import { validatePublicDataRefresh, refreshUuid, refreshOrdinal, type PublicDataRefreshStore,
+import { validatePublicDataResourceSchedule, PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY,
+  validatePublicDataRefresh, refreshUuid, refreshOrdinal, type PublicDataRefreshStore,
   type PublicDataRefreshSelectionResult, type PublicDataRefreshFailureResult } from '../public-refresh-contracts';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../database';
 import { createProjectionStore } from '../../projection-store';
@@ -13,6 +14,14 @@ import { compatibleRevision } from '../../projections/shared/revision-compatibil
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid public intake record.');
   return value as Record<string, unknown>;
+}
+
+async function requireResourceScheduleCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(
+    '/* public-data-resource-schedule:capability */ SELECT public.public_data_resource_schedule_capability() AS policy');
+  if (rows.length !== 1 || rows[0].policy !== PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY) {
+    throw new Error('Public DATA resource scheduling requires its installed capability.');
+  }
 }
 
 function batchClaim(value: unknown, workerId: string, origin: number): PublicDataBatchClaim {
@@ -173,6 +182,16 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     return work as PublicIntakeWork;
   }
   return {
+    requireResourceScheduleCapability: () => requireResourceScheduleCapability(client),
+    async beginResourceBatch(workerId, invocationStartedAt) {
+      if (!refreshUuid(workerId) || typeof invocationStartedAt !== 'string'
+        || !Number.isFinite(Date.parse(invocationStartedAt))) throw new Error('Invalid public resource batch request.');
+      const rows = await client.query(
+        '/* public-data-resource-schedule:begin */ SELECT public.begin_public_data_resource_batch($1::text,$2::timestamptz) AS result',
+        [workerId, invocationStartedAt]);
+      if (rows.length !== 1) throw new Error('Missing public resource batch claim.');
+      return batchClaim(rows[0].result, workerId, Date.parse(invocationStartedAt));
+    },
     async requireBatchCapability() {
       const rows = await client.query(`/* public-data-intake:batch-capability */
         SELECT public.public_data_batch_capability() AS policy`);
@@ -319,6 +338,53 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   const date = (value: unknown) => value === undefined || value === null
     || typeof value === 'string' && Number.isFinite(Date.parse(value));
   return {
+    async configureResourceSchedule(input) {
+      const validated = validatePublicDataResourceSchedule(input);
+      await requireResourceScheduleCapability(client);
+      const rows = await client.query(
+        '/* public-data-resource-schedule:configure */ SELECT public.configure_public_data_resource_schedule($1::jsonb) AS result',
+        [JSON.stringify(validated)]);
+      if (rows.length !== 1) throw new Error('Missing public resource schedule configuration.');
+      const value = record(rows[0].result);
+      if (Object.keys(value).sort().join('|') !== 'configurationRevision|targetId'
+        || value.targetId !== validated.targetId || value.configurationRevision !== validated.expectedRevision) {
+        throw new Error('Invalid public resource schedule configuration.');
+      }
+      return { targetId: validated.targetId, configurationRevision: validated.expectedRevision };
+    },
+    async selectResourceWork(fence) {
+      const rows = await client.query(
+        '/* public-data-resource-schedule:select */ SELECT public.select_public_data_resource_work($1::jsonb) AS result',
+        [JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public resource selection.');
+      const value = record(rows[0].result);
+      if (value.status === 'selected') {
+        if (Object.keys(value).sort().join('|') !== 'configurationRevision|lane|requestId|resourceId|selectionId|status'
+          || !refreshUuid(value.selectionId) || !refreshUuid(value.requestId)
+          || (value.lane !== 'active' && value.lane !== 'history')
+          || (value.lane === 'active' ? !refreshUuid(value.resourceId) || !refreshOrdinal(value.configurationRevision)
+            : value.resourceId !== null || value.configurationRevision !== null && !refreshOrdinal(value.configurationRevision))) {
+          throw new Error('Invalid public resource selection binding.');
+        }
+      } else if (typeof value.status !== 'string' || !['idle', 'backoff', 'capacity'].includes(value.status)
+        || Object.keys(value).some(key => !['status', 'reason', 'nextEligibleAt'].includes(key))
+        || value.reason !== undefined && typeof value.reason !== 'string' || !date(value.nextEligibleAt)) {
+        throw new Error('Invalid public resource selection disposition.');
+      }
+      return value as import('../public-refresh-contracts').PublicDataResourceSelectionResult;
+    },
+    async recordResourceSelectionFailure(selection, fence, reason) {
+      const rows = await client.query(
+        '/* public-data-resource-schedule:selection-failure */ SELECT public.fail_public_data_resource_selection($1::jsonb,$2::text,$3::jsonb) AS result',
+        [selection ? JSON.stringify(selection) : null, reason, JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public resource selection failure.');
+      const value = record(rows[0].result);
+      if (typeof value.status !== 'string' || !['recorded', 'already-recorded', 'admitted', 'unbound', 'superseded'].includes(value.status)
+        || Object.keys(value).some(key => !['status', 'retryAt'].includes(key)) || !date(value.retryAt)) {
+        throw new Error('Invalid public resource selection failure.');
+      }
+      return value as PublicDataRefreshFailureResult;
+    },
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
       if (validated.draftPicks) await requireDraftCapability(client);
