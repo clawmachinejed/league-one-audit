@@ -43,6 +43,16 @@ describe('immutable full transaction refresh scope', () => {
 });
 
 describe('explicit recurring DATA configuration and SQL transport', () => {
+  it.each(['id', 'identityRequestId', 'expiresAt'] as const)('requires the %s JSON primitive to be a string', field => {
+    for (const value of [12345678123412341234123456789012, true, [], [input[field]], null, { toString: () => input[field] }]) {
+      expect(() => validatePublicDataRefresh({ ...input, [field]: value } as never, new Date(time))).toThrow('Invalid public DATA refresh configuration');
+    }
+  });
+  it.each([{ season: 2026, nativeWeek: 1 }, { season: 2026, nativeWeek: 99 }, 'ignored', null, undefined])(
+    'rejects every unsupported transactionPeriod property instead of dropping it: %j', transactionPeriod => {
+      expect(() => validatePublicDataRefresh({ ...input, transactionPeriod } as never, new Date(time)))
+        .toThrow('does not support an exact transaction-period selector');
+    });
   it('normalizes only explicit scope and keeps stable identities as exact strings', () => {
     const normalized = validatePublicDataRefresh(input, new Date(time));
     expect(normalized).toEqual({ ...input, seasons: [2025, 2026] });

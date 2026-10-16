@@ -1,22 +1,50 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ database: vi.fn(), bounded: vi.fn(), administration: vi.fn(), intake: vi.fn(),
-  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), directory: vi.fn(), configure: vi.fn() }));
+  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), directory: vi.fn(), configure: vi.fn(), submit: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../database', () => ({ getDatabase: mocks.database, withDatabaseAbortSignal: mocks.bounded }));
 vi.mock('../projection-store', () => ({ createProjectionStore: mocks.jobs }));
 vi.mock('./store', () => ({ createLeagueAdministrationStore: mocks.administration, createPublicIntakeStore: mocks.intake,
   createPublicDataRefreshStore: mocks.refresh }));
 vi.mock('./public-intake', () => ({ runPublicDataRefreshStep: mocks.run, runPublicIntakeStep: vi.fn(), runPublicPlayerDirectoryStep: mocks.directory }));
-import { configurePublicSleeperRefresh, runSelectedPublicDataRefresh, runSelectedPublicPlayerDirectory, type PublicDataRefreshSelection } from './public-intake-runtime';
+import { configurePublicSleeperRefresh, submitPublicSleeperIntake, runSelectedPublicDataRefresh, runSelectedPublicPlayerDirectory, type PublicDataRefreshSelection } from './public-intake-runtime';
 const start = Date.parse('2026-10-06T12:00:00Z');
 const enabled = { enabled: true } as const;
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(start); vi.resetAllMocks();
   mocks.database.mockReturnValue({ enabled: true }); mocks.bounded.mockImplementation((database, signal) => ({ ...database, signal }));
-  mocks.refresh.mockReturnValue({ configure: mocks.configure }); mocks.intake.mockReturnValue({}); mocks.jobs.mockReturnValue({});
+  mocks.refresh.mockReturnValue({ configure: mocks.configure }); mocks.intake.mockReturnValue({ submitWithReceipt: mocks.submit }); mocks.jobs.mockReturnValue({});
   mocks.administration.mockReturnValue({}); mocks.run.mockResolvedValue({ status: 'idle', providerRequests: 0 });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+describe('controlled durable submission runtime', () => {
+  const input = { id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', username: 'Any_Manager', seasons: [2026] };
+  const selection = { enabled: true, requestId: input.id.toLowerCase() } as const;
+  it.each(['retained', 'capacity'] as const)('returns the durable %s receipt through the existing abort-bound store', async status => {
+    const receipt = { status, requestId: selection.requestId };
+    mocks.submit.mockResolvedValue(receipt);
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    expect(await submitPublicSleeperIntake(input, selection)).toEqual(receipt);
+    expect(mocks.submit).toHaveBeenCalledExactlyOnceWith({ ...input, id: selection.requestId });
+    expect(timeout).toHaveBeenCalledWith(3_000);
+    expect(mocks.intake).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(mocks.run).not.toHaveBeenCalled();
+  });
+  it('does not construct storage for disabled selection or malformed inputs', async () => {
+    await expect(submitPublicSleeperIntake(input, { ...selection, enabled: false } as never)).rejects.toThrow('not enabled');
+    await expect(submitPublicSleeperIntake({ ...input, username: 123 } as never, selection)).rejects.toThrow('Invalid public intake');
+    expect(mocks.database).not.toHaveBeenCalled(); expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it('keeps missing storage disabled and never converts storage errors into retained receipts', async () => {
+    mocks.database.mockReturnValue({ enabled: false });
+    expect(await submitPublicSleeperIntake(input, selection)).toEqual({ status: 'disabled' });
+    expect(mocks.submit).not.toHaveBeenCalled();
+    mocks.database.mockReturnValue({ enabled: true });
+    mocks.submit.mockRejectedValue(new Error('storage unavailable'));
+    await expect(submitPublicSleeperIntake(input, selection)).rejects.toThrow('storage unavailable');
+  });
+});
 
 describe('explicit DATA recurrence runtime budget', () => {
   it('performs no storage construction when disabled or too late to admit work', async () => {

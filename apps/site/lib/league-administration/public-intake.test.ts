@@ -108,6 +108,13 @@ describe('public official data intake through the existing worker/writer', () =>
       expect(() => validatePublicIntake({ id, username: 'Any_Manager', seasons })).toThrow();
     }
   });
+  it.each([123, true, ['name'], null, undefined, {}])('rejects a non-string username before coercion: %j', username => {
+    expect(() => validatePublicIntake({ id, username, seasons: [2026] } as never)).toThrow('Invalid public intake scope');
+  });
+  it('rejects a coercible object request identity before normalization', () => {
+    expect(() => validatePublicIntake({ id: { toString: () => id }, username: 'Any_Manager', seasons: [2026] } as never))
+      .toThrow('Invalid public intake scope');
+  });
   it('collects unrelated official formats using real normalization and same-capture proof without analytics gating', async () => {
     const f = fixture();
     const outcome = await runPublicIntakeStep(id, f.dependencies, new AbortController().signal);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { FRESH_INSTALL_PROFILE, qualificationDigest, type QualificationBinding } from './qualification-profile';
-import { readFreshInstallSources, type FreshInstallCatalog } from './fresh-install-catalog';
+import { readFreshInstallSources, type FreshInstallCatalog, type FreshInstallSources } from './fresh-install-catalog';
 import * as catalogModule from './fresh-install-catalog';
 import { assertFreshInstallEmptyEvidence, assertFreshInstallInitialEvidence, assertFreshInstallInstalledEvidence,
   createFreshInstallEmptyEvidence, readFreshInstallEvidence, writeFreshInstallInitialEvidence, writeFreshInstallInstalledEvidence,
@@ -23,6 +23,9 @@ const roles: FreshInstallRole[] = FRESH_INSTALL_ROLES.map((name, index) => ({ na
   rolcanlogin: true, rolsuper: false, rolcreatedb: false, rolcreaterole: false, rolreplication: false,
   rolinherit: false, rolbypassrls: false, has_memberships: false }));
 async function fixture(provider = true, nonsuper = provider) {
+  const frozen = JSON.parse(readFileSync(new URL('./fresh-install-catalog.json', import.meta.url), 'utf8'));
+  const historicalSources: FreshInstallSources = { migrations: frozen.migrations, provisioners: frozen.provisioners };
+  vi.spyOn(catalogModule, 'readFreshInstallSources').mockImplementation(async () => structuredClone(historicalSources));
   const installer = nonsuper ? 'neondb_owner' : 'postgres';
   const directory = await mkdtemp(join(tmpdir(), 'cp21-evidence-')); directories.push(directory);
   const binding: QualificationBinding = { directory, context: { kind: 'integration-qualification-context-v1',
@@ -33,7 +36,6 @@ async function fixture(provider = true, nonsuper = provider) {
     owner: installer, session: installer, schemas: 0, relations: 0, functions: 0, types: 0, roles: 0, sessions: 0 }, target, installer);
   const digest = await writeFreshInstallInitialEvidence(binding, empty, roles);
   const initial = JSON.parse(await readFile(join(directory, FRESH_INSTALL_FILES.initial), 'utf8'));
-  const frozen = JSON.parse(readFileSync(new URL('./fresh-install-catalog.json', import.meta.url), 'utf8'));
   const sections = frozen.catalog as Record<string, Record<string, unknown>[]>;
   if (nonsuper) {
     const extensions = new Set(sections.functions.filter(row => row.extension === 'pgcrypto').map(row => row.signature));
@@ -79,6 +81,10 @@ async function installationFixture(provider = true, nonsuper = provider) {
   });
   return { ...f, query, readCatalog };
 }
+it('rejects current installation drift before selecting historical CP21 fixture sources', async () => {
+  expect(vi.isMockFunction(catalogModule.readFreshInstallSources)).toBe(false);
+  await expect(catalogModule.readFreshInstallSources()).rejects.toThrow('migration file inventory changed');
+});
 it('retains bounded immutable source/run-bound original-empty, new-role and installed artifacts', async () => {
   const f = await fixture();
   await writeFile(join(f.binding.directory, FRESH_INSTALL_FILES.installed), JSON.stringify(f.installed), { flag: 'wx' });

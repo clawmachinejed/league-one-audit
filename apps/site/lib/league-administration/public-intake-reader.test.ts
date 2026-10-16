@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DatabaseClient, DatabaseRow } from '../database';
 import { createLeagueAdministrationStore } from './store';
 import { readPublicSleeperIntake } from './public-intake-reader';
-import type { PublicIntakeReadOptions } from './public-intake-contracts';
+import { PUBLIC_DRAFT_PICKS, PUBLIC_PERIOD_INVENTORY, PUBLIC_TRANSACTION_HISTORY, PUBLIC_PLAYOFF_BRACKETS,
+  publicInventoryPeriods, type PublicIntakeReadOptions } from './public-intake-contracts';
 vi.mock('server-only', () => ({}));
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -17,6 +18,43 @@ function fixture() {
   return { client, administration, query };
 }
 describe('public intake history compatibility', () => {
+  it('keeps capacity authoritative for a fully selected request with detailed paging options', async () => {
+    const f = fixture();
+    f.query.mockImplementation(async sql => sql.includes('public-data-intake:read-request')
+      ? [{ id, seasons: [2026], terminal: true, revision: 0, failure_count: 0,
+        selected_submission_capacity: 'pending-request-limit', selected_period_inventory: PUBLIC_PERIOD_INVENTORY,
+        selected_exact_periods: publicInventoryPeriods(), selected_draft_picks: PUBLIC_DRAFT_PICKS,
+        selected_transaction_history: PUBLIC_TRANSACTION_HISTORY, selected_playoff_brackets: PUBLIC_PLAYOFF_BRACKETS,
+        selected_weekly_reports: [{ season: 2026, nativeWeek: 1 }] }] : []);
+    const read = await readPublicSleeperIntake(f.client, f.administration, id, {
+      periodInventoryPage: { limit: 1 }, transactionHistoryPage: { limit: 1 }, draftPicksPage: { limit: 1 },
+    });
+    expect(read).toMatchObject({ status: 'unavailable', reason: 'submission-capacity',
+      request: { submissionCapacity: 'pending-request-limit', draftPicks: PUBLIC_DRAFT_PICKS } });
+  });
+  it('exposes a durable capacity reason without provider calls or changing ordinary missing-marker payloads', async () => {
+    const f = fixture();
+    const original = f.query.getMockImplementation()!;
+    f.query.mockImplementation(async sql => sql.includes('public-data-intake:read-request')
+      ? [{ id, seasons: [2026], terminal: true, revision: 0, failure_count: 0,
+        selected_submission_capacity: 'pending-request-limit' }] : original(sql));
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Stored reader must not fetch'));
+    try {
+      const read = await readPublicSleeperIntake(f.client, f.administration, id);
+      expect(read).toMatchObject({ status: 'unavailable', reason: 'submission-capacity',
+        request: { submissionCapacity: 'pending-request-limit', terminal: true, revision: 0, failure_count: 0 }, leagues: [] });
+      expect(fetch).not.toHaveBeenCalled();
+      expect(f.query.mock.calls.every(([sql]) => !/\b(insert|update|delete)\b/iu.test(sql))).toBe(true);
+    } finally { fetch.mockRestore(); }
+  });
+  it.each([{ selected_submission_capacity: 'unknown' }, { terminal: false }, { revision: 1 }, { failure_count: 1 }])(
+    'fails closed on an invalid stored capacity envelope: %o', async patch => {
+      const f = fixture();
+      f.query.mockResolvedValue([{ id, seasons: [2026], terminal: true, revision: 0, failure_count: 0,
+        selected_submission_capacity: 'pending-request-limit', ...patch }]);
+      await expect(readPublicSleeperIntake(f.client, f.administration, id)).rejects.toThrow('capacity receipt');
+      expect(f.query).toHaveBeenCalledOnce();
+    });
   it('preserves omitted-option payload and exact SQL query behavior', async () => {
     const f = fixture();
     const old = await readPublicSleeperIntake(f.client, f.administration, id);

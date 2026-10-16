@@ -49,7 +49,7 @@ export function validatePublicDataRefresh(input: PublicDataRefreshConfiguration,
   const weeklyReports = normalizePublicWeeklyReports(input.weeklyReports, input.seasons);
   const draftPicks = normalizePublicDraftPicks(input.draftPicks, input.seasons);
   const transactionHistory = normalizePublicTransactionHistory(input.transactionHistory, input.seasons);
-  if (transactionHistory && Object.hasOwn(input, 'transactionPeriod')) throw new Error('Public transaction scopes are mutually exclusive.');
+  if (Object.hasOwn(input, 'transactionPeriod')) throw new Error('Public refresh does not support an exact transaction-period selector.');
   const playoffBrackets = normalizePublicPlayoffBrackets(input.playoffBrackets, input.seasons);
   const periodInventory = normalizePublicPeriodInventory(input.periodInventory, input.seasons);
   if (periodInventory && input.exactPeriods !== undefined) throw new Error('Public period scopes are mutually exclusive.');

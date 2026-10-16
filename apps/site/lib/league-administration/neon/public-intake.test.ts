@@ -13,6 +13,36 @@ const league = { league_id: work.externalLeagueId, season: '2026', sport: 'nfl',
   total_rosters: 2, roster_positions: ['UNKNOWN_NATIVE_SLOT', 'BN'], settings: { divisions: 2 },
   scoring_settings: { rec_yd: 0.1, unsupported_bonus: 2 } };
 
+describe('controlled durable submission receipts', () => {
+  const input = { id: requestId, username: 'Any_Manager', seasons: [2026] };
+  it.each(['retained', 'capacity'] as const)('decodes a canonical %s receipt without changing legacy submission', async status => {
+    const query = vi.fn().mockResolvedValue([{ result: { status, requestId } }]);
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    expect(await store.submitWithReceipt(input)).toEqual({ status, requestId });
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.submit_public_data_intake($1::jsonb,true)'), [JSON.stringify(input)]);
+    query.mockClear(); query.mockResolvedValue([]);
+    expect(await store.submit(input)).toBeUndefined();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.submit_public_data_intake($1::jsonb)'), [JSON.stringify(input)]);
+  });
+  it.each([[], [{ result: null }], [{ result: { status: 'retained', requestId } }, { result: { status: 'retained', requestId } }],
+    [{ result: { status: ['retained'], requestId } }], [{ result: { status: ['capacity'], requestId } }],
+    [{ result: { status: 'complete', requestId } }], [{ result: { status: 'retained', requestId: 'foreign' } }],
+    [{ result: { status: 'capacity', requestId, extra: true } }], [{ result: { status: 'retained' } }],
+  ].map(rows => ({ rows })))('rejects malformed or foreign acknowledgments without inventing a receipt: %#', async ({ rows }) => {
+    const query = vi.fn().mockResolvedValue(rows);
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    await expect(store.submitWithReceipt(input)).rejects.toThrow();
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it('rejects coercible usernames before SQL and preserves unknown SQL failures', async () => {
+    const query = vi.fn().mockRejectedValue(new Error('missing installed controlled submission'));
+    const store = createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient);
+    await expect(store.submitWithReceipt({ ...input, username: 123 } as never)).rejects.toThrow('Invalid public intake');
+    expect(query).not.toHaveBeenCalled();
+    await expect(store.submitWithReceipt(input)).rejects.toThrow('missing installed controlled submission');
+  });
+});
+
 describe('database-issued public acquisition boundary', () => {
   const owner = { ...fence, workerId: '55555555-5555-4555-8555-555555555555' };
   const witness = { version: 'public-network-capture-v1', work, fence: owner,

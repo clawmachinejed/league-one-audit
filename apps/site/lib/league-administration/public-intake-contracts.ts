@@ -40,6 +40,8 @@ export type PublicIntakeInput = Readonly<{ id: string; username: string; seasons
   exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets;
   weeklyReports?: readonly PublicExactPeriod[]; transactionPeriod?: PublicTransactionPeriod; transactionHistory?: PublicTransactionHistory;
   draftPicks?: PublicDraftPicks }>;
+/** A durable submission outcome; capacity is terminal for this request identity. */
+export type PublicIntakeSubmissionReceipt = Readonly<{ status: 'retained' | 'capacity'; requestId: string }>;
 export type PublicIdentity = Readonly<{ userId: string; username: string; displayName: string; avatarUrl: string | null }>;
 export type PublicLeague = Readonly<{ id: string; name: string; season: string }>;
 export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: string; requestCompletedAt: string; acquisition?: PublicCaptureWitness }>
@@ -200,8 +202,8 @@ export function normalizeStoredPublicPeriods(value: unknown, seasons: readonly n
 
 export function validatePublicIntake(input: PublicIntakeInput): PublicIntakeInput {
   if (!input || typeof input !== 'object') throw new Error('Invalid public intake scope.');
-  if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(input.id)
-    || !/^[a-zA-Z0-9_]{1,100}$/u.test(input.username)
+  if (typeof input.id !== 'string' || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(input.id)
+    || typeof input.username !== 'string' || !/^[a-zA-Z0-9_]{1,100}$/u.test(input.username)
     || !Array.isArray(input.seasons) || input.seasons.length < 1 || input.seasons.length > 3
     || input.seasons.some(season => !Number.isInteger(season) || season < 1920 || season > 2200)
     || new Set(input.seasons).size !== input.seasons.length) throw new Error('Invalid public intake scope.');
