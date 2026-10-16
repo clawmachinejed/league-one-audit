@@ -12,27 +12,27 @@ const cycle = (id: string, leagues: number, reports = true, drafts = 1): Capacit
 describe('current source acquisition arithmetic', () => {
   it('retains CP25 selected-scope counts without calling them full coverage', () => {
     const result = currentSourceCapacity([cycle('cp25', 1, false)]);
-    expect(result).toMatchObject({ acquisitionAdmissions: 48, getAttempts: 68, settlementClaims: 1,
+    expect(result).toMatchObject({ acquisitionAdmissions: 48, getAttempts: 68, postAttempts: 0, httpAttempts: 68, settlementClaims: 1,
       normalSuccessfulClaims: 49, minimumAcquisitionSpacingSeconds: 47 * 60, normalSuccessfulClaimSpacingSeconds: 48 * 60 });
-    expect(result.tasks.weeklyReports).toEqual({ acquisitions: 0, gets: 0 });
-    expect(result.tasks.transactions).toEqual({ acquisitions: 19, gets: 19 });
+    expect(result.tasks.weeklyReports).toEqual({ acquisitions: 0, gets: 0, posts: 0, httpAttempts: 0 });
+    expect(result.tasks.transactions).toEqual({ acquisitions: 19, gets: 19, posts: 0, httpAttempts: 19 });
   });
   it('adds all eighteen independent reports and only one shared player catalog', () => {
-    expect(currentSourceCapacity([cycle('full', 1)])).toMatchObject({ acquisitionAdmissions: 66, getAttempts: 86, normalSuccessfulClaims: 67 });
+    expect(currentSourceCapacity([cycle('full', 1)])).toMatchObject({ acquisitionAdmissions: 66, getAttempts: 68, postAttempts: 18, httpAttempts: 86, normalSuccessfulClaims: 67 });
     const result = currentSourceCapacity([cycle('existing', 8), cycle('fresh-a', 4), cycle('fresh-b', 4)], true);
     expect(result).toMatchObject({ distinctLeagues: 16, leagueAssociations: 16, acquisitionAdmissions: 1_031,
-      getAttempts: 1_351, settlementClaims: 3, normalSuccessfulClaims: 1_034 });
-    expect(result.tasks.playerDirectory).toEqual({ acquisitions: 1, gets: 1 });
-    expect(result.tasks.weeklyReports).toEqual({ acquisitions: 288, gets: 288 });
-    expect(result.tasks.exactMatchups).toEqual({ acquisitions: 288, gets: 576 });
-    expect(result.tasks.transactions).toEqual({ acquisitions: 304, gets: 304 });
+      getAttempts: 1_063, postAttempts: 288, httpAttempts: 1_351, settlementClaims: 3, normalSuccessfulClaims: 1_034 });
+    expect(result.tasks.playerDirectory).toEqual({ acquisitions: 1, gets: 1, posts: 0, httpAttempts: 1 });
+    expect(result.tasks.weeklyReports).toEqual({ acquisitions: 288, gets: 0, posts: 288, httpAttempts: 288 });
+    expect(result.tasks.exactMatchups).toEqual({ acquisitions: 288, gets: 576, posts: 0, httpAttempts: 576 });
+    expect(result.tasks.transactions).toEqual({ acquisitions: 304, gets: 304, posts: 0, httpAttempts: 304 });
   });
   it('refutes the concurrent fresh-import deadline even before existing refresh and processing', () => {
     const one = currentSourceCapacity([cycle('fresh-a', 4)]);
-    expect(one).toMatchObject({ acquisitionAdmissions: 258, getAttempts: 338, normalSuccessfulClaims: 259 });
+    expect(one).toMatchObject({ acquisitionAdmissions: 258, getAttempts: 266, postAttempts: 72, httpAttempts: 338, normalSuccessfulClaims: 259 });
     expect(currentSourceFeasibility(one).importWithinFourHoursImpossible).toBe(true);
     const both = currentSourceCapacity([cycle('fresh-a', 4), cycle('fresh-b', 4)]);
-    expect(both).toMatchObject({ acquisitionAdmissions: 516, getAttempts: 676, normalSuccessfulClaims: 518,
+    expect(both).toMatchObject({ acquisitionAdmissions: 516, getAttempts: 532, postAttempts: 144, httpAttempts: 676, normalSuccessfulClaims: 518,
       minimumAcquisitionSpacingSeconds: 515 * 60, normalSuccessfulClaimSpacingSeconds: 517 * 60 });
     expect(currentSourceFeasibility(both)).toMatchObject({ importWithinFourHoursImpossible: true,
       declaredBacklogWithinFourHoursImpossible: true, sustainedTwoHourWindowFitsCurrentHarness: false });
@@ -42,11 +42,11 @@ describe('current source acquisition arithmetic', () => {
   });
   it('models empty versus unselected drafts and every additional native draft', () => {
     const noDrafts = currentSourceCapacity([cycle('empty', 1, false, 0)]);
-    expect(noDrafts.tasks.drafts).toEqual({ acquisitions: 2, gets: 2 });
+    expect(noDrafts.tasks.drafts).toEqual({ acquisitions: 2, gets: 2, posts: 0, httpAttempts: 2 });
     const unselected = fullFamilyCapacityLeague('unselected', 0, false);
     expect(currentSourceCapacity([{ id: 'none', leagues: [{ ...unselected, draftCount: null }] }]).tasks.drafts)
-      .toEqual({ acquisitions: 0, gets: 0 });
-    expect(currentSourceCapacity([cycle('max', 1, false, 8)]).tasks.drafts).toEqual({ acquisitions: 26, gets: 26 });
+      .toEqual({ acquisitions: 0, gets: 0, posts: 0, httpAttempts: 0 });
+    expect(currentSourceCapacity([cycle('max', 1, false, 8)]).tasks.drafts).toEqual({ acquisitions: 26, gets: 26, posts: 0, httpAttempts: 26 });
   });
   it('deduplicates identities separately from actual repeated association acquisition', () => {
     const league = fullFamilyCapacityLeague('shared', 1, false);
@@ -86,12 +86,12 @@ describe('frozen observation and event lower bounds', () => {
   it('labels the sixteen-league aligned scenario and exposes shared matchup task costs', () => {
     expect(currentSourceActiveBounds(16)).toMatchObject({ alignedActiveLeagues: 16, activeFamilyPairs: 64,
       scheduledSamples: 7_680, p95MinimumAdmissions: 864, p99MinimumAdmissions: 480,
-      sweepAdmissions: 48, sweepGets: 80, idealFiveMinuteSweepAdmissionsPerMinute: 9.6,
+      sweepAdmissions: 48, sweepGets: 80, sweepPosts: 0, sweepHttpAttempts: 80, idealFiveMinuteSweepAdmissionsPerMinute: 9.6,
       idealFiveMinuteSweepGetsPerMinute: 16, minimumRecoverySpacingSeconds: 47 * 60 });
   });
   it('requires all 1280 logical versions and separates their 960 shared acquisitions', () => {
     expect(controlledEventCapacity()).toMatchObject({ activeFamilyPairs: 64, logicalEvents: 1_280,
-      minimumAcquisitions: 960, minimumGets: 1_600, minimumEventAndTailSecondsPerPair: 7_200,
+      minimumAcquisitions: 960, minimumGets: 1_600, minimumPosts: 0, minimumHttpAttempts: 1_600, minimumEventAndTailSecondsPerPair: 7_200,
       minimumAcquisitionSpacingSeconds: 959 * 60 });
     expect(controlledEventCapacity(16, false)).toMatchObject({ logicalEvents: 1_280, minimumAcquisitions: 1_280, minimumGets: 2_240 });
   });
@@ -106,35 +106,53 @@ describe('frozen observation and event lower bounds', () => {
 describe('shared provider demand planning', () => {
   it('counts a shared acquisition once, preserves other owners, and separates Tank01', () => {
     const result = requestDemandEstimate(60, [
-      { acquisitionId: 'data-active', provider: 'sleeper', owner: 'data', dataAttributed: true, getAttempts: 16 },
-      { acquisitionId: 'maintenance', provider: 'sleeper', owner: 'maintenance', dataAttributed: false, getAttempts: 31 },
-      { acquisitionId: 'stats', provider: 'sleeper', owner: 'current', dataAttributed: false, getAttempts: 1 },
-      { acquisitionId: 'stats', provider: 'sleeper', owner: 'all-player', dataAttributed: false, getAttempts: 1 },
-      { acquisitionId: 'tank', provider: 'tank01', owner: 'projections', dataAttributed: false, getAttempts: 2 },
+      { acquisitionId: 'data-active', provider: 'sleeper', owner: 'data', dataAttributed: true, getAttempts: 16, postAttempts: 0 },
+      { acquisitionId: 'maintenance', provider: 'sleeper', owner: 'maintenance', dataAttributed: false, getAttempts: 31, postAttempts: 0 },
+      { acquisitionId: 'stats', provider: 'sleeper', owner: 'current', dataAttributed: false, getAttempts: 1, postAttempts: 0 },
+      { acquisitionId: 'stats', provider: 'sleeper', owner: 'all-player', dataAttributed: false, getAttempts: 1, postAttempts: 0 },
+      { acquisitionId: 'tank', provider: 'tank01', owner: 'projections', dataAttributed: false, getAttempts: 2, postAttempts: 0 },
     ]);
     expect(result).toMatchObject({ uniqueAcquisitions: 4, sharedAcquisitions: 1,
-      dataSleeper: { knownAttempts: 16, unknownAcquisitions: 0 }, combinedSleeper: { knownAttempts: 48, unknownAcquisitions: 0 },
-      tank01: { knownAttempts: 2, unknownAcquisitions: 0 }, dataWithinCeilingEstimate: true,
-      combinedSleeperKnownHeadroomAgainstDataCeiling: -8 });
+      dataSleeper: { knownGetAttempts: 16, knownPostAttempts: 0, knownHttpAttempts: 16, unknownAcquisitions: 0 },
+      combinedSleeper: { knownGetAttempts: 48, knownPostAttempts: 0, knownHttpAttempts: 48, unknownAcquisitions: 0 },
+      tank01: { knownGetAttempts: 2, knownPostAttempts: 0, knownHttpAttempts: 2, unknownAcquisitions: 0 },
+      dataWithinGetCeilingEstimate: true, dataWithinConservativeHttpCeilingEstimate: true,
+      combinedSleeperKnownHttpHeadroomAgainstDataCeiling: -8 });
   });
-  it('does not silently convert unknown framework cache traffic into zero requests', () => {
+  it('does not silently convert unknown GET or POST traffic into zero requests', () => {
     const result = requestDemandEstimate(3_600, [
-      { acquisitionId: 'cache', provider: 'sleeper', owner: 'website', dataAttributed: false, getAttempts: null },
-      { acquisitionId: 'data', provider: 'sleeper', owner: 'data', dataAttributed: true, getAttempts: null },
-      { acquisitionId: 'known-hit', provider: 'sleeper', owner: 'website', dataAttributed: false, getAttempts: 0 },
+      { acquisitionId: 'cache', provider: 'sleeper', owner: 'website', dataAttributed: false, getAttempts: null, postAttempts: 0 },
+      { acquisitionId: 'data', provider: 'sleeper', owner: 'data', dataAttributed: true, getAttempts: null, postAttempts: null },
+      { acquisitionId: 'known-hit', provider: 'sleeper', owner: 'website', dataAttributed: false, getAttempts: 0, postAttempts: 0 },
     ]);
-    expect(result).toMatchObject({ dataCeiling: 1_800, dataWithinCeilingEstimate: null,
-      combinedSleeper: { knownAttempts: 0, unknownAcquisitions: 2 }, dataSleeper: { knownAttempts: 0, unknownAcquisitions: 1 } });
+    expect(result).toMatchObject({ dataGetCeiling: 1_800, conservativeHttpAttemptCeiling: 1_800,
+      dataWithinGetCeilingEstimate: null, dataWithinConservativeHttpCeilingEstimate: null,
+      combinedSleeper: { knownHttpAttempts: 0, unknownGetAcquisitions: 2, unknownPostAcquisitions: 1, unknownAcquisitions: 2 },
+      dataSleeper: { knownHttpAttempts: 0, unknownGetAcquisitions: 1, unknownPostAcquisitions: 1, unknownAcquisitions: 1 } });
+    const unknownPost = requestDemandEstimate(60, [{ acquisitionId: 'post', provider: 'sleeper', owner: 'data', dataAttributed: true,
+      getAttempts: 0, postAttempts: null }]);
+    expect(unknownPost).toMatchObject({ dataWithinGetCeilingEstimate: true, dataWithinConservativeHttpCeilingEstimate: null });
+  });
+  it('preserves the GET target while applying an explicitly conservative all-HTTP comparison', () => {
+    const shared = { acquisitionId: 'mixed', provider: 'sleeper' as const, owner: 'data', dataAttributed: true, getAttempts: 30, postAttempts: 12 };
+    const result = requestDemandEstimate(60, [shared, { ...shared, owner: 'measurement' }]);
+    expect(result).toMatchObject({ uniqueAcquisitions: 1, sharedAcquisitions: 1, dataGetCeiling: 40, conservativeHttpAttemptCeiling: 40,
+      dataSleeper: { knownGetAttempts: 30, knownPostAttempts: 12, knownHttpAttempts: 42 },
+      dataKnownGetAttemptsExceedCeiling: false, dataWithinGetCeilingEstimate: true,
+      dataKnownHttpAttemptsExceedConservativeCeiling: true, dataWithinConservativeHttpCeilingEstimate: false });
   });
   it('counts failed, retry, redirect and measurement attempts in supplied totals and rejects conflicting sharing', () => {
-    const demand = { acquisitionId: 'all-attempts', provider: 'sleeper' as const, owner: 'data', dataAttributed: true, getAttempts: 41 };
-    expect(requestDemandEstimate(60, [demand])).toMatchObject({ dataKnownAttemptsExceedCeiling: true, dataWithinCeilingEstimate: false });
+    const demand = { acquisitionId: 'all-attempts', provider: 'sleeper' as const, owner: 'data', dataAttributed: true, getAttempts: 41, postAttempts: 0 };
+    expect(requestDemandEstimate(60, [demand])).toMatchObject({ dataKnownGetAttemptsExceedCeiling: true,
+      dataWithinGetCeilingEstimate: false, dataKnownHttpAttemptsExceedConservativeCeiling: true, dataWithinConservativeHttpCeilingEstimate: false });
     expect(() => requestDemandEstimate(60, [demand, { ...demand, getAttempts: 40 }])).toThrow();
+    expect(() => requestDemandEstimate(60, [demand, { ...demand, postAttempts: 1 }])).toThrow();
     expect(() => requestDemandEstimate(60, [{ ...demand, getAttempts: -1 }])).toThrow();
+    expect(() => requestDemandEstimate(60, [{ ...demand, postAttempts: -1 }])).toThrow();
+    expect(() => requestDemandEstimate(60, [{ ...demand, postAttempts: NaN }])).toThrow();
     expect(() => requestDemandEstimate(60, [{ ...demand, provider: 'tank01' }])).toThrow();
   });
 });
-
 it('binds arithmetic to actual coordinator request increments and protected owner limits', async () => {
   const text = await source('../lib/league-administration/public-intake.ts');
   const tree = ts.createSourceFile('public-intake.ts', text, ts.ScriptTarget.Latest, true);
@@ -202,6 +220,10 @@ it('keeps the actual lifecycle, expiry, CI and coexistence limits visible withou
   expect(maintenance).toContain('upstreamRequests: 3 + extra.providerRequests');
   const transport = await source('../lib/sleeper.ts');
   expect(transport).toContain("redirect: 'error', boundedPublicCapture: true");
+  // Source request counters alone cannot distinguish this GraphQL POST from REST GETs.
+  expect(transport).toContain("requestPolicy?.weeklyReportKey ? 'https://sleeper.com/graphql' : `${API}${path}`");
+  expect(transport).toContain("requestPolicy?.weeklyReportKey ? { method: 'POST', credentials: 'omit' as const");
+  expect(transport).toContain('weeklyReportKey: `${leagueId}_${nativeWeek}`');
   const telemetry = await source('../lib/provider-request-telemetry.ts');
   expect(telemetry).toContain("upstreamRequests: cacheStatus === 'bypass' ? 1 : null");
 });

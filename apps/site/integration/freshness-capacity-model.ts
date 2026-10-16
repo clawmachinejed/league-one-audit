@@ -1,4 +1,4 @@
-/** CP26 planning arithmetic only. No database, provider, worker or elapsed-run proof. */
+/** Pinned CP25 legacy (unselected 60-second policy) planning baseline only. R058 batch throughput is not modeled or proven. */
 export const CURRENT_DATA_CAPACITY = Object.freeze({
   sourceRevision: '15fb9b725e3bff08c70851ba075ee37cb26c166d',
   admissionSpacingSeconds: 60,
@@ -24,12 +24,15 @@ export type CapacityLeagueScope = Readonly<{
   draftCount: number | null;
 }>;
 export type CapacityCycle = Readonly<{ id: string; leagues: readonly CapacityLeagueScope[] }>;
-export type CapacityCost = Readonly<{ acquisitions: number; gets: number }>;
+export type CapacityCost = Readonly<{ acquisitions: number; gets: number; posts: number; httpAttempts: number }>;
 export type CapacityTask = 'identity' | 'discovery' | 'bootstrap' | 'core' | 'users'
   | 'exactMatchups' | 'transactions' | 'weeklyReports' | 'brackets' | 'drafts' | 'playerDirectory';
-const COSTS: Readonly<Record<CapacityTask, number>> = Object.freeze({ identity: 1, discovery: 1,
-  bootstrap: 1, core: 2, users: 1, exactMatchups: 2, transactions: 1, weeklyReports: 1,
-  brackets: 2, drafts: 1, playerDirectory: 1 });
+const COSTS: Readonly<Record<CapacityTask, Readonly<{ gets: number; posts: number }>>> = Object.freeze({
+  identity: { gets: 1, posts: 0 }, discovery: { gets: 1, posts: 0 }, bootstrap: { gets: 1, posts: 0 },
+  core: { gets: 2, posts: 0 }, users: { gets: 1, posts: 0 }, exactMatchups: { gets: 2, posts: 0 },
+  transactions: { gets: 1, posts: 0 }, weeklyReports: { gets: 0, posts: 1 },
+  brackets: { gets: 2, posts: 0 }, drafts: { gets: 1, posts: 0 }, playerDirectory: { gets: 1, posts: 0 },
+});
 function count(value: number, name: string, minimum: number, maximum: number) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error(`Invalid ${name}.`);
   return value;
@@ -58,9 +61,12 @@ export function currentSourceCapacity(cycles: readonly CapacityCycle[], includeS
   if (!Array.isArray(cycles) || !cycles.length || cycles.length > 16
     || new Set(cycles.map(cycle => cycle.id)).size !== cycles.length
     || typeof includeSharedPlayerDirectory !== 'boolean') throw new Error('Invalid capacity cycles.');
-  const tasks = Object.fromEntries(Object.keys(COSTS).map(kind => [kind, { acquisitions: 0, gets: 0 }])) as Record<CapacityTask, { acquisitions: number; gets: number }>;
+  const tasks = Object.fromEntries(Object.keys(COSTS).map(kind => [kind, { acquisitions: 0, gets: 0, posts: 0, httpAttempts: 0 }])) as Record<CapacityTask, { acquisitions: number; gets: number; posts: number; httpAttempts: number }>;
   const add = (task: CapacityTask, acquisitions: number) => {
-    tasks[task].acquisitions += acquisitions; tasks[task].gets += acquisitions * COSTS[task];
+    tasks[task].acquisitions += acquisitions;
+    tasks[task].gets += acquisitions * COSTS[task].gets;
+    tasks[task].posts += acquisitions * COSTS[task].posts;
+    tasks[task].httpAttempts += acquisitions * (COSTS[task].gets + COSTS[task].posts);
   };
   const distinct = new Set<string>();
   let leagueAssociations = 0;
@@ -83,18 +89,22 @@ export function currentSourceCapacity(cycles: readonly CapacityCycle[], includeS
   add('playerDirectory', Number(includeSharedPlayerDirectory));
   const acquisitionAdmissions = Object.values(tasks).reduce((sum, task) => sum + task.acquisitions, 0);
   const getAttempts = Object.values(tasks).reduce((sum, task) => sum + task.gets, 0);
+  const postAttempts = Object.values(tasks).reduce((sum, task) => sum + task.posts, 0);
+  const httpAttempts = getAttempts + postAttempts;
   // A terminal request can already be read after its last checkpoint. Settlement is
   // a separate zero-GET recurring-cycle claim, not initial import availability.
   const settlementClaims = cycles.length;
   return { proofClass: CAPACITY_PROOF_CLASS, tasks, distinctLeagues: distinct.size, leagueAssociations,
-    acquisitionAdmissions, getAttempts, settlementClaims, normalSuccessfulClaims: acquisitionAdmissions + settlementClaims,
+    acquisitionAdmissions, getAttempts, postAttempts, httpAttempts, settlementClaims, normalSuccessfulClaims: acquisitionAdmissions + settlementClaims,
     minimumAcquisitionSpacingSeconds: Math.max(0, acquisitionAdmissions - 1) * CURRENT_DATA_CAPACITY.admissionSpacingSeconds,
     normalSuccessfulClaimSpacingSeconds: Math.max(0, acquisitionAdmissions + settlementClaims - 1)
       * CURRENT_DATA_CAPACITY.successfulCompletionSpacingSeconds,
     assumptions: ['No retries, failed acquisitions, processing time, queueing or other owners included.',
       'Settlement claim count models one completed recurring cycle per supplied cycle.',
       'Normal successful claim spacing excludes faster failed/expired-lease paths.',
-      'Complete selected source availability and supported inventories are assumed.'] as const };
+      'Complete selected source availability and supported inventories are assumed.',
+      'Spacing impossibility applies only to the pinned CP25 legacy policy; selected R058 batching has no measured throughput here.',
+      'Weekly-report acquisitions use POST; all HTTP attempts remain counted in conservative capacity planning.'] as const };
 }
 /** All pairs here share ONE aligned two-hour window. Use eight for the benchmark's
  * initially accepted cohort; sixteen is a separate aligned-window scenario only. */
@@ -122,7 +132,7 @@ export function currentSourceActiveBounds(alignedActiveLeagues: number) {
     p95MinimumAdmissions, p99MinimumAdmissions, maximumAdmissionsInWindow,
     p95ImpossibleUnderCurrentAdmission: p95MinimumAdmissions > maximumAdmissionsInWindow,
     p99ImpossibleUnderCurrentAdmission: p99MinimumAdmissions > maximumAdmissionsInWindow,
-    sweepAdmissions, sweepGets, idealFiveMinuteSweepAdmissionsPerMinute: sweepAdmissions / 5,
+    sweepAdmissions, sweepGets, sweepPosts: 0, sweepHttpAttempts: sweepGets, idealFiveMinuteSweepAdmissionsPerMinute: sweepAdmissions / 5,
     idealFiveMinuteSweepGetsPerMinute: sweepGets / 5,
     minimumRecoverySpacingSeconds: recoverySpacingSeconds,
     recoveryWithinFifteenMinutesImpossible: recoverySpacingSeconds > 900,
@@ -138,7 +148,7 @@ export function controlledEventCapacity(activeLeagues = 16, lineupAndScoreEvents
   const acquisitions = activeLeagues * (eventsPerPair * 2 + matchupCapturesPerLeague);
   const gets = activeLeagues * (eventsPerPair * 3 + matchupCapturesPerLeague * 2);
   return { proofClass: CAPACITY_PROOF_CLASS, activeFamilyPairs: activeLeagues * 4, eventsPerPair,
-    logicalEvents: activeLeagues * 4 * eventsPerPair, minimumAcquisitions: acquisitions, minimumGets: gets,
+    logicalEvents: activeLeagues * 4 * eventsPerPair, minimumAcquisitions: acquisitions, minimumGets: gets, minimumPosts: 0, minimumHttpAttempts: gets,
     minimumEventAndTailSecondsPerPair: (eventsPerPair - 1) * 360 + 360,
     minimumAcquisitionSpacingSeconds: (acquisitions - 1) * CURRENT_DATA_CAPACITY.admissionSpacingSeconds,
     lineupAndScoreEventsAligned };
@@ -158,41 +168,54 @@ export type RequestDemandEstimate = Readonly<{
   provider: 'sleeper' | 'tank01';
   owner: string;
   dataAttributed: boolean;
-  /** Includes failed/retried/redirect/measurement attempts. null means unknown cache transport. */
+  /** Include failed/retried/redirect/measurement attempts. null is unknown, never zero. */
   getAttempts: number | null;
+  postAttempts: number | null;
 }>;
-/** A fixed-window planning estimate, not a rolling-window measurement or admission grant. */
+/** A fixed-window planning estimate, not a rolling-window measurement or admission grant.
+ * CP1's ceiling remains GET-specific. The additional all-HTTP comparison is deliberately conservative. */
 export function requestDemandEstimate(windowSeconds: 60 | 3_600, demands: readonly RequestDemandEstimate[]) {
   if (![60, 3_600].includes(windowSeconds) || !Array.isArray(demands) || demands.length > 100_000) throw new Error('Invalid request estimate.');
-  const acquisitions = new Map<string, { provider: 'sleeper' | 'tank01'; dataAttributed: boolean; getAttempts: number | null; owners: Set<string> }>();
+  const acquisitions = new Map<string, { provider: 'sleeper' | 'tank01'; dataAttributed: boolean;
+    getAttempts: number | null; postAttempts: number | null; owners: Set<string> }>();
   for (const demand of demands) {
     key(demand.acquisitionId, 'acquisition ID'); key(demand.owner, 'request owner');
     if (!['sleeper', 'tank01'].includes(demand.provider) || typeof demand.dataAttributed !== 'boolean'
       || demand.dataAttributed && demand.provider !== 'sleeper') throw new Error('Invalid request attribution.');
     if (demand.getAttempts !== null) count(demand.getAttempts, 'GET attempts', 0, 1_000_000);
+    if (demand.postAttempts !== null) count(demand.postAttempts, 'POST attempts', 0, 1_000_000);
     const previous = acquisitions.get(demand.acquisitionId);
-    if (previous && (previous.provider !== demand.provider || previous.getAttempts !== demand.getAttempts)) throw new Error('Conflicting shared acquisition estimate.');
+    if (previous && (previous.provider !== demand.provider || previous.getAttempts !== demand.getAttempts
+      || previous.postAttempts !== demand.postAttempts)) throw new Error('Conflicting shared acquisition estimate.');
     if (previous) { previous.dataAttributed ||= demand.dataAttributed; previous.owners.add(demand.owner); }
     else acquisitions.set(demand.acquisitionId, { provider: demand.provider, dataAttributed: demand.dataAttributed,
-      getAttempts: demand.getAttempts, owners: new Set([demand.owner]) });
+      getAttempts: demand.getAttempts, postAttempts: demand.postAttempts, owners: new Set([demand.owner]) });
   }
   const sum = (select: (entry: { provider: string; dataAttributed: boolean }) => boolean) => {
     const entries = [...acquisitions.values()].filter(select);
-    return { knownAttempts: entries.reduce((total, entry) => total + (entry.getAttempts ?? 0), 0),
-      unknownAcquisitions: entries.filter(entry => entry.getAttempts === null).length };
+    const knownGetAttempts = entries.reduce((total, entry) => total + (entry.getAttempts ?? 0), 0);
+    const knownPostAttempts = entries.reduce((total, entry) => total + (entry.postAttempts ?? 0), 0);
+    return { knownGetAttempts, knownPostAttempts, knownHttpAttempts: knownGetAttempts + knownPostAttempts,
+      unknownGetAcquisitions: entries.filter(entry => entry.getAttempts === null).length,
+      unknownPostAcquisitions: entries.filter(entry => entry.postAttempts === null).length,
+      unknownAcquisitions: entries.filter(entry => entry.getAttempts === null || entry.postAttempts === null).length };
   };
   const dataSleeper = sum(entry => entry.dataAttributed);
   const combinedSleeper = sum(entry => entry.provider === 'sleeper');
   const tank01 = sum(entry => entry.provider === 'tank01');
   const ceiling = windowSeconds === 60 ? CURRENT_DATA_CAPACITY.dataGetsPerMinute : CURRENT_DATA_CAPACITY.dataGetsPerHour;
+  const within = (known: number, unknown: number) => known > ceiling ? false : unknown ? null : true;
   return { proofClass: CAPACITY_PROOF_CLASS, windowSeconds, uniqueAcquisitions: acquisitions.size,
     sharedAcquisitions: [...acquisitions.values()].filter(entry => entry.owners.size > 1).length,
-    dataSleeper, combinedSleeper, tank01, dataCeiling: ceiling,
-    dataKnownAttemptsExceedCeiling: dataSleeper.knownAttempts > ceiling,
-    dataWithinCeilingEstimate: dataSleeper.knownAttempts > ceiling ? false : dataSleeper.unknownAcquisitions ? null : true,
-    combinedSleeperKnownHeadroomAgainstDataCeiling: ceiling - combinedSleeper.knownAttempts,
+    dataSleeper, combinedSleeper, tank01, dataGetCeiling: ceiling, conservativeHttpAttemptCeiling: ceiling,
+    dataKnownGetAttemptsExceedCeiling: dataSleeper.knownGetAttempts > ceiling,
+    dataWithinGetCeilingEstimate: within(dataSleeper.knownGetAttempts, dataSleeper.unknownGetAcquisitions),
+    dataKnownHttpAttemptsExceedConservativeCeiling: dataSleeper.knownHttpAttempts > ceiling,
+    dataWithinConservativeHttpCeilingEstimate: within(dataSleeper.knownHttpAttempts, dataSleeper.unknownAcquisitions),
+    combinedSleeperKnownHttpHeadroomAgainstDataCeiling: ceiling - combinedSleeper.knownHttpAttempts,
     assumptions: ['Fixed-window estimate does not establish every rolling minute/hour.',
+      'CP1 GET ceilings are unchanged; comparing all HTTP attempts with those numbers is conservative planning only.',
       'Combined Sleeper comparison is planning headroom, not a changed limit on other owners.',
-      'Unknown framework-cache transport is never credited as zero GETs.',
+      'Unknown framework-cache transport is never credited as zero GETs or POSTs.',
       'Tank01 is counted separately and receives no new request allowance.'] as const };
 }

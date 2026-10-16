@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ database: vi.fn(), bounded: vi.fn(), administration: vi.fn(), intake: vi.fn(),
-  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), directory: vi.fn(), configure: vi.fn(), submit: vi.fn() }));
+  refresh: vi.fn(), jobs: vi.fn(), run: vi.fn(), batch: vi.fn(), directory: vi.fn(), configure: vi.fn(), submit: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('../database', () => ({ getDatabase: mocks.database, withDatabaseAbortSignal: mocks.bounded }));
 vi.mock('../projection-store', () => ({ createProjectionStore: mocks.jobs }));
 vi.mock('./store', () => ({ createLeagueAdministrationStore: mocks.administration, createPublicIntakeStore: mocks.intake,
   createPublicDataRefreshStore: mocks.refresh }));
-vi.mock('./public-intake', () => ({ runPublicDataRefreshStep: mocks.run, runPublicIntakeStep: vi.fn(), runPublicPlayerDirectoryStep: mocks.directory }));
-import { configurePublicSleeperRefresh, submitPublicSleeperIntake, runSelectedPublicDataRefresh, runSelectedPublicPlayerDirectory, type PublicDataRefreshSelection } from './public-intake-runtime';
+vi.mock('./public-intake', () => ({ runPublicDataRefreshStep: mocks.run, runPublicDataBatch: mocks.batch, runPublicIntakeStep: vi.fn(), runPublicPlayerDirectoryStep: mocks.directory }));
+import { configurePublicSleeperRefresh, submitPublicSleeperIntake, runSelectedPublicIntakeBatch, runSelectedPublicDataRefresh, runSelectedPublicPlayerDirectory, type PublicDataRefreshSelection } from './public-intake-runtime';
 const start = Date.parse('2026-10-06T12:00:00Z');
 const enabled = { enabled: true } as const;
 beforeEach(() => {
@@ -17,6 +17,53 @@ beforeEach(() => {
   mocks.administration.mockReturnValue({}); mocks.run.mockResolvedValue({ status: 'idle', providerRequests: 0 });
 });
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
+
+describe('closed opt-in batch runtime', () => {
+  const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const selection = { enabled: true, requestId, batchPolicy: 'public-data-batch-v1' } as const;
+  it.each([undefined, null, {}, { ...selection, enabled: false }, { ...selection, requestId: 'wrong' },
+    { ...selection, batchPolicy: undefined }, { ...selection, batchPolicy: 'future' },
+    { ...selection, managerEvidenceVersion: 'v3' }])('rejects missing, disabled or unknown selection before storage: %j', async value => {
+    expect(await runSelectedPublicIntakeBatch(value as never, start)).toEqual({ status: 'disabled', providerRequests: 0 });
+    expect(mocks.database).not.toHaveBeenCalled(); expect(mocks.batch).not.toHaveBeenCalled();
+  });
+  it.each([NaN, Infinity, start + 1, start - 5001])('rejects an invalid original invocation time before storage: %s', async origin => {
+    expect(await runSelectedPublicIntakeBatch(selection, origin)).toEqual({ status: 'deadline', providerRequests: 0 });
+    expect(mocks.database).not.toHaveBeenCalled();
+  });
+  it('awaits the selected direct batch with its request and original time through the shared bounded composition', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    mocks.database.mockImplementation(() => { vi.setSystemTime(start + 4000); return { enabled: true }; });
+    const outcome = { status: 'complete', providerRequests: 26, completedSteps: 18, stopReason: 'work-status' };
+    mocks.batch.mockResolvedValue(outcome);
+    expect(await runSelectedPublicIntakeBatch(selection, start)).toBe(outcome);
+    expect(mocks.batch).toHaveBeenCalledExactlyOnceWith(requestId, expect.objectContaining({
+      deadlineAt: '2026-10-06T12:00:20.000Z', preAdmission: expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    }), expect.any(AbortSignal), start);
+    expect(timeout.mock.calls.map(call => call[0])).toEqual([16000, 6000]);
+    expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.submit).not.toHaveBeenCalled();
+  });
+  it('selects recurring batches explicitly and preserves the omitted-policy legacy path', async () => {
+    await runSelectedPublicDataRefresh({ enabled: true, batchPolicy: selection.batchPolicy }, start);
+    expect(mocks.batch).toHaveBeenCalledWith(undefined, expect.anything(), expect.any(AbortSignal), start);
+    expect(mocks.run).not.toHaveBeenCalled();
+    await runSelectedPublicDataRefresh(enabled, start);
+    expect(mocks.run).toHaveBeenCalledOnce();
+  });
+  it('keeps direct batch claim and admission on the early client and cleanup inside the original deadline', async () => {
+    mocks.intake.mockImplementation(client => ({ client }));
+    mocks.batch.mockImplementation(async (_requestId, dependencies, signal) => {
+      expect(dependencies.intake.client.signal).toBe(signal);
+      expect(dependencies.preAdmission.intake.client.signal).toBe(dependencies.preAdmission.signal);
+      expect(dependencies.preAdmission.signal).not.toBe(signal);
+      vi.setSystemTime(start + 22001); dependencies.cleanup();
+      expect(mocks.bounded.mock.calls.at(-1)![1].aborted).toBe(true);
+      return { status: 'unavailable', providerRequests: 0 };
+    });
+    await runSelectedPublicIntakeBatch(selection, start);
+    expect(mocks.batch).toHaveBeenCalledOnce();
+  });
+});
 
 describe('controlled durable submission runtime', () => {
   const input = { id: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', username: 'Any_Manager', seasons: [2026] };

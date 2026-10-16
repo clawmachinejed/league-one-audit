@@ -2,9 +2,9 @@ import 'server-only';
 import { getDatabase, withDatabaseAbortSignal } from '../database';
 import { createProjectionStore } from '../projection-store';
 import { createLeagueAdministrationStore, createPublicIntakeStore, createPublicDataRefreshStore } from './store';
-import { validatePublicIntake, type PublicIntakeInput } from './public-intake-contracts';
-import { validatePublicDataRefresh, type PublicDataRefreshConfiguration } from './public-refresh-contracts';
-import { runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep } from './public-intake';
+import { validatePublicIntake, PUBLIC_DATA_BATCH_POLICY, type PublicIntakeInput } from './public-intake-contracts';
+import { validatePublicDataRefresh, refreshUuid, type PublicDataRefreshConfiguration } from './public-refresh-contracts';
+import { runPublicDataBatch, runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep } from './public-intake';
 
 /** Operator/backend composition only. No current route supplies this selection.
  * The legacy runner requires explicit enablement, installed 034 and its runtime grants.
@@ -41,9 +41,11 @@ export async function runSelectedPublicIntake(selection: PublicIntakeSelection, 
 }
 
 /** Explicit backend composition. Merely importing this module does not query R036. */
-export type PublicDataRefreshSelection = Readonly<{ enabled: true; managerEvidenceVersion?: 'v2' }>;
+export type PublicDataRefreshSelection = Readonly<{ enabled: true; managerEvidenceVersion?: 'v2';
+  batchPolicy?: typeof PUBLIC_DATA_BATCH_POLICY }>;
 export async function configurePublicSleeperRefresh(input: PublicDataRefreshConfiguration, selection: PublicDataRefreshSelection | null | undefined) {
-  if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2') {
+  if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2'
+    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY) {
     return { status: 'disabled' } as const;
   }
   const validated = validatePublicDataRefresh(input);
@@ -55,14 +57,32 @@ export async function configurePublicSleeperRefresh(input: PublicDataRefreshConf
 }
 
 export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshSelection | null | undefined, invocationStartedAt: number) {
-  if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2') {
+  return runSelectedPublicDataWork(selection, invocationStartedAt);
+}
+
+/** Explicit awaited backend kickoff. Submission receipts and caller lifetime remain separate. */
+export async function runSelectedPublicIntakeBatch(selection: PublicIntakeSelection & Readonly<{ batchPolicy: typeof PUBLIC_DATA_BATCH_POLICY }>,
+  invocationStartedAt: number) {
+  if (selection?.batchPolicy !== PUBLIC_DATA_BATCH_POLICY || !refreshUuid(selection.requestId)) {
+    return { status: 'disabled', providerRequests: 0 } as const;
+  }
+  return runSelectedPublicDataWork(selection, invocationStartedAt, selection.requestId);
+}
+
+async function runSelectedPublicDataWork(selection: PublicDataRefreshSelection | null | undefined, invocationStartedAt: number,
+  requestId?: string) {
+  if (selection?.enabled !== true || selection.managerEvidenceVersion !== undefined && selection.managerEvidenceVersion !== 'v2'
+    || selection.batchPolicy !== undefined && selection.batchPolicy !== PUBLIC_DATA_BATCH_POLICY) {
     return { status: 'disabled', providerRequests: 0 } as const;
   }
   const startedAt = Date.now();
   const workDeadline = invocationStartedAt + 20_000;
   const deadline = invocationStartedAt + 22_000;
   const remaining = workDeadline - startedAt;
-  if (!Number.isFinite(remaining) || remaining < 15_000) return { status: 'deadline', providerRequests: 0 } as const;
+  if (!Number.isFinite(remaining) || remaining < 15_000
+    || selection.batchPolicy === PUBLIC_DATA_BATCH_POLICY && invocationStartedAt > startedAt) {
+    return { status: 'deadline', providerRequests: 0 } as const;
+  }
   const database = getDatabase();
   if (!database.enabled) return { status: 'disabled', providerRequests: 0 } as const;
   // The final two seconds belong to cleanup inside the SAME absolute budget.
@@ -85,7 +105,7 @@ export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshS
     return { refresh: createPublicDataRefreshStore(cleanupDatabase), intake: createPublicIntakeStore(cleanupDatabase),
       jobs: createProjectionStore(cleanupDatabase) };
   };
-  return runPublicDataRefreshStep({ refresh: createPublicDataRefreshStore(bounded), intake: createPublicIntakeStore(bounded),
+  const dependencies = { refresh: createPublicDataRefreshStore(bounded), intake: createPublicIntakeStore(bounded),
     administration: createLeagueAdministrationStore(bounded), jobs: createProjectionStore(bounded),
     deadlineAt: new Date(workDeadline).toISOString(),
     ...(selection.managerEvidenceVersion ? { managerEvidenceVersion: selection.managerEvidenceVersion } : {}),
@@ -94,7 +114,10 @@ export async function runSelectedPublicDataRefresh(selection: PublicDataRefreshS
       // Reconcile only while the ORIGINAL work fence is still valid. The short
       // phase signal cannot cancel a successful later provider acquisition.
       cleanup: () => cleanup(workDeadline) },
-    cleanup: () => cleanup(deadline) }, signal);
+    cleanup: () => cleanup(deadline) };
+  return selection.batchPolicy === PUBLIC_DATA_BATCH_POLICY
+    ? runPublicDataBatch(requestId, dependencies, signal, invocationStartedAt)
+    : runPublicDataRefreshStep(dependencies, signal);
 }
 
 

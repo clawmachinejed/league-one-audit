@@ -943,3 +943,39 @@ DO $$ DECLARE value_table text; helper text; denied text:='INSERT,UPDATE,DELETE,
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC DRAFT INTAKE GRANTS
+
+-- BEGIN OPTIONAL PUBLIC DATA BATCH GRANTS
+-- R058 remains opt-in. Provisioning a runtime role after migration installation
+-- must expose the same public interface and deny the renamed legacy bypasses.
+DO $$ DECLARE entry_point text; helper text; BEGIN
+  IF to_regprocedure('public.public_data_batch_capability()') IS NOT NULL THEN
+    FOREACH helper IN ARRAY ARRAY[
+      'public.public_data_batch_claim_result(public.projection_jobs)',
+      'public.assert_public_data_batch_owner(jsonb)',
+      'public.public_data_batch_budget_available(integer)',
+      'public.admit_public_data_dispatch_v57(jsonb,jsonb)',
+      'public.begin_player_directory_attempt_v57(uuid,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public batch helper';
+      END IF;
+    END LOOP;
+    FOREACH entry_point IN ARRAY ARRAY[
+      'public.public_data_batch_capability()',
+      'public.begin_public_data_batch(text,timestamptz,uuid)',
+      'public.advance_public_data_batch_owner(jsonb,text)',
+      'public.next_public_data_batch_intake(uuid)',
+      'public.admit_public_data_batch_dispatch(jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',entry_point);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',entry_point);
+      IF NOT has_function_privilege('league_one_runtime',entry_point,'EXECUTE')
+        OR EXISTS(SELECT 1 FROM pg_proc function_entry,
+          LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+          WHERE function_entry.oid=to_regprocedure(entry_point)
+            AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+        RAISE EXCEPTION 'incorrect public batch entry point privileges';
+      END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DATA BATCH GRANTS

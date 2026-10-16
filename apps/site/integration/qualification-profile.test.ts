@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
+import { BATCH_EVIDENCE_FILE, BATCH_CASE_NAMES, BATCH_CASE_LIMITS } from './batch-calibration-evidence';
+import { BATCH_CALIBRATION_PROFILE, BATCH_CALIBRATION_MODULE, BATCH_CALIBRATION_SOURCE_DIGEST, BATCH_CALIBRATION_SUITE,
+  BATCH_CALIBRATION_FULL_NAMES, BATCH_CALIBRATION_PATTERN, BATCH_CALIBRATION_SUPPORT_SOURCES, assertBatchCalibrationSupportSources } from './qualification-profile';
 import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLES,
   writeRunnerCyclesEvidence, type RunnerCyclesEvidence, type RunnerInvocation } from './runner-cycles-evidence';
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
@@ -3797,8 +3800,13 @@ async function runnerCyclesFixture(): Promise<{
   binding: QualificationBinding; evidence: QualificationReport; companion: RunnerCyclesEvidence;
 }> {
   const previous = await officialResultsEvidenceFixture();
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
-    'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
+  // Historical report-oracle fixture only: current runtime deliberately differs
+  // from CP25's immutable source pins. This never validates the current checkout.
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: RUNNER_CYCLES_PROFILE, modules: [{ path: RUNNER_CYCLES_MODULE, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: RUNNER_CYCLES_PROFILE,
+      module: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST,
+      inventory: RUNNER_CYCLES_FULL_NAMES, supportSources: RUNNER_CYCLES_SUPPORT_SOURCES }) };
   const evidence = structuredClone(previous.evidence);
   evidence.contextDigest = qualificationDigest(context);
   evidence.specifications = [{ path: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, otherFilters: false }];
@@ -4078,28 +4086,97 @@ it('binds every CP25 support source independently without changing historical so
     'lib/projections/adapters/neon/jobs.ts',
     'lib/league-administration/registry.ts', 'lib/league-administration/neon/enrollment.ts',
   ]);
-  await expect(assertRunnerCyclesSupportSources(siteRoot)).resolves.toBeUndefined();
-  const directory = await mkdtemp(join(tmpdir(), 'runner-cycles-support-')); directories.push(directory);
-  await mkdir(join(directory, 'integration'));
-  await writeFile(join(directory, RUNNER_CYCLES_MODULE), await readFile(new URL('../' + RUNNER_CYCLES_MODULE, import.meta.url), 'utf8'));
-  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow();
+  // CP26 changes the runtime; historical success remains bound to historical bytes.
+  await expect(assertRunnerCyclesSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const changed = [];
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
-    await mkdir(dirname(join(directory, entry.path)), { recursive: true });
-    await writeFile(join(directory, entry.path), await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+    if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
-  expect(context.modules).toEqual([{ path: RUNNER_CYCLES_MODULE, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST }]);
-  for (const path of [RUNNER_CYCLES_MODULE, ...RUNNER_CYCLES_SUPPORT_SOURCES.map(entry => entry.path)]) {
-    const original = await readFile(join(directory, path), 'utf8');
-    await writeFile(join(directory, path), original + '\n// unreviewed CP25 source drift\n');
-    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
-    if (path !== RUNNER_CYCLES_MODULE) await expect(assertRunnerCyclesSupportSources(directory)).rejects.toThrow('reviewed LF digest');
-    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
-    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE))
-      .resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
-    await writeFile(join(directory, path), original);
-  }
+  expect(changed.sort()).toEqual(['lib/league-administration/neon/public-intake.ts',
+    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
+});
+
+async function batchCalibrationReportFixture() {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, otherFilters: false }];
+  evidence.collected = [BATCH_CALIBRATION_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: BATCH_CALIBRATION_MODULE,
+    suites: [{ id: 'suite', name: BATCH_CALIBRATION_SUITE, mode: 'run', errors: 0 }],
+    cases: BATCH_CALIBRATION_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('CP26 calibration selects only its three closed cases and one protected manual workflow arm', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  expect(parseQualificationArguments(['--profile=' + BATCH_CALIBRATION_PROFILE])).toBe(BATCH_CALIBRATION_PROFILE);
+  expect(qualificationArguments(BATCH_CALIBRATION_PROFILE, '/reporter')).toEqual(['--reporter', 'verbose', '--reporter', '/reporter', BATCH_CALIBRATION_MODULE, '--testNamePattern', BATCH_CALIBRATION_PATTERN]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([BATCH_CALIBRATION_MODULE]);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70); expect(full.modules.some(row => row.path === BATCH_CALIBRATION_MODULE)).toBe(false);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-batch-calibration-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-batch-calibration-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-batch-calibration-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain('timeout-minutes: 50'); expect(workflow).toContain('cancel-in-progress: false');
+  for (const extra of ['--retry=1', '--repeat=2', '--testNamePattern=one', BATCH_CALIBRATION_MODULE])
+    expect(() => parseQualificationArguments(['--profile=' + BATCH_CALIBRATION_PROFILE, extra])).toThrow();
+});
+it('CP26 calibration rejects missing reordered overlapping repeated skipped and errored cases', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  for (const mutate of [
+    (row: QualificationReport) => { row.modules[0].cases.pop(); },
+    (row: QualificationReport) => { row.modules[0].cases.reverse(); },
+    (row: QualificationReport) => { row.modules[0].cases[1].diagnostic!.startTime = row.modules[0].cases[0].diagnostic!.startTime; },
+    (row: QualificationReport) => { row.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    (row: QualificationReport) => { row.modules[0].cases[0].state = 'skipped'; },
+    (row: QualificationReport) => { row.hooks.pop(); },
+  ]) { const changed = structuredClone(evidence); mutate(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+});
+it('CP26 calibration requires a complete companion after ordinary report and cleanup evidence', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeFile(join(binding.directory, BATCH_EVIDENCE_FILE), JSON.stringify({ kind: 'data-batch-calibration-evidence-v1', cleanupComplete: true }));
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+it('CP26 calibration independently inventories literal ordered cases hooks and bounded allocations without SQL', async () => {
+  const path = fileURLToPath(new URL('../' + BATCH_CALIBRATION_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(BATCH_CALIBRATION_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), cases: string[] = [], suites: string[] = [], hooks: string[] = [], budgets: string[] = [];
+  const visit = (node: ts.Node) => { if (ts.isCallExpression(node)) { const expression = node.expression.getText(tree);
+    if (['it', 'describe.sequential'].includes(expression)) { expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+      (expression === 'it' ? cases : suites).push((node.arguments[0] as ts.StringLiteral).text); }
+    if (expression === 'it') budgets.push(node.arguments[2].getText(tree));
+    if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); budgets.push(node.arguments[1].getText(tree)); }
+    expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+  } ts.forEachChild(node, visit); }; visit(tree);
+  expect(cases).toEqual([...BATCH_CASE_NAMES]); expect(suites).toEqual([BATCH_CALIBRATION_SUITE]); expect(hooks).toEqual(['beforeAll', 'afterAll']);
+  expect(budgets).toEqual(['60_000', '60_000', ...BATCH_CASE_LIMITS.map(value => value === 90_000 ? '90_000' : '60_000')]);
+  expect(budgets.reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(330_000);
+  expect(source).toContain("const result=await command('enabled')"); expect(source.match(/command\('enabled'\)/gu)).toHaveLength(1);
+});
+it('CP26 calibration binds every new source pin and rejects source drift without changing old profile pins', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url)); await expect(assertBatchCalibrationSupportSources(siteRoot)).resolves.toBeUndefined();
+  const directory = await mkdtemp(join(tmpdir(), 'batch-calibration-support-')); directories.push(directory);
+  for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
+    await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), await readFile(join(siteRoot, path), 'utf8'));
+  }
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE);
+  for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
+    const original = await readFile(join(directory, path), 'utf8'); await writeFile(join(directory, path), original + '\n// source drift\n');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(join(directory, path), original);
+  }
+  await expect(assertRunnerCyclesSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
 });

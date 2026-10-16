@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import net from 'node:net';
-import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../sleeper';
+import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList,
+  capturePublicSleeperWeeklyReport, getOfficialDraftAdministration } from '../sleeper';
 import { recordCapturedAdministration } from './runtime';
-import { assertOriginalPublicCapture, parsePublicCaptureWitness, validateRequestedPublicCaptureWitness,
+import { normalizeAdministrationObservation } from './normalize';
+import { assertOriginalPublicCapture, parsePublicCaptureWitness, publicCaptureBeforeRequest, publicCaptureForRequest,
+  publicDraftCaptureForPayload, validateRequestedPublicCaptureWitness,
   type PublicCaptureWitness } from './public-capture-witness';
 import type { CapturedAdministrationDocument } from './contracts';
 import type { LeagueAdministrationStore } from './store-contracts';
@@ -136,6 +139,51 @@ describe('public capture witnesses through the maintained transport and writer',
     const matchup = await capturePublicSleeperCore(native, 'matchups', signal(), 4, exact);
     expect(matchup.week).toBe(4);
     expect(() => assertOriginalPublicCapture(matchup, exact)).not.toThrow();
+  });
+
+  it.each([0, 1])('blocks all original public transport entries at %d ms beyond the deadline without HTTP', async beyond => {
+    const fetch = fixtureFetch(), witness = coreWitness();
+    const report: PublicCaptureWitness = { ...witness, work: { ...witness.work, kind: 'weekly-report', nativeWeek: 4 },
+      attempts: { weekly_report: { id: uuid(14), nonce: uuid(24) } } };
+    const draft: PublicCaptureWitness = { ...witness, work: { ...witness.work, kind: 'drafts', resource: 'catalog' },
+      attempts: { draftMetadata: { id: uuid(15), nonce: uuid(25) } } };
+    vi.setSystemTime(serverTime + 20_000 + beyond);
+    await expect(captureLeague(witness)).rejects.toThrow(/deadline expired/);
+    await expect(capturePublicSleeperIdentity('manager_55', signal(), dispatchWitness('identity'))).rejects.toThrow(/deadline expired/);
+    await expect(capturePublicSleeperLeagueList('55', 2026, signal(), dispatchWitness('leagues'))).rejects.toThrow(/deadline expired/);
+    await expect(capturePublicSleeperWeeklyReport(native, 4, signal(), report)).rejects.toThrow(/deadline expired/);
+    await expect(getOfficialDraftAdministration(native, 2026, { maxRequests: 1, publicDraft: { witness: draft, catalog: null } }))
+      .rejects.toThrow(/deadline expired/);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('accepts the last millisecond before the original deadline and preserves omitted legacy witnesses', async () => {
+    const fetch = fixtureFetch(), witness = coreWitness();
+    vi.setSystemTime(serverTime + 19_999);
+    expect(publicCaptureBeforeRequest(witness, 'league', native)).toEqual(witness);
+    await captureLeague(witness);
+    vi.setSystemTime(serverTime + 60_000);
+    expect(publicCaptureBeforeRequest(undefined, 'league', native)).toBeUndefined();
+    await captureLeague();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps historical parsing, scope validation, seals and normalization independent of the current clock', async () => {
+    fixtureFetch();
+    const witness = coreWitness(), capture = await captureLeague(witness), { store, recordObservation } = recorder();
+    await recordCapturedAdministration(witness.mapping.scope, [capture], { store, mapping: witness.mapping,
+      fence: witness.fence, expectedAcquisition: witness });
+    const normalized = recordObservation.mock.calls[0][0];
+    vi.setSystemTime(serverTime + 86_400_000);
+    expect(parsePublicCaptureWitness(witness)).toEqual(witness);
+    expect(publicCaptureForRequest(witness, 'league', native)).toEqual(witness);
+    expect(() => assertOriginalPublicCapture(capture, witness)).not.toThrow();
+    expect(normalizeAdministrationObservation(normalized.envelope)).toEqual(normalized);
+    const draft: PublicCaptureWitness = { ...witness, work: { ...witness.work, kind: 'drafts', resource: 'catalog' },
+      attempts: { draftMetadata: { id: uuid(15), nonce: uuid(25) } } };
+    expect(publicDraftCaptureForPayload(draft, native, 2026, { metadataVersion: 'sleeper-draft-metadata-v1', kind: 'catalog' }))
+      .toEqual(draft);
+    expect(() => publicCaptureBeforeRequest(witness, 'league', native)).toThrow(/deadline expired/);
   });
 
   it('rejects wrong request identity, family and native period before fixture HTTP', async () => {
