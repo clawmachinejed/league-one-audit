@@ -83,6 +83,23 @@ DO $$ DECLARE intake_table text; BEGIN
 END; $$;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+
+-- BEGIN OPTIONAL PUBLIC CONTROLLED SUBMISSION GRANT
+-- R057 is opt-in at the existing backend entry point; legacy schemas stay unchanged.
+DO $$ BEGIN
+  IF to_regprocedure('public.submit_public_data_intake(jsonb,boolean)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.submit_public_data_intake(jsonb,boolean) FROM PUBLIC;
+    GRANT EXECUTE ON FUNCTION public.submit_public_data_intake(jsonb,boolean) TO league_one_runtime;
+    IF NOT has_function_privilege('league_one_runtime','public.submit_public_data_intake(jsonb,boolean)','EXECUTE')
+      OR EXISTS(SELECT 1 FROM pg_proc function_entry,
+        LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+        WHERE function_entry.oid=to_regprocedure('public.submit_public_data_intake(jsonb,boolean)')
+          AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'incorrect public controlled submission privileges';
+    END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC CONTROLLED SUBMISSION GRANT
 REVOKE CREATE ON SCHEMA public FROM league_one_runtime;
 GRANT USAGE ON SCHEMA public TO league_one_runtime;
 

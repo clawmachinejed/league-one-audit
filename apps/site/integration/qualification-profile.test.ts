@@ -75,6 +75,12 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   LIVE_PLAYER_DIRECTORY_TEST, LIVE_PLAYER_DIRECTORY_FULL_NAME, LIVE_PLAYER_DIRECTORY_PATTERN, requireLivePlayerDirectoryQualification,
   type QualificationBinding, type QualificationCase, type QualificationReport } from './qualification-profile';
 
+import { BACKEND_CONTROLS_PROFILE, BACKEND_CONTROLS_MODULE, BACKEND_CONTROLS_SOURCE_DIGEST,
+  BACKEND_CONTROLS_SUITE, BACKEND_CONTROLS_TESTS, BACKEND_CONTROLS_FULL_NAMES, BACKEND_CONTROLS_PATTERN,
+  BACKEND_CONTROLS_SUPPORT_SOURCES, assertBackendControlsSupportSources, QUALIFICATION_MAX_BYTES } from './qualification-profile';
+import { BACKEND_CONTROLS_EVIDENCE_FILE, BACKEND_CONTROLS_LIMITS, BACKEND_CONTROLS_ORACLES,
+  writeBackendControlsEvidence, type ControlsEvidence } from './backend-controls-evidence';
+
 const directories: string[] = [];
 const exitCode = process.exitCode;
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
@@ -3424,4 +3430,353 @@ it('binds CP23 worker, protocol and pinned harness source independently from the
     await expect(assertCompetingWorkersSupportSources(directory)).resolves.toBeUndefined();
     await writeFile(join(directory, entry.path), original);
   }
+});
+
+// CP24 synthetic artifact guards only. None of these tests executes SQL or proves hosted qualification.
+const frozenBackendControlCases = [
+  'validates controlled submissions and retains canonical replay and conflict outcomes',
+  'validates refresh identity and scope while preserving exact configuration replay',
+  'serializes competing configuration CAS calls and retains only one immutable revision',
+  'honors pause and expiry before admission and resumes the same immutable cycle after unpause',
+  'preserves an admitted real capture and checkpoint when pause commits afterward',
+  'counts paused configurations toward the sixteen target limit without mutating a rejected seventeenth',
+  'retains one winner and one immutable capacity receipt under concurrent sixteen request admission',
+  'reads missing pending available unavailable and capacity status without acquisition or scheduling writes',
+  'enforces restricted control permissions and immutable receipt and configuration history',
+];
+async function backendControlsFixture(): Promise<{
+  binding: QualificationBinding; evidence: QualificationReport; companion: ControlsEvidence;
+}> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: BACKEND_CONTROLS_MODULE, pattern: BACKEND_CONTROLS_PATTERN, otherFilters: false }];
+  evidence.collected = [BACKEND_CONTROLS_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: BACKEND_CONTROLS_MODULE,
+    suites: [{ id: 'suite', name: BACKEND_CONTROLS_SUITE, mode: 'run', errors: 0 }],
+    cases: BACKEND_CONTROLS_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0],
+      id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  const companion: ControlsEvidence = {
+    kind: 'data-backend-controls-evidence-v1', contextDigest: qualificationDigest(context), gitSha: context.gitSha,
+    serverVersion: '17.6', serverVersionNum: '170006', actualLogins: ['league_one_runtime', 'league_one_auth'],
+    accountLoginExecuted: false, prerequisiteGets: 2, measuredGets: 2, cleanupComplete: true,
+    cases: frozenBackendControlCases.map((name, index) => {
+      const start = Date.UTC(2026, 9, 16) + index * 10_000, { type, ...data } = BACKEND_CONTROLS_ORACLES[index];
+      return { name, limitMs: BACKEND_CONTROLS_LIMITS[index], state: 'passed', startedAt: new Date(start).toISOString(),
+        endedAt: new Date(start + 1_000).toISOString(), events: [{ type, at: new Date(start + 500).toISOString(), data }] };
+    }),
+  };
+  return { binding: { context, directory: previous.binding.directory }, evidence, companion };
+}
+it('binds CP24 to nine closed cases plus separate report cleanup and companion acknowledgments', async () => {
+  expect(parseQualificationArguments(['--profile=' + BACKEND_CONTROLS_PROFILE])).toBe(BACKEND_CONTROLS_PROFILE);
+  expect(qualificationArguments(BACKEND_CONTROLS_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', BACKEND_CONTROLS_MODULE, '--testNamePattern', BACKEND_CONTROLS_PATTERN]);
+  expect(BACKEND_CONTROLS_TESTS).toEqual(frozenBackendControlCases);
+  const { binding, evidence, companion } = await backendControlsFixture();
+  expect(binding.context.modules).toEqual([{ path: BACKEND_CONTROLS_MODULE, sourceDigest: BACKEND_CONTROLS_SOURCE_DIGEST }]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([BACKEND_CONTROLS_MODULE]);
+  const pattern = new RegExp(BACKEND_CONTROLS_PATTERN);
+  for (const name of BACKEND_CONTROLS_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(COMPETING_WORKERS_FULL_NAMES.some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeBackendControlsEvidence(binding, companion);
+  const rawCompanion = await readFile(join(binding.directory, BACKEND_CONTROLS_EVIDENCE_FILE), 'utf8');
+  const rawReport = await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8');
+  await expect(validateQualificationArtifacts(binding)).resolves.toEqual({
+    profile: BACKEND_CONTROLS_PROFILE, collected: 9, executed: 9, passed: 9, skipped: 0, filtered: 0,
+    reportDigest: qualificationSourceDigest(rawReport), companionDigest: qualificationSourceDigest(rawCompanion),
+  });
+  await expect(writeQualificationArtifact(binding, 'report', evidence)).rejects.toThrow();
+  await expect(writeBackendControlsEvidence(binding, companion)).rejects.toThrow();
+  const cleanupPath = join(binding.directory, QUALIFICATION_FILES.cleanup), originalCleanup = await readFile(cleanupPath, 'utf8');
+  for (const patch of [{ contextDigest: 'f'.repeat(64) }, { reportDigest: 'f'.repeat(64) },
+    { globalDatabaseCleanup: 'pending' }, { companionDigest: qualificationSourceDigest(rawCompanion) }]) {
+    await writeFile(cleanupPath, JSON.stringify({ ...JSON.parse(originalCleanup), ...patch }));
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  await writeFile(cleanupPath, originalCleanup);
+  await writeFile(join(binding.directory, QUALIFICATION_FILES.report), rawReport + ' ');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeFile(join(binding.directory, QUALIFICATION_FILES.report), rawReport);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ passed: 9 });
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  for (const args of [['--profile=data-backend-controls-v2'], ['--profile', BACKEND_CONTROLS_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + BACKEND_CONTROLS_PROFILE, '--profile=' + COMPETING_WORKERS_PROFILE]
+      .map(extra => ['--profile=' + BACKEND_CONTROLS_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+});
+
+it('rejects CP24 missing reordered filtered retried or failed report obligations and hook drift', async () => {
+  const { binding, evidence } = await backendControlsFixture();
+  const changes: Record<string, (value: QualificationReport) => void> = {
+    'missing case': r => { r.modules[0].cases.pop(); },
+    'renamed case': r => { r.modules[0].cases[0].name += ' extra'; },
+    'duplicate case': r => { r.modules[0].cases[1] = { ...r.modules[0].cases[0] }; },
+    'extra case': r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    'reordered cases': r => { r.modules[0].cases.reverse(); },
+    'reordered execution': r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    'skipped case': r => { r.modules[0].cases[0].state = 'skipped'; },
+    'filtered case': r => { r.modules[0].cases[0].mode = 'skip'; },
+    'unexecuted case': r => { r.modules[0].cases[0].diagnostic = null; },
+    'retry configuration': r => { r.modules[0].cases[0].configuredRetries = true; },
+    'repeat configuration': r => { r.modules[0].cases[0].configuredRepeats = 1; },
+    'retried case': r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    'repeated case': r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; },
+    'expected failure': r => { r.modules[0].cases[0].expectedFailure = true; },
+    'duplicate ready': r => { r.modules[0].cases[0].readyEvents = 2; },
+    'missing result': r => { r.modules[0].cases[0].resultEvents = 0; },
+    'missing suite': r => { r.modules[0].suites = []; },
+    'skipped suite': r => { r.modules[0].suites[0].mode = 'skip'; },
+    'foreign suite': r => { r.modules[0].suites[0].name = COMPETING_WORKERS_SUITE; },
+    'extra suite': r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    'missing afterAll': r => { r.hooks.pop(); },
+    'duplicate hook': r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; },
+    'incomplete hook': r => { r.hooks[0].ends = 0; },
+    'extra hook': r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); },
+    'per-case hook': r => { r.hooks[0].key = 'suite:beforeEach'; },
+    'open pattern': r => { r.specifications[0].pattern = '.*'; },
+    'extra filters': r => { r.specifications[0].otherFilters = true; },
+    'unhandled error': r => { r.unhandledErrors = 1; },
+    'failed report': r => { r.reason = 'failed'; },
+    'repeated runner': r => { r.starts = 2; },
+    'unfinished runner': r => { r.ends = 0; },
+    'foreign context': r => { r.contextDigest = 'f'.repeat(64); },
+    'failed module': r => { r.modules[0].state = 'failed'; },
+    'module error': r => { r.modules[0].errors = 1; },
+    'flaky pass': r => { r.modules[0].cases[0].diagnostic!.flaky = true; },
+    'extra collection': r => { r.collected.push(COMPETING_WORKERS_MODULE); },
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    const adverse = structuredClone(evidence); change(adverse);
+    expect(() => validateQualificationReport(binding.context, adverse), name).toThrow();
+  }
+  const predecessor = await competingWorkersFixture();
+  expect(() => validateQualificationReport(binding.context,
+    { ...predecessor.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  expect(() => validateQualificationReport(predecessor.binding.context,
+    { ...evidence, contextDigest: qualificationDigest(predecessor.binding.context) })).toThrow();
+});
+
+it('rejects CP24 forged incomplete wrong-role and missing-case companion artifacts despite a passing report', async () => {
+  const { binding, evidence, companion } = await backendControlsFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  const path = join(binding.directory, BACKEND_CONTROLS_EVIDENCE_FILE);
+  const changes: Record<string, (value: ControlsEvidence) => void> = {
+    'foreign run': value => { value.contextDigest = 'f'.repeat(64); },
+    'foreign source': value => { value.gitSha = 'f'.repeat(40); },
+    'wrong role': value => { value.actualLogins = ['owner', 'league_one_auth']; },
+    'missing role': value => { value.actualLogins = ['league_one_runtime']; },
+    'account LOGIN substitution': value => { Object.assign(value, { accountLoginExecuted: true }); },
+    'missing server version': value => { value.serverVersion = ''; },
+    'inconsistent server version': value => { value.serverVersionNum = '160006'; },
+    'missing case': value => { value.cases.pop(); },
+    'wrong case': value => { value.cases[0].name = COMPETING_WORKERS_TESTS[0]; },
+    'case order': value => { value.cases.reverse(); },
+    'failed case': value => { value.cases[0].state = 'failed'; },
+    'unserved case': value => { value.cases[8].state = 'unserved'; },
+    'unfinished case': value => { value.cases[8].endedAt = null; },
+    'no case oracle': value => { value.cases[0].events = []; },
+    'forged success': value => { value.cases[0].events[0].data = { outcome: 'passed' }; },
+    'missing oracle flag': value => { delete value.cases[6].events[0].data.noWork; },
+    'contradicted oracle': value => { value.cases[6].events[0].data.noDispatch = false; },
+    'duplicate oracle': value => { value.cases[6].events.push(structuredClone(value.cases[6].events[0])); },
+    'no prerequisite': value => { value.prerequisiteGets = 0; },
+    'extra acquisition': value => { value.measuredGets = 3; },
+    'missing cleanup': value => { value.cleanupComplete = false; },
+    'unknown field': value => { Object.assign(value, { retainedInstallation: true }); },
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    const adverse = structuredClone(companion); change(adverse);
+    await writeFile(path, JSON.stringify(adverse));
+    await expect(validateQualificationArtifacts(binding), name).rejects.toThrow();
+  }
+  for (const raw of ['', '{', 'null', '{}', ' '.repeat(QUALIFICATION_MAX_BYTES + 1)]) {
+    await writeFile(path, raw);
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  const oversized = structuredClone(companion);
+  const data = Object.fromEntries(Array.from({ length: 32 }, (_, index) => ['key' + index, 'x'.repeat(300)]));
+  oversized.cases[0].events = Array.from({ length: 200 }, () => ({ type: 'prerequisite',
+    at: companion.cases[0].events[0].at, data }));
+  const oversizedRaw = JSON.stringify(oversized);
+  expect(Buffer.byteLength(oversizedRaw)).toBeGreaterThan(1024 * 1024);
+  expect(Buffer.byteLength(oversizedRaw)).toBeLessThan(QUALIFICATION_MAX_BYTES);
+  await writeFile(path, oversizedRaw);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('evidence budget');
+  await rm(path); await mkdir(path);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('bounded regular file');
+  await rm(path, { recursive: true });
+  await writeBackendControlsEvidence(binding, companion);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ passed: 9 });
+});
+
+it('does not let CP24 companion completion override failed global cleanup or a foreign context', async () => {
+  const { binding, evidence, companion } = await backendControlsFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await writeBackendControlsEvidence(binding, companion);
+  await expect(qualificationCleanup(async () => { throw new Error('synthetic cleanup failure'); }, binding)).rejects.toThrow();
+  await expect(readFile(join(binding.directory, QUALIFICATION_FILES.cleanup), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  const fresh = await backendControlsFixture();
+  await writeQualificationArtifact(fresh.binding, 'report', fresh.evidence);
+  await qualificationCleanup(async () => {}, fresh.binding);
+  await writeFile(join(fresh.binding.directory, BACKEND_CONTROLS_EVIDENCE_FILE), JSON.stringify(companion));
+  await expect(validateQualificationArtifacts(fresh.binding)).rejects.toThrow();
+  const predecessor = await competingWorkersFixture();
+  for (const change of [
+    (context: QualificationBinding['context']) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: QualificationBinding['context']) => { context.modules[0].path = COMPETING_WORKERS_MODULE; },
+    (context: QualificationBinding['context']) => { context.profileDigest = predecessor.binding.context.profileDigest; },
+    (context: QualificationBinding['context']) => { context.modules.push({ ...context.modules[0] }); },
+  ]) {
+    const context = structuredClone(fresh.binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
+      PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: fresh.binding.directory })).toThrow();
+  }
+});
+
+it('independently inventories CP24 frozen source order hooks budget and manual workflow without SQL execution', async () => {
+  const path = fileURLToPath(new URL('../' + BACKEND_CONTROLS_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(BACKEND_CONTROLS_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text);
+        budgets.push(node.arguments[2]?.getText(tree) ?? 'default');
+      }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) {
+        hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default');
+      }
+      expect(expression.startsWith('it.') || expression === 'describe'
+        || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(suites).toEqual(['controlled DATA submission configuration pause and stored status']);
+  expect(names).toEqual(frozenBackendControlCases);
+  expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+  expect(budgets).toEqual(['90_000', '90_000', '120_000', '180_000', '240_000', '90_000', '180_000', '90_000', '120_000']);
+  expect(hookBudgets).toEqual(['240_000', '90_000']);
+  // Authored limits only: actual SQL timing and the <=2-second CP26 latency target remain unmeasured.
+  expect(budgets.concat(hookBudgets).reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(1_530_000);
+  expect(1_530_000 + 270_000).toBe(30 * 60_000);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-backend-controls-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-backend-controls-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-backend-controls-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain('timeout-minutes: 50');
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70);
+  expect(full.modules.some(module => module.path === BACKEND_CONTROLS_MODULE)).toBe(false);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+});
+
+it('binds CP24 evidence and fetch helpers and collected source independently and rejects missing or changed bytes', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
+  const directory = await mkdtemp(join(tmpdir(), 'backend-controls-support-')); directories.push(directory);
+  await mkdir(join(directory, 'integration'));
+  const source = await readFile(new URL('../' + BACKEND_CONTROLS_MODULE, import.meta.url), 'utf8');
+  await writeFile(join(directory, BACKEND_CONTROLS_MODULE), source);
+  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE)).rejects.toThrow();
+  expect(BACKEND_CONTROLS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual(['integration/backend-controls-evidence.ts', 'integration/backend-controls-fetch.ts']);
+  for (const entry of BACKEND_CONTROLS_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
+    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE);
+  expect(context.modules).toEqual([{ path: BACKEND_CONTROLS_MODULE, sourceDigest: BACKEND_CONTROLS_SOURCE_DIGEST }]);
+  for (const path of [BACKEND_CONTROLS_MODULE, ...BACKEND_CONTROLS_SUPPORT_SOURCES.map(entry => entry.path)]) {
+    const original = await readFile(join(directory, path), 'utf8');
+    await writeFile(join(directory, path), original + '\n// unreviewed source drift\n');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE)).rejects.toThrow('reviewed LF digest');
+    if (path !== BACKEND_CONTROLS_MODULE) await expect(assertBackendControlsSupportSources(directory)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE)).resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(join(directory, path), original);
+  }
+});
+
+async function backendControlCaseSource(index: number) {
+  const path = fileURLToPath(new URL('../' + BACKEND_CONTROLS_MODULE, import.meta.url));
+  const source = await readFile(path, 'utf8'), tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const cases: ts.CallExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(tree) === 'it'
+      && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === frozenBackendControlCases[index]) cases.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(cases).toHaveLength(1);
+  return { tree, callback: cases[0].arguments[1] };
+}
+
+it('preserves exact milliseconds in the actual CP24 stored-status oracle for Date and ISO-string values', async () => {
+  const { tree, callback } = await backendControlCaseSource(7), assertions: ts.CallExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'toBe' && node.arguments[0]?.getText(tree) === 'recordedRetryAt') assertions.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(callback); expect(assertions).toHaveLength(1);
+  const assertion = assertions[0].getText(tree);
+  for (const milliseconds of ['001', '780', '999']) {
+    const recordedRetryAt = `2026-10-16T13:57:19.${milliseconds}Z`, date = new Date(recordedRetryAt);
+    // The failed fixture's String(Date) round-trip drops nonzero milliseconds.
+    expect(new Date(String(date)).toISOString()).not.toBe(recordedRetryAt);
+    for (const value of [date, recordedRetryAt]) {
+      expect(() => runInNewContext(assertion, { Date, expect, recordedRetryAt,
+        progressRead: { request: { next_attempt_at: value } } })).not.toThrow();
+      for (const offset of [-1, 1]) expect(() => runInNewContext(assertion, { Date, expect,
+        recordedRetryAt: new Date(date.getTime() + offset).toISOString(),
+        progressRead: { request: { next_attempt_at: value } } })).toThrow();
+    }
+  }
+});
+
+it('keeps actual CP24 auth probes schema-qualified and requires the exact permission-denied code', async () => {
+  const { tree, callback } = await backendControlCaseSource(8), loops: ts.ForOfStatement[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isForOfStatement(node)) {
+      const calls: ts.CallExpression[] = [];
+      const findAuthQuery = (child: ts.Node) => {
+        if (ts.isCallExpression(child) && child.expression.getText(tree) === 'auth.database.query') calls.push(child);
+        ts.forEachChild(child, findAuthQuery);
+      };
+      findAuthQuery(node.statement);
+      if (calls.length) { expect(calls).toHaveLength(1); expect(calls[0].arguments[0].getText(tree)).toBe('sql'); loops.push(node); }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(callback); expect(loops).toHaveLength(1);
+  expect(ts.isArrayLiteralExpression(loops[0].expression)).toBe(true);
+  const probes = (loops[0].expression as ts.ArrayLiteralExpression).elements.map(node => {
+    expect(ts.isStringLiteral(node)).toBe(true); return (node as ts.StringLiteral).text;
+  });
+  expect(probes).toEqual([
+    "SELECT public.submit_public_data_intake('{}'::jsonb,true)", "SELECT public.configure_public_data_refresh('{}'::jsonb)",
+    'SELECT * FROM public.public_data_intakes', 'SET ROLE league_one_runtime', 'CREATE TABLE public.cp24_forbidden(id integer)',
+  ]);
+  expect(loops[0].statement.getText(tree).replace(/\s+/gu, '')).toBe(
+    "awaitexpect(auth.database.query(sql)).rejects.toMatchObject({code:'42501'});");
 });

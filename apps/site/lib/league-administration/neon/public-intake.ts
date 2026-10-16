@@ -5,7 +5,8 @@ import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../da
 import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
-import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from '../public-intake-contracts';
+import { validatePublicIntake, type PublicIntakeInput, type PublicIntakeStore, type PublicIntakeWork,
+  type PublicIntakeSubmissionReceipt } from '../public-intake-contracts';
 import { parsePublicCaptureWitness } from '../public-capture-witness';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 
@@ -90,24 +91,43 @@ async function requireTransactionHistoryCapability(client: DatabaseClient): Prom
   if (rows.length !== 1 || rows[0].supported !== true) throw new Error('Public transaction history requires installed R052.');
 }
 
-export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore {
+export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeStore & Readonly<{
+  submitWithReceipt: (input: PublicIntakeInput) => Promise<PublicIntakeSubmissionReceipt>;
+}> {
   async function checkpoint(work: PublicIntakeWork, capture: unknown, fence: unknown) {
     await client.query(`/* public-data-intake:checkpoint */
       SELECT public.checkpoint_public_data_intake($1::jsonb,$2::jsonb,$3::jsonb)`,
     [JSON.stringify(work), JSON.stringify(capture), JSON.stringify(fence)]);
   }
+  async function submission(input: PublicIntakeInput) {
+    const validated = validatePublicIntake(input);
+    if (validated.draftPicks) await requireDraftCapability(client);
+    if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
+    if (validated.transactionPeriod) await requireTransactionCapability(client);
+    if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
+    if (validated.playoffBrackets) await requireBracketCapability(client);
+    if (validated.periodInventory) await requirePeriodInventoryCapability(client);
+    else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+    return validated;
+  }
   return {
     async submit(input) {
-      const validated = validatePublicIntake(input);
-      if (validated.draftPicks) await requireDraftCapability(client);
-      if (validated.transactionHistory) await requireTransactionHistoryCapability(client);
-      if (validated.transactionPeriod) await requireTransactionCapability(client);
-      if (validated.weeklyReports?.length) await requireWeeklyReportCapability(client);
-      if (validated.playoffBrackets) await requireBracketCapability(client);
-      if (validated.periodInventory) await requirePeriodInventoryCapability(client);
-      else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
+      const validated = await submission(input);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
         [JSON.stringify(validated)]);
+    },
+    async submitWithReceipt(input) {
+      const validated = await submission(input);
+      const rows = await client.query(`/* public-data-intake:submit-with-receipt */
+        SELECT public.submit_public_data_intake($1::jsonb,true) AS result`, [JSON.stringify(validated)]);
+      if (rows.length !== 1) throw new Error('Missing public intake submission receipt.');
+      const receipt = record(rows[0].result);
+      if (Object.keys(receipt).sort().join('|') !== 'requestId|status'
+        || typeof receipt.status !== 'string' || !['retained', 'capacity'].includes(receipt.status)
+        || receipt.requestId !== validated.id) {
+        throw new Error('Invalid public intake submission receipt.');
+      }
+      return { status: receipt.status as 'retained' | 'capacity', requestId: validated.id };
     },
     async recover(requestId, fence) {
       await client.query(`/* public-data-intake:recover */

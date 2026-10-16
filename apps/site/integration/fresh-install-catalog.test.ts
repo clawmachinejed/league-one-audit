@@ -9,7 +9,8 @@ import { types } from '@neondatabase/serverless';
 
 type Row = Record<string, unknown>;
 const text = readFileSync(new URL('./fresh-install-catalog.json', import.meta.url), 'utf8');
-const frozen = JSON.parse(text) as { catalog: Record<string, Row[]> };
+const frozen = JSON.parse(text) as { catalog: Record<string, Row[]>;
+  migrations: { name: string; lfSha256: string }[]; provisioners: { name: string; lfSha256: string }[] };
 function baseline(nonsuper = false): FreshInstallCatalog {
   const sections = structuredClone(frozen.catalog);
   const installer = nonsuper ? 'test_installer' : 'postgres';
@@ -63,11 +64,20 @@ describe('frozen fresh-install catalog', () => {
     try { await expect(import('./fresh-install-catalog')).rejects.toThrow('frozen manifest digest mismatch'); }
     finally { vi.doUnmock('node:fs'); vi.resetModules(); }
   });
-  it('binds the reviewed manifest and all 56 migration and three provisioner bytes', async () => {
+  it('preserves historical CP21 bytes while rejecting the CP24 installation inventory', async () => {
     expect(createHash('sha256').update(text.replace(/\r\n?/gu, '\n')).digest('hex')).toBe(FRESH_INSTALL_MANIFEST_SHA256);
-    const sources = await readFreshInstallSources();
-    expect(sources.migrations).toHaveLength(56);
-    expect(sources.provisioners).toHaveLength(3);
+    expect(frozen.migrations).toHaveLength(56);
+    expect(frozen.provisioners).toHaveLength(3);
+    const digest = (source: string) => createHash('sha256').update(source.replace(/\r\n?/gu, '\n')).digest('hex');
+    for (const entry of frozen.migrations) {
+      expect(digest(readFileSync(new URL(`../migrations/${entry.name}`, import.meta.url), 'utf8')), entry.name).toBe(entry.lfSha256);
+    }
+    for (const entry of frozen.provisioners) {
+      const actual = digest(readFileSync(new URL(`../scripts/${entry.name}`, import.meta.url), 'utf8'));
+      if (entry.name === 'provision-runtime-role.sql') expect(actual, entry.name).not.toBe(entry.lfSha256);
+      else expect(actual, entry.name).toBe(entry.lfSha256);
+    }
+    await expect(readFreshInstallSources()).rejects.toThrow('migration file inventory changed');
     expect(Buffer.byteLength(JSON.stringify(baseline()))).toBeLessThan(4 * 1024 * 1024);
   });
   it.each([false, true])('accepts only the preimplementation installer variant nonsuper=%s', (nonsuper) => {

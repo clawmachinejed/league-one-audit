@@ -7,7 +7,8 @@ import { validatePublicDataRefresh, type PublicDataRefreshConfiguration } from '
 import { runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep } from './public-intake';
 
 /** Operator/backend composition only. No current route supplies this selection.
- * Explicit enablement, installed 034 and its runtime grants are release prerequisites.
+ * The legacy runner requires explicit enablement, installed 034 and its runtime grants.
+ * Controlled submission receipts additionally require installed 057 and its runtime grant.
  * The sibling manager evidence option additionally requires installed 035. */
 export type PublicIntakeSelection = Readonly<{ enabled: true; requestId: string; managerEvidenceVersion?: 'v2' }>;
 export async function submitPublicSleeperIntake(input: PublicIntakeInput, selection: PublicIntakeSelection) {
@@ -17,8 +18,7 @@ export async function submitPublicSleeperIntake(input: PublicIntakeInput, select
   if (!database.enabled) return { status: 'disabled' } as const;
   const bounded = withDatabaseAbortSignal(database, AbortSignal.timeout(3_000));
   if (!bounded.enabled) return { status: 'disabled' } as const;
-  await createPublicIntakeStore(bounded).submit(validated);
-  return { status: 'retained', requestId: validated.id } as const;
+  return createPublicIntakeStore(bounded).submitWithReceipt(validated);
 }
 
 export async function runSelectedPublicIntake(selection: PublicIntakeSelection, invocationStartedAt: number) {

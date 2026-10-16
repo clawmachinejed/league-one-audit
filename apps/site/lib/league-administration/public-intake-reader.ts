@@ -134,6 +134,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       to_jsonb(request)->'transaction_period' AS selected_transaction_period,
       to_jsonb(request)->'transaction_history' AS selected_transaction_history,
       to_jsonb(request)->'draft_picks' AS selected_draft_picks,
+      to_jsonb(request)->>'submission_capacity' AS selected_submission_capacity,
       request.failure_count,request.next_attempt_at,identity.source_manager_account_id,account.external_manager_id,
       identity.username,identity.display_name,identity.avatar_url,identity.request_started_at,identity.request_completed_at
     FROM public.public_data_intakes request
@@ -141,7 +142,12 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     LEFT JOIN public.league_source_manager_accounts account ON account.id=identity.source_manager_account_id AND account.provider='sleeper'
     WHERE request.id=$1::uuid`, [requestId]);
   if (requests.length !== 1) return { status: 'missing' } as const;
-  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, selected_draft_picks: selectedDraftPicks, ...storedHeader } = requests[0];
+  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, selected_draft_picks: selectedDraftPicks, selected_submission_capacity: submissionCapacity, ...storedHeader } = requests[0];
+  if (submissionCapacity !== null && submissionCapacity !== undefined
+    && (submissionCapacity !== 'pending-request-limit' || storedHeader.terminal !== true
+      || storedHeader.revision !== 0 || storedHeader.failure_count !== 0)) {
+    throw new Error('Invalid stored public intake capacity receipt.');
+  }
   if (options.seasonHistoryVersion && (!Array.isArray(storedHeader.seasons)
     || storedHeader.seasons.length !== 1 || storedHeader.seasons[0] !== 2026)) throw new Error('Unsupported public season history season.');
   const { exactPeriods: selection, periodInventory: mode } = normalizeStoredPublicPeriods(selectedPeriods,
@@ -154,7 +160,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   if (!draftPicks && options.draftPicksPage !== undefined) throw new Error('Draft page requires selected draft intake.');
   if (transactionHistory && transactionPeriod) throw new Error('Stored transaction scopes are mutually exclusive.');
   if (!transactionHistory && options.transactionHistoryPage !== undefined) throw new Error('Transaction history page requires selected history.');
-  const header: DatabaseRow & { draftPicks?: PublicDraftPicks; transactionHistory?: PublicTransactionHistory; transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(draftPicks ? { draftPicks } : {}), ...(transactionHistory ? { transactionHistory } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
+  const header: DatabaseRow & { draftPicks?: PublicDraftPicks; transactionHistory?: PublicTransactionHistory; transactionPeriod?: PublicTransactionPeriod; weeklyReports?: readonly PublicExactPeriod[]; playoffBrackets?: PublicPlayoffBrackets; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory } = { ...storedHeader, ...(submissionCapacity ? { submissionCapacity } : {}), ...(draftPicks ? { draftPicks } : {}), ...(transactionHistory ? { transactionHistory } : {}), ...(transactionPeriod ? { transactionPeriod } : {}), ...(reportSelection.length ? { weeklyReports: reportSelection } : {}), ...(playoffBrackets ? { playoffBrackets } : {}), ...(selection.length ? { exactPeriods: selection } : {}), ...(mode ? { periodInventory: mode } : {}) };
   const lists = await client.query(`/* public-data-intake:read-lists */
     SELECT season,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$1::uuid ORDER BY season`, [requestId]);
   const candidates = await client.query(`/* public-data-intake:read-candidates */
@@ -305,11 +311,12 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     && league.resources.settings.status === 'available' && league.resources.teamManagers.status === 'available'
     && league.resources.heldRoster.status === 'available' && league.resources.directory.status === 'available');
   const allSeasons = Array.isArray(header.seasons) && lists.length === header.seasons.length;
-  const status = !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
+  const status = submissionCapacity ? 'unavailable' : !header.external_manager_id || !allSeasons ? header.terminal ? 'unavailable' : 'pending'
     : completeResources && completePeriods && completeBrackets && completeReports && completeTransactions && completeDrafts ? 'available'
       : header.terminal || completeResources && (inventoryRead?.inventory.collection === 'complete'
         || transactionHistoryRead?.inventory.collection === 'complete' || draftRead?.inventory.collection === 'complete') ? 'partial' : 'pending';
-  return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected, ...(seasonHistory ? { seasonHistory } : {}),
+  return { status, readAt: new Date().toISOString(), request: header, lists, leagues, rejected,
+    ...(seasonHistory ? { seasonHistory } : {}),
     ...(draftRead ? { drafts: draftRead.drafts, draftPicks: draftRead.inventory,
       ...(draftRead.inventory.readCoverage === 'page' ? { reason: 'draft-page-not-fully-verified' as const } : {}) } : {}),
     ...(exactPeriods ? { exactPeriods } : {}), ...(brackets ? { brackets } : {}), ...(weeklyReports ? { weeklyReports } : {}), ...(transactions ? { transactions } : {}), ...(officialResults ? { officialResults } : {}),
@@ -317,6 +324,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
       ...(transactionHistoryRead.inventory.readCoverage === 'page' ? { reason: 'transaction-history-page-not-fully-verified' as const } : {}) } : {}),
     ...(inventoryRead ? { periodInventory: inventoryRead.inventory,
       ...(inventoryRead.inventory.readCoverage === 'page' ? { reason: 'period-page-not-fully-verified' as const } : {}) } : {}),
+    ...(submissionCapacity ? { reason: 'submission-capacity' as const } : {}),
     freshness: 'Use each resource acceptance verifiedAt and each directory acquisition sourceObservedAt and list request_completed_at; this read does not refresh them.',
     coverage: { requested: ['identity', 'season-league-lists', 'league-settings', 'team-managers', 'held-rosters', 'manager-directory',
       ...(options.managerEvidenceVersion === 'v2' ? ['team-manager-evidence-v2'] : []), ...(selection.length ? ['exact-matchups'] : []), ...(draftPicks ? ['drafts'] : []),
