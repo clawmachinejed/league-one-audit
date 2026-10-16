@@ -13,6 +13,7 @@ on:
           - data-official-results-played-v1
           - data-fresh-install-v1
           - data-process-recovery-v1
+          - data-runner-cycles-v1
           - data-backend-controls-v1
           - data-competing-workers-v1
           - data-within-season-history-v1
@@ -101,6 +102,9 @@ jobs:
               ;;
             workflow_dispatch:data-backend-controls-v1)
               pnpm test:integration --profile=data-backend-controls-v1
+              ;;
+            workflow_dispatch:data-runner-cycles-v1)
+              pnpm test:integration --profile=data-runner-cycles-v1
               ;;
             workflow_dispatch:data-competing-workers-v1)
               pnpm test:integration --profile=data-competing-workers-v1

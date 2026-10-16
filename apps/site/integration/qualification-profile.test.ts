@@ -1,11 +1,13 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
+import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLES,
+  writeRunnerCyclesEvidence, type RunnerCyclesEvidence, type RunnerInvocation } from './runner-cycles-evidence';
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
   qualificationBinding, qualificationCleanup, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
@@ -25,6 +27,9 @@ import { createQualificationContext, markQualificationFailure, parseQualificatio
   PROCESS_RECOVERY_PROFILE, PROCESS_RECOVERY_MODULE, PROCESS_RECOVERY_SOURCE_DIGEST, PROCESS_RECOVERY_SUITE,
   PROCESS_RECOVERY_TESTS, PROCESS_RECOVERY_FULL_NAMES, PROCESS_RECOVERY_PATTERN,
   PROCESS_RECOVERY_SUPPORT_SOURCES, assertProcessRecoverySupportSources,
+  RUNNER_CYCLES_PROFILE, RUNNER_CYCLES_MODULE, RUNNER_CYCLES_SOURCE_DIGEST, RUNNER_CYCLES_SUITE,
+  RUNNER_CYCLES_TESTS, RUNNER_CYCLES_FULL_NAMES, RUNNER_CYCLES_PATTERN,
+  RUNNER_CYCLES_SUPPORT_SOURCES, assertRunnerCyclesSupportSources,
   COMPETING_WORKERS_PROFILE, COMPETING_WORKERS_MODULE, COMPETING_WORKERS_SOURCE_DIGEST, COMPETING_WORKERS_SUITE,
   COMPETING_WORKERS_TESTS, COMPETING_WORKERS_FULL_NAMES, COMPETING_WORKERS_PATTERN,
   COMPETING_WORKERS_SUPPORT_SOURCES, assertCompetingWorkersSupportSources,
@@ -3779,4 +3784,313 @@ it('keeps actual CP24 auth probes schema-qualified and requires the exact permis
   ]);
   expect(loops[0].statement.getText(tree).replace(/\s+/gu, '')).toBe(
     "awaitexpect(auth.database.query(sql)).rejects.toMatchObject({code:'42501'});");
+});
+
+// Synthetic artifact validation only; these fixtures never connect to a database.
+const frozenRunnerCycleCases = [
+  'keeps omitted and explicit false selections free of DATA acquisition and writes',
+  'completes the first cycle across pending pause expiry and an inter-invocation process restart',
+  'completes a changed second cycle while admitted work survives pause expiry and later disablement',
+  'retains both cycle histories and stored reader parity without non-DATA mutation',
+];
+async function runnerCyclesFixture(): Promise<{
+  binding: QualificationBinding; evidence: QualificationReport; companion: RunnerCyclesEvidence;
+}> {
+  const previous = await officialResultsEvidenceFixture();
+  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
+    'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, otherFilters: false }];
+  evidence.collected = [RUNNER_CYCLES_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: RUNNER_CYCLES_MODULE,
+    suites: [{ id: 'suite', name: RUNNER_CYCLES_SUITE, mode: 'run', errors: 0 }],
+    cases: RUNNER_CYCLES_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0],
+      id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  const epoch = Date.UTC(2026, 9, 16), at = (seconds: number) => new Date(epoch + seconds * 1000).toISOString();
+  const requests = [randomUUID(), randomUUID()], invocations: RunnerInvocation[] = [];
+  const stages = ['identity', 'leagues', 'bootstrap', 'exact-matchups', 'core', 'users'];
+  let claims = 2;
+  function invoke(selection: RunnerInvocation['selection'], second: number, variant: 1 | 2, resource?: string, pid = 102) {
+    const before = claims;
+    if (selection === 'enabled') claims++;
+    const gets = resource ? ['core', 'exact-matchups'].includes(resource) ? 2 : 1 : 0;
+    const duration = variant === 2 && resource === 'identity' ? 5 : 1;
+    invocations.push({ pid, invocation: invocations.length + 1,
+      selection, variant, startedAt: at(second), invocationStartedAt: at(second), endedAt: at(second + duration), gets, sqlRequests: 1,
+      signalRequests: resource ? 1 : 0, claimBefore: before, claimAfter: claims, facade: 'registry-unavailable',
+      paths: Array.from({ length: gets }, () => '/v1/league/synthetic'),
+      admissions: resource ? [{ resource, requestId: requests[variant - 1], generation: claims,
+        admittedAt: at(second), deadlineAt: at(second + 20), outcomeAt: at(second + duration),
+        outcome: 'checkpoint-committed' }] : [] });
+  }
+  invoke('omitted', 0, 1, undefined, 101); invoke('false', 2, 1, undefined, 101);
+  invoke('enabled', 80, 1, 'identity', 101);
+  invoke('enabled', 145, 1); invoke('enabled', 210, 1);
+  stages.slice(1).forEach((resource, index) => invoke('enabled', 275 + index * 65, 1, resource));
+  invoke('enabled', 600, 1);
+  invoke('enabled', 700, 2, 'identity'); invoke('false', 710, 2);
+  stages.slice(1).forEach((resource, index) => invoke('enabled', 765 + index * 65, 2, resource));
+  invoke('enabled', 1090, 2);
+  const directoryContentId = randomUUID();
+  const companion: RunnerCyclesEvidence = {
+    kind: 'data-runner-cycles-evidence-v1', contextDigest: qualificationDigest(context), gitSha: context.gitSha,
+    serverVersion: '18.6 (synthetic)', serverVersionNum: '180006', actualRuntimeLogin: true, actualHttpRuntimeLogin: true,
+    primaryBoundary: 'empty-registry-rejection', prerequisiteGets: 2, prerequisiteAdmissions: 2, prerequisiteClaims: 2,
+    cleanupComplete: true, admissionSpacingVerified: true, invocations,
+    cases: frozenRunnerCycleCases.map((name, index) => {
+      const start = [0, 10, 660, 1110][index], end = [4, 650, 1100, 1112][index];
+      return { name, limitMs: RUNNER_CYCLES_LIMITS[index], state: 'passed',
+        startedAt: at(start), endedAt: at(end), events: [{ at: at(end), data: { ...RUNNER_CYCLES_ORACLES[index] } }] };
+    }),
+    cycles: ([1, 2] as const).map((number, index) => ({ number, requestId: requests[index],
+      configurationRevision: index ? 4 : 1, historyDigest: String(number).repeat(64),
+      dueAt: at(index ? 660 : 0), disposition: 'complete', recordedAt: at(index ? 1090.5 : 600.5), nextDueAt: at(index ? 1140 : 660),
+      directoryContentId, directoryCaptureId: randomUUID(), directoryCapturedAt: at(index ? 1025 : 535),
+      exactContentId: randomUUID() })),
+  };
+  const digest = 'a'.repeat(64), disabled = (call: RunnerInvocation) => ({ witness: 'disabled',
+    selection: call.selection, pid: call.pid, invocation: call.invocation, beforeDigest: digest, afterDigest: digest });
+  companion.cases[0].events.unshift(...invocations.slice(0, 2).map(call => ({ at: call.endedAt, data: disabled(call) })));
+  companion.cases[1].events.unshift({ at: at(84), data: { witness: 'restart', requestId: requests[0], cycle: 1,
+    checkpointBeforeDigest: digest, checkpointAfterDigest: digest, oldPid: 101, newPid: 102,
+    oldBackendPid: 201, newBackendPid: 202, oldBackendStart: at(0), newBackendStart: at(83),
+    deathRequestedAt: at(82), closedAt: at(83), restartedAt: at(84) } });
+  for (const [index, kind] of ['pause', 'expiry'].entries()) {
+    const call = invocations[3 + index];
+    companion.cases[1].events.push({ at: call.endedAt, data: { witness: 'pending', kind,
+      requestId: requests[0], cycle: 1, revision: 2 + index, configuredAt: at(index ? 200 : 140),
+      expiresAt: at(index ? 209 : 1000), checkedAt: call.endedAt, checkpointBeforeDigest: digest, checkpointAfterDigest: digest,
+      pid: call.pid, invocation: call.invocation } });
+  }
+  const secondIdentity = invocations.find(row => row.variant === 2 && row.admissions[0]?.resource === 'identity')!;
+  companion.cases[2].events.push({ at: secondIdentity.endedAt, data: { witness: 'admitted-control', requestId: requests[1],
+    configurationRevision: 5, admittedAt: at(700), pausedAt: at(701), expiredAt: at(703),
+    originalDeadline: at(720), outcomeAt: at(705) } });
+  const laterDisabled = invocations.find(row => row.variant === 2 && row.selection === 'false')!;
+  companion.cases[2].events.push({ at: laterDisabled.endedAt, data: disabled(laterDisabled) });
+  companion.cases[3].events.push({ at: at(1111), data: { witness: 'history', firstRequest: requests[0], secondRequest: requests[1],
+    priorHistoryBeforeDigest: companion.cycles[0].historyDigest, priorHistoryAfterDigest: companion.cycles[0].historyDigest,
+    nonDataBeforeDigest: digest, nonDataAfterDigest: digest, storedBeforeDigest: digest, storedAfterDigest: digest,
+    exactBeforeDigest: digest, exactAfterDigest: digest } });
+  for (const cycle of companion.cycles) {
+    const call = invocations.find(row => row.variant === cycle.number && row.selection === 'enabled'
+      && row.gets === 0 && row.claimAfter === (cycle.number === 1 ? 11 : 18))!;
+    companion.cases[cycle.number].events.push({ at: call.endedAt, data: { witness: 'settlement', cycle: cycle.number,
+      requestId: cycle.requestId, pid: call.pid, invocation: call.invocation, generation: call.claimAfter,
+      beforeOutcomeCount: 0, afterOutcomeCount: 1, outcomeDigest: qualificationDigest({ disposition: 'complete',
+        recordedAt: cycle.recordedAt, nextDueAt: cycle.nextDueAt }) } });
+  }
+  for (const entry of companion.cases) entry.events.sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+  return { binding: { context, directory: previous.binding.directory }, evidence, companion };
+}
+
+it('binds CP25 to four exact cases and separate report companion and cleanup acceptance', async () => {
+  expect(parseQualificationArguments(['--profile=' + RUNNER_CYCLES_PROFILE])).toBe(RUNNER_CYCLES_PROFILE);
+  expect(qualificationArguments(RUNNER_CYCLES_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', RUNNER_CYCLES_MODULE, '--testNamePattern', RUNNER_CYCLES_PATTERN]);
+  expect(RUNNER_CYCLES_TESTS).toEqual(frozenRunnerCycleCases);
+  const { binding, evidence, companion } = await runnerCyclesFixture();
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([RUNNER_CYCLES_MODULE]);
+  const pattern = new RegExp(RUNNER_CYCLES_PATTERN);
+  for (const name of RUNNER_CYCLES_FULL_NAMES) {
+    expect(pattern.test(name.replaceAll(' > ', ' '))).toBe(true);
+    expect(pattern.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
+    expect(pattern.test(name.replaceAll(' > ', ' ') + ' suffix')).toBe(false);
+  }
+  expect(BACKEND_CONTROLS_FULL_NAMES.some(name => pattern.test(name.replaceAll(' > ', ' ')))).toBe(false);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeRunnerCyclesEvidence(binding, companion);
+  const rawCompanion = await readFile(join(binding.directory, RUNNER_CYCLES_EVIDENCE_FILE), 'utf8');
+  const rawReport = await readFile(join(binding.directory, QUALIFICATION_FILES.report), 'utf8');
+  await expect(validateQualificationArtifacts(binding)).resolves.toEqual({
+    profile: RUNNER_CYCLES_PROFILE, collected: 4, executed: 4, passed: 4, skipped: 0, filtered: 0,
+    reportDigest: qualificationSourceDigest(rawReport), companionDigest: qualificationSourceDigest(rawCompanion),
+  });
+  await expect(writeQualificationArtifact(binding, 'report', evidence)).rejects.toThrow();
+  await expect(writeRunnerCyclesEvidence(binding, companion)).rejects.toThrow();
+  const cleanupPath = join(binding.directory, QUALIFICATION_FILES.cleanup), originalCleanup = await readFile(cleanupPath, 'utf8');
+  for (const patch of [{ contextDigest: 'f'.repeat(64) }, { reportDigest: 'f'.repeat(64) },
+    { globalDatabaseCleanup: 'pending' }, { companionDigest: qualificationSourceDigest(rawCompanion) }]) {
+    await writeFile(cleanupPath, JSON.stringify({ ...JSON.parse(originalCleanup), ...patch }));
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  await writeFile(cleanupPath, originalCleanup);
+  await writeFile(join(binding.directory, QUALIFICATION_FILES.report), rawReport + ' ');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeFile(join(binding.directory, QUALIFICATION_FILES.report), rawReport);
+  await markQualificationFailure(binding, 'process-timeout');
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
+  for (const args of [['--profile=data-runner-cycles-v2'], ['--profile', RUNNER_CYCLES_PROFILE],
+    ...['--retry=1', '--repeat=1', '--testNamePattern=x', '--config=other', '--reporter=other', '--sequence.shuffle',
+      '--profile=' + RUNNER_CYCLES_PROFILE, '--profile=' + BACKEND_CONTROLS_PROFILE]
+      .map(extra => ['--profile=' + RUNNER_CYCLES_PROFILE, extra])])
+    expect(() => parseQualificationArguments(args)).toThrow('closed');
+});
+
+it('rejects CP25 missing reordered filtered retried and substituted report obligations', async () => {
+  const { binding, evidence } = await runnerCyclesFixture();
+  const changes: ((value: QualificationReport) => void)[] = [
+    r => { r.modules[0].cases.pop(); }, r => { r.modules[0].cases[0].name += ' extra'; },
+    r => { r.modules[0].cases.push({ ...r.modules[0].cases[0], id: 'extra', name: 'extra' }); },
+    r => { r.modules[0].cases.reverse(); }, r => { r.modules[0].cases[1].diagnostic!.startTime = 1; },
+    r => { r.modules[0].cases[0].state = 'skipped'; }, r => { r.modules[0].cases[0].mode = 'skip'; },
+    r => { r.modules[0].cases[0].diagnostic = null; }, r => { r.modules[0].cases[0].configuredRetries = true; },
+    r => { r.modules[0].cases[0].configuredRepeats = 1; }, r => { r.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.repeatCount = 1; }, r => { r.modules[0].cases[0].expectedFailure = true; },
+    r => { r.modules[0].cases[0].readyEvents = 2; }, r => { r.modules[0].cases[0].resultEvents = 0; },
+    r => { r.modules[0].suites = []; }, r => { r.modules[0].suites[0].mode = 'skip'; },
+    r => { r.modules[0].suites[0].name = BACKEND_CONTROLS_SUITE; },
+    r => { r.modules[0].suites.push({ ...r.modules[0].suites[0], id: 'extra-suite' }); },
+    r => { r.hooks.pop(); }, r => { r.hooks[0].starts = 2; r.hooks[0].ends = 2; }, r => { r.hooks[0].ends = 0; },
+    r => { r.hooks.push({ key: 'extra:beforeAll', starts: 1, ends: 1 }); }, r => { r.hooks[0].key = 'suite:beforeEach'; },
+    r => { r.specifications[0].pattern = '.*'; }, r => { r.specifications[0].otherFilters = true; },
+    r => { r.unhandledErrors = 1; }, r => { r.reason = 'failed'; }, r => { r.starts = 2; }, r => { r.ends = 0; },
+    r => { r.contextDigest = 'f'.repeat(64); }, r => { r.modules[0].state = 'failed'; }, r => { r.modules[0].errors = 1; },
+    r => { r.modules[0].cases[0].diagnostic!.flaky = true; }, r => { r.collected.push(BACKEND_CONTROLS_MODULE); },
+  ];
+  for (const change of changes) {
+    const adverse = structuredClone(evidence); change(adverse);
+    expect(() => validateQualificationReport(binding.context, adverse)).toThrow();
+  }
+  const predecessor = await backendControlsFixture();
+  expect(() => validateQualificationReport(binding.context,
+    { ...predecessor.evidence, contextDigest: qualificationDigest(binding.context) })).toThrow();
+  expect(() => validateQualificationReport(predecessor.binding.context,
+    { ...evidence, contextDigest: qualificationDigest(predecessor.binding.context) })).toThrow();
+  for (const change of [
+    (context: QualificationBinding['context']) => { context.modules[0].sourceDigest = 'f'.repeat(64); },
+    (context: QualificationBinding['context']) => { context.modules[0].path = BACKEND_CONTROLS_MODULE; },
+    (context: QualificationBinding['context']) => { context.profileDigest = predecessor.binding.context.profileDigest; },
+    (context: QualificationBinding['context']) => { context.modules.push({ ...context.modules[0] }); },
+  ]) {
+    const context = structuredClone(binding.context); change(context);
+    expect(() => qualificationBinding({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(context),
+      PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toThrow();
+  }
+});
+
+it('rejects missing malformed foreign and incomplete CP25 companions and never overrides failed cleanup', async () => {
+  const { binding, evidence, companion } = await runnerCyclesFixture();
+  await writeQualificationArtifact(binding, 'report', evidence); await qualificationCleanup(async () => {}, binding);
+  const path = join(binding.directory, RUNNER_CYCLES_EVIDENCE_FILE);
+  const changes: ((value: RunnerCyclesEvidence) => void)[] = [
+    value => { value.contextDigest = 'f'.repeat(64); }, value => { value.gitSha = 'f'.repeat(40); },
+    value => { value.serverVersionNum = '170006'; }, value => { value.cases.pop(); },
+    value => { value.cases[0].state = 'failed'; }, value => { value.cases[1].events = []; },
+    value => { value.cases[1].events.find(event => event.data.oracle === 'first-cycle')!.data.complete = false; },
+    value => { value.cases[1].events.find(event => event.data.witness === 'restart')!.data.oldPid = 999; },
+    value => { value.cases[1].events.find(event => event.data.witness === 'restart')!.data.closedAt = value.cases[1].startedAt; },
+    value => { value.cases[1].events.find(event => event.data.witness === 'restart')!.data.checkpointAfterDigest = 'f'.repeat(64); },
+    value => { value.cases[1].events.find(event => event.data.witness === 'pending' && event.data.kind === 'pause')!.data.requestId = randomUUID(); },
+    value => { value.cases[1].events.find(event => event.data.witness === 'pending' && event.data.kind === 'expiry')!.data.expiresAt = value.cases[1].endedAt; },
+    value => { value.cases[2].events.find(event => event.data.witness === 'admitted-control')!.data.originalDeadline = value.cases[2].endedAt; },
+    value => { value.cases[3].events.find(event => event.data.witness === 'history')!.data.priorHistoryAfterDigest = 'f'.repeat(64); },
+    value => { value.cases[1].events.find(event => event.data.witness === 'settlement')!.data.beforeOutcomeCount = 1; },
+    value => { value.cases[2].events.find(event => event.data.witness === 'settlement')!.data.outcomeDigest = 'f'.repeat(64); },
+    value => { value.cycles[1].dueAt = value.cycles[1].nextDueAt; },
+    value => { value.cycles[1].dueAt = new Date(Date.parse(value.cycles[0].nextDueAt) + 1_000).toISOString(); },
+    value => { value.cycles.pop(); },
+    value => { value.invocations.pop(); }, value => { value.prerequisiteGets = 0; },
+    value => { value.cleanupComplete = false; }, value => { value.admissionSpacingVerified = false; },
+  ];
+  for (const change of changes) {
+    const adverse = structuredClone(companion); change(adverse); await writeFile(path, JSON.stringify(adverse));
+    await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  for (const raw of ['', '{', 'null', '{}', ' '.repeat(QUALIFICATION_MAX_BYTES + 1)]) {
+    await writeFile(path, raw); await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  }
+  await rm(path); await mkdir(path);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow('bounded regular file');
+  await rm(path, { recursive: true }); await writeRunnerCyclesEvidence(binding, companion);
+  await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ passed: 4 });
+  const fresh = await runnerCyclesFixture();
+  await writeQualificationArtifact(fresh.binding, 'report', fresh.evidence);
+  await writeRunnerCyclesEvidence(fresh.binding, fresh.companion);
+  await expect(qualificationCleanup(async () => { throw new Error('synthetic cleanup failure'); }, fresh.binding)).rejects.toThrow();
+  await expect(readFile(join(fresh.binding.directory, QUALIFICATION_FILES.cleanup), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(validateQualificationArtifacts(fresh.binding)).rejects.toThrow('Sticky');
+});
+
+it('independently inventories CP25 exact source names hooks budgets and manual workflow without executing SQL', async () => {
+  const path = fileURLToPath(new URL('../' + RUNNER_CYCLES_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(RUNNER_CYCLES_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const names: string[] = [], hooks: string[] = [], suites: string[] = [], budgets: string[] = [], hookBudgets: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      const expression = node.expression.getText(tree);
+      if (expression === 'describe.sequential') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true); suites.push((node.arguments[0] as ts.StringLiteral).text);
+      }
+      if (expression === 'it') {
+        expect(ts.isStringLiteral(node.arguments[0])).toBe(true); names.push((node.arguments[0] as ts.StringLiteral).text);
+        budgets.push(node.arguments[2]?.getText(tree) ?? 'default');
+      }
+      if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) {
+        hooks.push(expression); hookBudgets.push(node.arguments[1]?.getText(tree) ?? 'default');
+      }
+      expect(expression.startsWith('it.') || expression === 'describe'
+        || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree); expect(suites).toEqual(['complete opt-in DATA cycles through the production runner']);
+  expect(names).toEqual(frozenRunnerCycleCases); expect(hooks.sort()).toEqual(['afterAll', 'beforeAll']);
+  expect(budgets).toEqual(['60_000', '660_000', '600_000', '60_000']); expect(hookBudgets).toEqual(['180_000', '90_000']);
+  expect(budgets.concat(hookBudgets).reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(1_650_000);
+  expect(1_650_000 + 150_000).toBe(30 * 60_000);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-runner-cycles-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-runner-cycles-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-runner-cycles-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain('timeout-minutes: 50');
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70); expect(full.modules.some(module => module.path === RUNNER_CYCLES_MODULE)).toBe(false);
+  expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
+});
+
+it('binds every CP25 support source independently without changing historical source pins', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  expect(RUNNER_CYCLES_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
+    'integration/runner-cycles-worker.ts', 'integration/runner-cycles-protocol.ts', 'integration/runner-cycles-evidence.ts',
+    'integration/integration-child-process.ts', 'integration/neon-integration-harness.ts',
+    'integration/integration-database-ownership.ts', 'integration/backend-controls-fetch.ts', 'integration/disposable-integration.ts',
+    'lib/projections/runtime/projection-dispatch.ts', 'lib/league-administration/public-intake-runtime.ts',
+    'lib/league-administration/public-intake.ts', 'lib/league-administration/public-refresh-reader.ts',
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/store.ts',
+    'lib/database.ts', 'lib/projection-store.ts', 'lib/league-administration/neon/public-intake.ts',
+    'lib/projections/adapters/neon/jobs.ts',
+  ]);
+  await expect(assertRunnerCyclesSupportSources(siteRoot)).resolves.toBeUndefined();
+  const directory = await mkdtemp(join(tmpdir(), 'runner-cycles-support-')); directories.push(directory);
+  await mkdir(join(directory, 'integration'));
+  await writeFile(join(directory, RUNNER_CYCLES_MODULE), await readFile(new URL('../' + RUNNER_CYCLES_MODULE, import.meta.url), 'utf8'));
+  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow();
+  for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
+    await mkdir(dirname(join(directory, entry.path)), { recursive: true });
+    await writeFile(join(directory, entry.path), await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+  }
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
+  expect(context.modules).toEqual([{ path: RUNNER_CYCLES_MODULE, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST }]);
+  for (const path of [RUNNER_CYCLES_MODULE, ...RUNNER_CYCLES_SUPPORT_SOURCES.map(entry => entry.path)]) {
+    const original = await readFile(join(directory, path), 'utf8');
+    await writeFile(join(directory, path), original + '\n// unreviewed CP25 source drift\n');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
+    if (path !== RUNNER_CYCLES_MODULE) await expect(assertRunnerCyclesSupportSources(directory)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE))
+      .resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(join(directory, path), original);
+  }
+  await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
 });
