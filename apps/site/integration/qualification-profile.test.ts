@@ -3694,7 +3694,7 @@ it('independently inventories CP24 frozen source order hooks budget and manual w
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
 });
 
-it('binds CP24 evidence-helper and collected source independently and rejects missing or changed bytes', async () => {
+it('binds CP24 evidence and fetch helpers and collected source independently and rejects missing or changed bytes', async () => {
   const siteRoot = fileURLToPath(new URL('..', import.meta.url));
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
   const directory = await mkdtemp(join(tmpdir(), 'backend-controls-support-')); directories.push(directory);
@@ -3702,7 +3702,7 @@ it('binds CP24 evidence-helper and collected source independently and rejects mi
   const source = await readFile(new URL('../' + BACKEND_CONTROLS_MODULE, import.meta.url), 'utf8');
   await writeFile(join(directory, BACKEND_CONTROLS_MODULE), source);
   await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE)).rejects.toThrow();
-  expect(BACKEND_CONTROLS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual(['integration/backend-controls-evidence.ts']);
+  expect(BACKEND_CONTROLS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual(['integration/backend-controls-evidence.ts', 'integration/backend-controls-fetch.ts']);
   for (const entry of BACKEND_CONTROLS_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
     await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BACKEND_CONTROLS_PROFILE);

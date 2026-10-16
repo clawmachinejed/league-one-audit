@@ -21,6 +21,7 @@ import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness } fr
 import { createIndependentDatabase, createPinnedIntegrationDatabase, integrationEnvironment, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { assertBackendControlsSupportSources, BACKEND_CONTROLS_PROFILE, BACKEND_CONTROLS_TESTS, qualificationBinding, qualificationDigest, type QualificationBinding } from './qualification-profile';
 import { BACKEND_CONTROLS_LIMITS, BACKEND_CONTROLS_ORACLES, writeBackendControlsEvidence, type ControlCase, type ControlEvent } from './backend-controls-evidence';
+import { createBackendControlsDatabaseFetchGuard } from './backend-controls-fetch';
 
 const enabled={enabled:true} as const;
 const siteRoot=fileURLToPath(new URL('..',import.meta.url));
@@ -105,10 +106,10 @@ describe.sequential('controlled DATA submission configuration pause and stored s
     http={...real,async query(statement,parameters=[],options={}){if(options.signal){expect(options.signal.aborted).toBe(false);signalQueries++;}return real.query(statement,parameters,options);}};routing.database=http;
     for(const database of [connection.database,http])expect((await database.query('SELECT session_user,current_user'))[0]).toEqual({session_user:'league_one_runtime',current_user:'league_one_runtime'});
     actualLogins.add('league_one_runtime');const [version]=await query("SELECT current_setting('server_version') AS version,current_setting('server_version_num') AS version_num");serverVersion=String(version.version);serverVersionNum=String(version.version_num);
-    const originalFetch=globalThis.fetch;const databaseHost=new URL(integrationEnvironment().runtimeDatabaseUrl).hostname;
+    const originalFetch=globalThis.fetch;const isDatabaseFetch=createBackendControlsDatabaseFetchGuard(integrationEnvironment().runtimeDatabaseUrl);
     fetchSpy=vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
       const url=new URL(input instanceof Request?input.url:String(input));
-      if(url.hostname===databaseHost)return originalFetch(input,init);
+      if(isDatabaseFetch(input,init))return originalFetch(input,init);
       if(url.hostname!=='api.sleeper.app'||providerMode==='none'){forbiddenGets++;throw new Error('Unapproved control fixture acquisition.');}
       if(providerMode==='prerequisite')prerequisiteGets++;else measuredGets++;
       if(url.pathname===`/v1/user/${username}`||url.pathname===`/v1/user/${native}`)return new Response(JSON.stringify({user_id:native,username,display_name:'CP24 synthetic manager'}));

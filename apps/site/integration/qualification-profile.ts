@@ -51,7 +51,7 @@ export const FRESH_INSTALL_FULL_NAMES = FRESH_INSTALL_TESTS.map(name => FRESH_IN
 export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 export const BACKEND_CONTROLS_PROFILE = 'data-backend-controls-v1';
 export const BACKEND_CONTROLS_MODULE = 'integration/backend-controls.qualification-case.ts';
-export const BACKEND_CONTROLS_SOURCE_DIGEST = 'bc6bc012d92a06d6a758846167e338558fc23f673daaedc2de88aa7fb4cc1b72';
+export const BACKEND_CONTROLS_SOURCE_DIGEST = '8102743af08b5f7c865340faf132918f55fc55248942c3b6cd0d815023397a1e';
 export const BACKEND_CONTROLS_SUITE = 'controlled DATA submission configuration pause and stored status';
 export const BACKEND_CONTROLS_TESTS = [
   'validates controlled submissions and retains canonical replay and conflict outcomes',
@@ -68,6 +68,7 @@ export const BACKEND_CONTROLS_FULL_NAMES = BACKEND_CONTROLS_TESTS.map(name => BA
 export const BACKEND_CONTROLS_PATTERN = closedPattern(BACKEND_CONTROLS_FULL_NAMES);
 export const BACKEND_CONTROLS_SUPPORT_SOURCES = [
   { path: 'integration/backend-controls-evidence.ts', sourceDigest: '7938c4502004c5c3f3914cca687c551d5337ea382ffe802ab76bb9862382285f' },
+  { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
 ] as const;
 export const COMPETING_WORKERS_PROFILE = 'data-competing-workers-v1';
 export const COMPETING_WORKERS_MODULE = 'integration/competing-workers.qualification-case.ts';
