@@ -96,3 +96,28 @@ describe('public intake history compatibility', () => {
     expect(f.query).not.toHaveBeenCalled();
   });
 });
+
+describe('internal resource occurrences are not public username imports', () => {
+  it.each([id, '', false])('excludes a marked occurrence before inherited lists or typed reads: %j', async marker => {
+    const f = fixture(); const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('No reader HTTP'));
+    const typed = vi.spyOn(f.administration, 'readSourceMapping');
+    f.query.mockImplementation(async sql => sql.includes('read-request')
+      ? [{ id, seasons: [2026], terminal: true, external_manager_id: '99', selected_resource_occurrence_id: marker }]
+      : sql.includes('read-lists') ? [{ season: 2026, payload: [{ league_id: '11' }, { league_id: '22' }] }]
+        : [{ season: 2026, external_league_id: '11', status: 'complete' }]);
+    try {
+      expect(await readPublicSleeperIntake(f.client, f.administration, id)).toEqual({ status: 'missing' });
+      expect(f.query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("to_jsonb(request)->>'resource_occurrence_id'"), [id]);
+      expect(typed).not.toHaveBeenCalled(); expect(fetch).not.toHaveBeenCalled();
+    } finally { fetch.mockRestore(); }
+  });
+  it('preserves ordinary and legacy-schema reads without leaking the nullable marker', async () => {
+    const f = fixture(); const original = f.query.getMockImplementation()!;
+    const legacy = await readPublicSleeperIntake(f.client, f.administration, id);
+    f.query.mockImplementation(async sql => (await original(sql)).map(row => sql.includes('read-request')
+      ? { ...row, selected_resource_occurrence_id: null } : row));
+    expect(await readPublicSleeperIntake(f.client, f.administration, id)).toEqual({ ...legacy, readAt: expect.any(String) });
+    if (legacy.status === 'missing') throw new Error('Expected ordinary intake');
+    expect(legacy.request).not.toHaveProperty('selected_resource_occurrence_id');
+  });
+});

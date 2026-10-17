@@ -14,6 +14,7 @@ on:
           - data-fresh-install-v1
           - data-process-recovery-v1
           - data-runner-cycles-v1
+          - data-batch-calibration-v1
           - data-backend-controls-v1
           - data-competing-workers-v1
           - data-within-season-history-v1
@@ -105,6 +106,9 @@ jobs:
               ;;
             workflow_dispatch:data-runner-cycles-v1)
               pnpm test:integration --profile=data-runner-cycles-v1
+              ;;
+            workflow_dispatch:data-batch-calibration-v1)
+              pnpm test:integration --profile=data-batch-calibration-v1
               ;;
             workflow_dispatch:data-competing-workers-v1)
               pnpm test:integration --profile=data-competing-workers-v1

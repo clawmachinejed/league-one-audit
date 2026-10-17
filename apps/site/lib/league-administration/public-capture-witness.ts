@@ -114,7 +114,7 @@ export function validateRequestedPublicCaptureWitness(value: unknown, work: Publ
   return witness;
 }
 
-/** Called at the actual transport entry, before starting the provider request. */
+/** Exact request scope validation, also used for time-independent retained history. */
 export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
   family: 'identity' | 'leagues' | 'league' | 'rosters' | 'users' | 'matchups' | 'winners_bracket' | 'losers_bracket' | 'weekly_report' | 'transactions' | 'drafts', identity: string,
   period: number | null = null): PublicCaptureWitness | undefined {
@@ -132,6 +132,15 @@ export function publicCaptureForRequest(value: PublicCaptureWitness | undefined,
                     : family === 'drafts' ? work.kind === 'drafts' && period === null
                   : (family === 'winners_bracket' || family === 'losers_bracket') && work.kind === 'playoff-brackets' && period === null);
   if (!matches) throw new Error('Public capture request scope mismatch.');
+  return witness;
+}
+
+/** Transport entry only. Historical parsing and projection must not use the current clock. */
+export function publicCaptureBeforeRequest(...request: Parameters<typeof publicCaptureForRequest>): PublicCaptureWitness | undefined {
+  const witness = publicCaptureForRequest(...request);
+  if (witness !== undefined && Date.parse(witness.fence.deadlineAt) <= Date.now()) {
+    throw new Error('Original public acquisition deadline expired.');
+  }
   return witness;
 }
 

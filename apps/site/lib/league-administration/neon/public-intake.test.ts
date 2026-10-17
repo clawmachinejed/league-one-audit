@@ -13,6 +13,91 @@ const league = { league_id: work.externalLeagueId, season: '2026', sport: 'nfl',
   total_rosters: 2, roster_positions: ['UNKNOWN_NATIVE_SLOT', 'BN'], settings: { divisions: 2 },
   scoring_settings: { rec_yd: 0.1, unsupported_bonus: 2 } };
 
+describe('SQL-issued batch ownership and atomic admission', () => {
+  const origin = '2026-10-16T12:00:00.000Z';
+  const worker = '55555555-5555-4555-8555-555555555555';
+  const successor = '66666666-6666-4666-8666-666666666666';
+  const owner = { kind: 'acquired', fence: { ...fence, workerId: worker, generation: 10, deadlineAt: '2026-10-16T12:00:20+00:00' },
+    admissionDeadlineAt: '2026-10-16T12:00:10+00:00', cleanupDeadlineAt: '2026-10-16T12:00:22+00:00',
+    leaseUntil: '2026-10-16T12:00:25+00:00' };
+  const setup = (rows: unknown[]) => {
+    const query = vi.fn().mockResolvedValue(rows);
+    return { query, store: createPublicIntakeStore({ enabled: true, query } as unknown as DatabaseClient) };
+  };
+  it('starts only the global resource batch with the original SQL deadlines', async () => {
+    const { store, query } = setup([{ result: owner }]);
+    expect(await store.beginResourceBatch!(worker, origin)).toEqual(owner);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.begin_public_data_resource_batch('), [worker, origin]);
+    query.mockResolvedValue([{ result: { ...owner, admissionDeadlineAt: '2026-10-16T12:00:11Z' } }]);
+    await expect(store.beginResourceBatch!(worker, origin)).rejects.toThrow();
+  });
+  it.each([[], [{ policy: 'future' }], [{ policy: ['public-data-resource-schedule-v1'] }],
+    [{ policy: 'public-data-resource-schedule-v1' }, { policy: 'public-data-resource-schedule-v1' }]].map(rows => ({ rows })))(
+    'requires the exact resource capability without fallback: %#', async ({ rows }) => {
+      const { store, query } = setup(rows); await expect(store.requireResourceScheduleCapability!()).rejects.toThrow('capability');
+      expect(query).toHaveBeenCalledOnce();
+    });
+  it('reads the resource capability using fixed SQL', async () => {
+    const { store, query } = setup([{ policy: 'public-data-resource-schedule-v1' }]);
+    await store.requireResourceScheduleCapability!();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.public_data_resource_schedule_capability()'));
+  });
+  it('preserves exact SQL-issued fence strings and binds the direct request', async () => {
+    const { store, query } = setup([{ result: owner }]);
+    expect(await store.beginBatch!(worker, origin, requestId)).toEqual(owner);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.begin_public_data_batch('), [worker, origin, requestId]);
+    query.mockClear(); await store.beginBatch!(worker, origin);
+    expect(query).toHaveBeenCalledWith(expect.any(String), [worker, origin, null]);
+  });
+  it.each([[], [{ result: owner }, { result: owner }], [{ result: null }],
+    [{ result: { kind: 'busy', fence: owner.fence } }], [{ result: { ...owner, extra: true } }],
+    [{ result: { ...owner, leaseUntil: '2026-10-16T12:00:26Z' } }],
+    [{ result: { ...owner, fence: { ...owner.fence, workerId: successor } } }],
+    [{ result: { ...owner, fence: { ...owner.fence, generation: 0 } } }],
+    [{ result: { ...owner, fence: { ...owner.fence, deadlineAt: '2026-10-16T12:00:21Z' } } }],
+  ].map(rows => ({ rows })))('refuses unknown, duplicate or rebound claims without retrying: %#', async ({ rows }) => {
+    const { store, query } = setup(rows);
+    await expect(store.beginBatch!(worker, origin, requestId)).rejects.toThrow();
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it.each(['busy', 'deadline'] as const)('preserves the explicit SQL %s disposition', async kind => {
+    const { store } = setup([{ result: { kind } }]);
+    expect(await store.beginBatch!(worker, origin)).toEqual({ kind });
+  });
+  it('accepts only a rotated worker at exactly the next generation under unchanged deadlines', async () => {
+    const next = { ...owner, fence: { ...owner.fence, workerId: successor, generation: 11 } };
+    const { store, query } = setup([{ result: next }]);
+    expect(await store.advanceBatch!(owner.fence, successor)).toEqual(next);
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.advance_public_data_batch_owner('),
+      [JSON.stringify(owner.fence), successor]);
+    query.mockResolvedValue([{ result: { ...next, fence: { ...next.fence, generation: 12 } } }]);
+    await expect(store.advanceBatch!(owner.fence, successor)).rejects.toThrow('generation');
+    query.mockClear();
+    await expect(store.advanceBatch!(owner.fence, worker)).rejects.toThrow('successor');
+    expect(query).not.toHaveBeenCalled();
+  });
+  it.each([[], [{ policy: 'future' }], [{ policy: 'public-data-batch-v1' }, { policy: 'public-data-batch-v1' }]].map(rows => ({ rows })))(
+    'requires exactly the installed batch capability: %#', async ({ rows }) => {
+      const { store } = setup(rows); await expect(store.requireBatchCapability!()).rejects.toThrow('R058');
+    });
+  it('uses fixed batch capability/selection/admission calls and refuses ambiguous admission', async () => {
+    const { store, query } = setup([{ policy: 'public-data-batch-v1' }]);
+    await store.requireBatchCapability!();
+    query.mockResolvedValue([{ result: work }]);
+    expect(await store.nextBatch!(requestId)).toEqual(work);
+    expect(query).toHaveBeenLastCalledWith(expect.stringContaining('public.next_public_data_batch_intake('), [requestId]);
+    query.mockResolvedValue([{ admitted: false }]);
+    expect(await store.admitBatch!(work, owner.fence)).toBe(false);
+    query.mockResolvedValue([{ admitted: true }]);
+    expect(await store.admitBatch!(work, owner.fence)).toBe(true);
+    for (const rows of [[], [{ admitted: 'true' }], [{ admitted: true }, { admitted: true }]]) {
+      query.mockResolvedValue(rows); await expect(store.admitBatch!(work, owner.fence)).rejects.toThrow('admission');
+    }
+    query.mockResolvedValue([{ result: 'complete' }, { result: 'complete' }]);
+    await expect(store.nextBatch!(requestId)).rejects.toThrow('acknowledgment');
+  });
+});
+
 describe('controlled durable submission receipts', () => {
   const input = { id: requestId, username: 'Any_Manager', seasons: [2026] };
   it.each(['retained', 'capacity'] as const)('decodes a canonical %s receipt without changing legacy submission', async status => {

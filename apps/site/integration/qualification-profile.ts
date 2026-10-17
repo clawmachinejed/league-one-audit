@@ -49,6 +49,44 @@ export const FRESH_INSTALL_TESTS = [
 ] as const;
 export const FRESH_INSTALL_FULL_NAMES = FRESH_INSTALL_TESTS.map(name => FRESH_INSTALL_SUITE + ' > ' + name);
 export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
+export const BATCH_CALIBRATION_PROFILE = 'data-batch-calibration-v1';
+export const BATCH_CALIBRATION_MODULE = 'integration/batch-calibration.qualification-case.ts';
+export const BATCH_CALIBRATION_SOURCE_DIGEST = '305c24f10fd8c7b7ddf3e1915904885e15e7ba537661a7cb9323d9d62867c284';
+export const BATCH_CALIBRATION_SUITE = 'four fresh leagues through one ordinary bounded DATA batch';
+export const BATCH_CALIBRATION_TESTS = [
+  'keeps omitted and false batch selections free of DATA writes and acquisition',
+  'completes four fresh leagues in one bounded ordinary backend batch',
+  'retains exact source receipt and stored reader parity without protected mutation',
+] as const;
+export const BATCH_CALIBRATION_FULL_NAMES = BATCH_CALIBRATION_TESTS.map(name => BATCH_CALIBRATION_SUITE + ' > ' + name);
+export const BATCH_CALIBRATION_PATTERN = closedPattern(BATCH_CALIBRATION_FULL_NAMES);
+// New calibration source bindings only. Historical profile pins remain unchanged.
+export const BATCH_CALIBRATION_SUPPORT_SOURCES = [
+  { path: 'integration/batch-calibration-worker.ts', sourceDigest: 'ac7b0da8ba8653cdaec732ceac77a6929846ffa2aaf26cdd0a420d7f2b587109' },
+  { path: 'integration/batch-calibration-protocol.ts', sourceDigest: 'b5643009bd5c5af10f19f92c2b1d86c0053f5c1ca47c0b20dc30b0df77cb17ba' },
+  { path: 'integration/batch-calibration-evidence.ts', sourceDigest: '13f68d877c1db23fcddbf6ba457e5bb77812ff0f5db8cefd9aa1731d5f98bffc' },
+  { path: 'integration/runner-cycles-protocol.ts', sourceDigest: 'e77fabcb702b7f861b660c70332b5231eeff68d8bcce076e74cc886cd37681c3' },
+  { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
+  { path: 'integration/neon-integration-harness.ts', sourceDigest: 'a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783' },
+  { path: 'integration/integration-child-process.ts', sourceDigest: 'c53e2e61042e031df57b0c99ddbc019adbbc29ea78a43ff96ca92b964953ab9a' },
+  { path: 'integration/disposable-integration.ts', sourceDigest: 'ded8c935ffb8c9e009c1e23e2fc7265d9576d3ea48522c4ac773466e904cb562' },
+  { path: 'migrations/058_public_data_batches.sql', sourceDigest: '9fedc0836f295c20b9004c84292bb80f1066ac4db6f8c725d8bb5e75b1f5c926' },
+  { path: 'scripts/provision-runtime-role.sql', sourceDigest: 'af6485bd567bda033f5f6ca265c6b83af567856242aaa2365cc6af536b241e09' },
+  { path: 'lib/league-administration/public-intake-runtime.ts', sourceDigest: '4097126dd86247ce9f61e3411e03f89cf7ef764fc1b8f42a22429cda14d6f2b5' },
+  { path: 'lib/league-administration/public-intake.ts', sourceDigest: 'da733e37d5d821f00505d0e5ff36fbc1e7cb045ec6256f98a277688f22b9ec9b' },
+  { path: 'lib/league-administration/public-intake-contracts.ts', sourceDigest: '85278e40a2365f1a2fc10506afd67718b182197e791fd3c4c39446ce0ed1b360' },
+  { path: 'lib/league-administration/store.ts', sourceDigest: '7bb8b073118ee762abee0f4ceb50e68771566e0384b6e9de4fa9cd66b27e9b64' },
+  { path: 'lib/league-administration/store-contracts.ts', sourceDigest: 'bfc744ba9aa9a57eaa1abb42fb06440f610223eb639f760fe9b13e0a729c5015' },
+  { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c5301d15e46a455261b46f6c9888937cd3d4c734b6ae5fea3cd835e9ec4ae9a6' },
+  { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },
+  { path: 'lib/projection-store.ts', sourceDigest: 'a921e870093fe021f0fb1a7ad51b785f808616745dfc1473bc26cce40ce1a03e' },
+  { path: 'lib/projections/adapters/neon/jobs.ts', sourceDigest: '6636413d4a922b1249041dc81aaad4fff87806da9f484167085c099a2140f839' },
+  { path: 'lib/sleeper.ts', sourceDigest: '19311adb64f3993dde952afc39e803121b5d2d9fa4868ff69dd2ed14ed7a827b' },
+  { path: 'lib/league-administration/normalize.ts', sourceDigest: '72e26189a07659d43fcd9163bff2fc2e65bec14c172c87f256373e6fae437d11' },
+  { path: 'lib/league-administration/runtime.ts', sourceDigest: 'e4ff88d3d46741a89cc3f457ec0583663cc08a251a06818ce353127beb35a1c5' },
+  { path: 'lib/league-administration/public-intake-reader.ts', sourceDigest: '8dd735908a91cd1ee188c1654a4531a56860f444a63d137e6c63d5c5319509e2' },
+  { path: 'lib/league-administration/public-capture-witness.ts', sourceDigest: '0aa7ec576bc1f30aa839152ed644206be77f1e6bf2f5bb2fed3ff2512b56fb9d' },
+] as const;
 export const RUNNER_CYCLES_PROFILE = 'data-runner-cycles-v1';
 export const RUNNER_CYCLES_MODULE = 'integration/runner-cycles.qualification-case.ts';
 // CP25 closed source inventory only; hosted execution requires separate authority.
@@ -446,7 +484,7 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+export type QualificationProfile = 'full' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof RUNNER_CYCLES_PROFILE | typeof BACKEND_CONTROLS_PROFILE | typeof COMPETING_WORKERS_PROFILE | typeof PROCESS_RECOVERY_PROFILE | typeof FRESH_INSTALL_PROFILE | typeof WITHIN_SEASON_HISTORY_PROFILE | typeof DRAFT_INTAKE_PROFILE | typeof DRAFT_REFRESH_PROFILE | typeof DRAFT_INTAKE_RECOVERY_PROFILE | typeof TRADED_PICKS_PROFILE | typeof DRAFT_SELECTIONS_PROFILE | typeof DRAFT_METADATA_PROFILE | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
@@ -544,6 +582,7 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === BATCH_CALIBRATION_PROFILE) return { names: BATCH_CALIBRATION_FULL_NAMES, pattern: BATCH_CALIBRATION_PATTERN };
   if (profile === RUNNER_CYCLES_PROFILE) return { names: RUNNER_CYCLES_FULL_NAMES, pattern: RUNNER_CYCLES_PATTERN };
   if (profile === BACKEND_CONTROLS_PROFILE) return { names: BACKEND_CONTROLS_FULL_NAMES, pattern: BACKEND_CONTROLS_PATTERN };
   if (profile === COMPETING_WORKERS_PROFILE) return { names: COMPETING_WORKERS_FULL_NAMES, pattern: COMPETING_WORKERS_PATTERN };
@@ -740,6 +779,7 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
+  if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_MODULE;
   if (profile === RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_MODULE;
   if (profile === BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_MODULE;
   if (profile === COMPETING_WORKERS_PROFILE) return COMPETING_WORKERS_MODULE;
@@ -760,6 +800,7 @@ function selectedModule(profile: QualificationProfile) {
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_MODULE : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_MODULE : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_MODULE : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
+  if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_SOURCE_DIGEST;
   if (profile === RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_SOURCE_DIGEST;
   if (profile === BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_SOURCE_DIGEST;
   if (profile === COMPETING_WORKERS_PROFILE) return COMPETING_WORKERS_SOURCE_DIGEST;
@@ -784,6 +825,7 @@ function selectedModules(profile: QualificationProfile) {
     : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
 }
 function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_FULL_NAMES;
   if (profile === RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_FULL_NAMES;
   if (profile === BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_FULL_NAMES;
   if (profile === COMPETING_WORKERS_PROFILE) return COMPETING_WORKERS_FULL_NAMES;
@@ -808,6 +850,9 @@ function selectedInventory(profile: QualificationProfile, path?: string): readon
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_FULL_NAMES : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_FULL_NAMES : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_FULL_NAMES : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_FULL_NAMES : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_FULL_NAMES : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_FULL_NAMES : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_FULL_NAMES : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_FULL_NAMES : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_FULL_NAMES : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
+  if (profile === BATCH_CALIBRATION_PROFILE) return qualificationDigest({ version: 1, profile,
+    module: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, sourceDigest: BATCH_CALIBRATION_SOURCE_DIGEST,
+    inventory: BATCH_CALIBRATION_FULL_NAMES, supportSources: BATCH_CALIBRATION_SUPPORT_SOURCES });
   if (profile === RUNNER_CYCLES_PROFILE) return qualificationDigest({ version: 1, profile,
     module: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST,
     inventory: RUNNER_CYCLES_FULL_NAMES, supportSources: RUNNER_CYCLES_SUPPORT_SOURCES });
@@ -826,6 +871,7 @@ function profileDigest(profile: QualificationProfile) {
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
+  if (args.length === 1 && args[0] === '--profile=' + BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_PROFILE;
   if (!args.length) return 'full';
@@ -867,10 +913,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   if (args.length === 1 && args[0] === '--profile=' + GUARDS_PROFILE) return GUARDS_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + CONCURRENCY_PROFILE) return CONCURRENCY_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + LATE_WRITE_PROFILE) return LATE_WRITE_PROFILE;
-  throw new Error('Only the closed data-runner-cycles-v1, data-backend-controls-v1, data-competing-workers-v1, data-process-recovery-v1, data-fresh-install-v1, data-within-season-history-v1, data-traded-picks-v1, data-draft-selections-v1, data-draft-metadata-v1, data-transaction-history-intake-v1, data-transaction-history-refresh-v1, data-transaction-history-recovery-v1, data-transaction-period-intake-v1, data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
+  throw new Error('Only the closed data-batch-calibration-v1, data-runner-cycles-v1, data-backend-controls-v1, data-competing-workers-v1, data-process-recovery-v1, data-fresh-install-v1, data-within-season-history-v1, data-traded-picks-v1, data-draft-selections-v1, data-draft-metadata-v1, data-transaction-history-intake-v1, data-transaction-history-refresh-v1, data-transaction-history-recovery-v1, data-transaction-period-intake-v1, data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === BATCH_CALIBRATION_PROFILE || profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
@@ -883,12 +929,13 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === BATCH_CALIBRATION_PROFILE || value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
     exactKeys(entry, ['path', 'sourceDigest']);
-    if (value.profile === RUNNER_CYCLES_PROFILE) assert.equal(entry.path, RUNNER_CYCLES_MODULE);
+    if (value.profile === BATCH_CALIBRATION_PROFILE) assert.equal(entry.path, BATCH_CALIBRATION_MODULE);
+    else if (value.profile === RUNNER_CYCLES_PROFILE) assert.equal(entry.path, RUNNER_CYCLES_MODULE);
     else if (value.profile === BACKEND_CONTROLS_PROFILE) assert.equal(entry.path, BACKEND_CONTROLS_MODULE);
     else if (value.profile === COMPETING_WORKERS_PROFILE) assert.equal(entry.path, COMPETING_WORKERS_MODULE);
     else if (value.profile === PROCESS_RECOVERY_PROFILE) assert.equal(entry.path, PROCESS_RECOVERY_MODULE);
@@ -897,6 +944,7 @@ function validateContext(value: QualificationContext): QualificationContext {
     assert.match(entry.sourceDigest, /^[0-9a-f]{64}$/u);
   }
   unique(value.modules.map(module => module.path));
+  if (value.profile === BATCH_CALIBRATION_PROFILE) assert.equal(value.modules[0].sourceDigest, BATCH_CALIBRATION_SOURCE_DIGEST, 'Batch calibration source differs from the reviewed LF digest.');
   if (value.profile === RUNNER_CYCLES_PROFILE) assert.equal(value.modules[0].sourceDigest, RUNNER_CYCLES_SOURCE_DIGEST,
     'Runner cycles source differs from the reviewed LF digest.');
   if (value.profile === BACKEND_CONTROLS_PROFILE) assert.equal(value.modules[0].sourceDigest, BACKEND_CONTROLS_SOURCE_DIGEST, 'Control source differs from the reviewed LF digest.');
@@ -941,6 +989,7 @@ function validateContext(value: QualificationContext): QualificationContext {
 }
 export async function createQualificationContext(siteRoot: string, gitSha: string, runId: string,
   profile: QualificationProfile = 'full'): Promise<QualificationContext> {
+  if (profile === BATCH_CALIBRATION_PROFILE) await assertBatchCalibrationSupportSources(siteRoot);
   if (profile === RUNNER_CYCLES_PROFILE) await assertRunnerCyclesSupportSources(siteRoot);
   if (profile === BACKEND_CONTROLS_PROFILE) await assertBackendControlsSupportSources(siteRoot);
   if (profile === COMPETING_WORKERS_PROFILE) await assertCompetingWorkersSupportSources(siteRoot);
@@ -976,6 +1025,10 @@ export async function assertProcessRecoverySupportSources(siteRoot: string): Pro
 export async function assertBackendControlsSupportSources(siteRoot: string): Promise<void> {
   for (const entry of BACKEND_CONTROLS_SUPPORT_SOURCES) assert.equal(qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')),
     entry.sourceDigest, 'Backend control support source differs from the reviewed LF digest.');
+}
+export async function assertBatchCalibrationSupportSources(siteRoot: string): Promise<void> {
+  for (const entry of BATCH_CALIBRATION_SUPPORT_SOURCES) assert.equal(qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')),
+    entry.sourceDigest, 'Batch calibration support source differs from the reviewed LF digest.');
 }
 export async function assertRunnerCyclesSupportSources(siteRoot: string): Promise<void> {
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) assert.equal(qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')),
@@ -1136,6 +1189,20 @@ export function validateQualificationReport(context: QualificationContext, repor
         const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
         assert(previous && current && current.startTime >= previous.startTime,
           'CP19 draft draft-refresh cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === BATCH_CALIBRATION_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), BATCH_CALIBRATION_FULL_NAMES);
+      assert.equal(entry.suites.length, 1); const suite = entry.suites[0];
+      assert.equal(suite.name, BATCH_CALIBRATION_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1);
+      for (let index = 1; index < entry.cases.length; index++) {
+        const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
+        // Vitest 4 records startTime with Date.now(), but duration with performance.now().
+        // Their sum is not a wall-clock finish; actual case spans prove nonoverlap below.
+        assert(previous && current && current.startTime >= previous.startTime,
+          'CP26 calibration cases must execute in chronological source order.');
       }
     }
     if (context.profile === RUNNER_CYCLES_PROFILE) {
@@ -1539,6 +1606,14 @@ export function validateQualificationReport(context: QualificationContext, repor
     for (const hook of report.hooks) assert.equal(hook.starts, 1, 'Core compatibility hooks must execute exactly once.');
   }
 }
+/** Compare the already validated case spans from the same parent process, without rounding. */
+export function assertBatchCalibrationCaseOrder(cases: import('./batch-calibration-evidence').BatchCalibrationEvidence['cases']): void {
+  for (let index = 1; index < cases.length; index++) {
+    const previous = cases[index - 1].span, current = cases[index].span;
+    assert(previous && current && current.monotonicStartMs >= previous.monotonicEndMs,
+      'CP26 calibration case spans must not overlap on their shared monotonic clock.');
+  }
+}
 /** Only after independently verified child-tree closure; a late timeout marker always wins. */
 export async function validateQualificationArtifacts(binding: QualificationBinding): Promise<{ profile: QualificationProfile; collected: number; executed: number; passed: number; skipped: number; filtered: number; reportDigest: string; companionDigest?: string }> {
   try { await lstat(join(binding.directory, QUALIFICATION_FILES.failure)); throw new Error('Sticky qualification failure.'); }
@@ -1551,6 +1626,14 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
   assert.deepEqual(ack, { kind: 'integration-qualification-cleanup-v1', contextDigest: qualificationDigest(binding.context),
     reportDigest: qualificationSourceDigest(raw), globalDatabaseCleanup: 'complete' });
   let companionDigest: string | undefined;
+  if (binding.context.profile === BATCH_CALIBRATION_PROFILE) {
+    const rawEvidence = await readBounded(binding.directory, 'batch-calibration-evidence.json');
+    const companion = await import('./batch-calibration-evidence');
+    const evidence = JSON.parse(rawEvidence) as import('./batch-calibration-evidence').BatchCalibrationEvidence;
+    companion.assertCompleteBatchCalibrationEvidence(evidence, binding);
+    assertBatchCalibrationCaseOrder(evidence.cases);
+    companionDigest = qualificationSourceDigest(rawEvidence);
+  }
   if (binding.context.profile === RUNNER_CYCLES_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'runner-cycles-evidence.json');
     const companion = await import('./runner-cycles-evidence');
@@ -1573,6 +1656,7 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
+  if (profile === BATCH_CALIBRATION_PROFILE) return [BATCH_CALIBRATION_MODULE];
   if (profile === RUNNER_CYCLES_PROFILE) return [RUNNER_CYCLES_MODULE];
   if (profile === BACKEND_CONTROLS_PROFILE) return [BACKEND_CONTROLS_MODULE];
   if (profile === COMPETING_WORKERS_PROFILE) return [COMPETING_WORKERS_MODULE];

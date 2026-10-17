@@ -943,3 +943,88 @@ DO $$ DECLARE value_table text; helper text; denied text:='INSERT,UPDATE,DELETE,
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC DRAFT INTAKE GRANTS
+
+-- BEGIN OPTIONAL PUBLIC DATA BATCH GRANTS
+-- R058 remains opt-in. Provisioning a runtime role after migration installation
+-- must expose the same public interface and deny the renamed legacy bypasses.
+DO $$ DECLARE entry_point text; helper text; BEGIN
+  IF to_regprocedure('public.public_data_batch_capability()') IS NOT NULL THEN
+    FOREACH helper IN ARRAY ARRAY[
+      'public.public_data_batch_claim_result(public.projection_jobs)',
+      'public.assert_public_data_batch_owner(jsonb)',
+      'public.public_data_batch_budget_available(integer)',
+      'public.admit_public_data_dispatch_v57(jsonb,jsonb)',
+      'public.begin_player_directory_attempt_v57(uuid,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',helper);
+      IF has_function_privilege('league_one_runtime',helper,'EXECUTE') THEN
+        RAISE EXCEPTION 'runtime can execute private public batch helper';
+      END IF;
+    END LOOP;
+    FOREACH entry_point IN ARRAY ARRAY[
+      'public.public_data_batch_capability()',
+      'public.begin_public_data_batch(text,timestamptz,uuid)',
+      'public.advance_public_data_batch_owner(jsonb,text)',
+      'public.next_public_data_batch_intake(uuid)',
+      'public.admit_public_data_batch_dispatch(jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',entry_point);
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',entry_point);
+      IF NOT has_function_privilege('league_one_runtime',entry_point,'EXECUTE')
+        OR EXISTS(SELECT 1 FROM pg_proc function_entry,
+          LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+          WHERE function_entry.oid=to_regprocedure(entry_point)
+            AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+        RAISE EXCEPTION 'incorrect public batch entry point privileges';
+      END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DATA BATCH GRANTS
+
+
+-- BEGIN OPTIONAL PUBLIC DATA RESOURCE SCHEDULE GRANTS
+-- Also required when the restricted runtime role is provisioned after R059.
+DO $$ DECLARE name text; denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+ IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+ IF to_regprocedure('public.public_data_resource_schedule_capability()') IS NOT NULL THEN
+   FOREACH name IN ARRAY ARRAY['public.public_data_resource_selection_json(public.public_data_resource_selections)','public.assert_public_data_resource_owner(jsonb)','public.public_data_resource_authority_valid(uuid,uuid,bigint)','public.validate_public_data_resource_occurrence()','public.next_public_data_intake_v58(uuid)','public.seed_public_data_resource_occurrence(uuid,uuid,bigint,jsonb)','public.reconcile_public_data_resource_request(uuid)','public.checkpoint_public_data_intake_v58(jsonb,jsonb,jsonb)','public.recover_public_data_dispatch_v58(uuid,jsonb)','public.public_data_history_authority_valid(uuid)','public.record_public_data_resource_target_failure(uuid,bigint,bigint,jsonb)','public.admit_public_data_batch_dispatch_v58(jsonb,jsonb)','public.configure_public_data_refresh_v58(jsonb)','public.begin_public_data_batch_v58(text,timestamptz,uuid)','public.guard_public_data_intake_v58(jsonb,jsonb)'] LOOP
+     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,league_one_runtime',name);
+     IF has_function_privilege('league_one_runtime',name,'EXECUTE') THEN RAISE EXCEPTION 'runtime can execute private resource schedule helper'; END IF;
+   END LOOP;
+   FOREACH name IN ARRAY ARRAY['public_data_resource_configurations','public_data_resources','public_data_resource_authorities','public_data_resource_occurrences','public_data_resource_selections','public_data_resource_selection_failures','public_data_history_service','public_data_resource_service','public_data_resource_target_failures'] LOOP
+     EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC,league_one_runtime',name);
+     EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',name);
+     IF NOT has_table_privilege('league_one_runtime','public.'||name,'SELECT')
+       OR has_table_privilege('league_one_runtime','public.'||name,denied) THEN RAISE EXCEPTION 'incorrect resource scheduling table privileges'; END IF;
+   END LOOP;
+   FOREACH name IN ARRAY ARRAY['public.public_data_resource_schedule_capability()','public.begin_public_data_resource_batch(text,timestamptz)','public.configure_public_data_resource_schedule(jsonb)','public.select_public_data_resource_work(jsonb)','public.fail_public_data_resource_selection(jsonb,text,jsonb)','public.next_public_data_intake(uuid)','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','public.recover_public_data_dispatch(uuid,jsonb)','public.admit_public_data_batch_dispatch(jsonb,jsonb)','public.configure_public_data_refresh(jsonb)','public.begin_public_data_batch(text,timestamptz,uuid)','public.guard_public_data_intake(jsonb,jsonb)'] LOOP
+     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',name);
+     EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',name);
+     IF NOT has_function_privilege('league_one_runtime',name,'EXECUTE') OR EXISTS(
+       SELECT 1 FROM pg_proc function_entry,LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+       WHERE function_entry.oid=to_regprocedure(name) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+       RAISE EXCEPTION 'incorrect resource schedule entry point privileges'; END IF;
+   END LOOP;
+ END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DATA RESOURCE SCHEDULE GRANTS
+
+-- BEGIN OPTIONAL PUBLIC DATA CORRECTION PREPARATION DENIAL
+-- R060 adds no runtime entry point. Keep the shared helper private for late roles.
+DO $$ DECLARE role_name text; BEGIN
+  IF to_regprocedure('public.select_public_data_refresh_mode(jsonb,boolean)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.select_public_data_refresh_mode(jsonb,boolean) FROM PUBLIC;
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION public.select_public_data_refresh_mode(jsonb,boolean) FROM %I',role_name);
+        IF has_function_privilege(role_name,'public.select_public_data_refresh_mode(jsonb,boolean)','EXECUTE') THEN
+          RAISE EXCEPTION 'restricted role can execute private correction preparation helper'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+      LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+      WHERE function_entry.oid=to_regprocedure('public.select_public_data_refresh_mode(jsonb,boolean)')
+        AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute private correction preparation helper'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DATA CORRECTION PREPARATION DENIAL

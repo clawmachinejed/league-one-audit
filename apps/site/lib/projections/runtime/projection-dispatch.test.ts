@@ -204,7 +204,8 @@ describe('explicit DATA composition preserves projection and ordinary maintenanc
     await isolated.runProductionProjectionSync(force ? { force, publicDataRefresh: selection } : {});
     expect(runtime.dataRuntimeLoaded).not.toHaveBeenCalled(); expect(runtime.data).not.toHaveBeenCalled();
   });
-  it('starts DATA before registry, drains it before maintenance, and keeps the original result/timestamp', async () => {
+  it.each([{ enabled: true } as const, { enabled: true, batchPolicy: 'public-data-batch-v1',
+    schedulingPolicy: 'public-data-resource-schedule-v1' } as const])('starts selected DATA before registry and drains before maintenance with original result/time: %j', async selection => {
     const data = pending(); runtime.data.mockReturnValue(data.promise);
     runtime.registry.mockImplementation(async () => {
       // A blocked registry cannot prevent the already-started lazy DATA import.
