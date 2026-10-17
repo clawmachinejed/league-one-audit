@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { assertCapacityManifest, CAPACITY_EXTERNAL_GAPS, CAPACITY_LIMITS, capacityDigest, capacityTime,
-  type CapacityManifest, type ReaderExpectation } from './freshness-capacity-manifest';
+  type CapacityManifest, type CapacityRequestBudgetPolicy, type ReaderExpectation } from './freshness-capacity-manifest';
 
 /** Infinity is serialized explicitly; JSON.stringify(Infinity) would silently turn failure into null. */
 export type MeasuredMs = number | 'infinity';
@@ -22,13 +22,51 @@ function indexed<T>(rows: readonly T[], key: (row: T) => string, allowed?: reado
   return map;
 }
 type Attempt = { id: string; owner: string; sequence: number; at: number; endedAt: number;
+  /** Legacy offline reports lack this field; full-fleet transport must bind the exact provider origin. */
+  origin?: string;
   purpose: 'intake' | 'refresh' | 'retry' | 'redirect' | 'independent-measurement' | 'other';
   outcome: 'success' | 'failed' | 'timeout'; responseSha256: string | null };
 export type HttpAttempt = Attempt & ({ method: 'GET'; path: string; report?: never }
   | { method: 'POST'; path: '/graphql'; report: { family: 'weekly_report'; externalLeagueId: string; nativeWeek: number; bodySha256: string } });
+/** Strict native provider binding when present; old path-only reports stay explicitly unbound. */
+export function assertCapacityHttpEndpoint(row: HttpAttempt, requireOrigin = false): void {
+  assert(row.method === 'GET' || row.method === 'POST', 'explicit GET or POST method required');
+  if (row.origin === undefined) {
+    assert(!requireOrigin, 'full-fleet HTTP attempt needs an explicit provider origin');
+    if (row.method === 'GET') assert(typeof row.path === 'string' && row.path.startsWith('/v1/'), 'invalid native GET path');
+    else assert.equal(row.path, '/graphql', 'invalid weekly report POST path');
+    return;
+  }
+  assert(['https://api.sleeper.app', 'https://api.sleeper.com', 'https://sleeper.com'].includes(row.origin), 'invalid native provider origin');
+  assert(typeof row.path === 'string' && row.path.startsWith('/') && !row.path.startsWith('//'), 'invalid native provider path');
+  const url = new URL(row.path, row.origin);
+  assert(url.origin === row.origin && !url.username && !url.password && !url.hash
+    && url.pathname + url.search === row.path, 'noncanonical native provider path');
+  if (row.method === 'POST') {
+    assert(row.origin === 'https://sleeper.com' && row.path === '/graphql', 'invalid weekly report provider binding');
+    return;
+  }
+  if (row.origin === 'https://api.sleeper.com') {
+    assert(/^\/(?:schedule\/nfl\/regular\/2026|scores\/nfl\/regular\/2026\/(?:[1-9]|1[0-8]))$/u.test(row.path), 'invalid native calendar or score route');
+    return;
+  }
+  assert.equal(row.origin, 'https://api.sleeper.app', 'invalid native GET provider binding');
+  const id = '[1-9][0-9]{0,31}', week = '(?:[1-9]|1[0-8])', transactionWeek = '(?:0|[1-9]|1[0-8])';
+  const league = new RegExp(`^/v1/league/${id}(?:/(?:rosters|users|winners_bracket|losers_bracket|drafts|traded_picks)|/matchups/${week}|/transactions/${transactionWeek})?$`, 'u');
+  const discovery = new RegExp(`^/v1/user/${id}/leagues/nfl/2026$`, 'u');
+  assert(league.test(row.path) || discovery.test(row.path) || /^\/v1\/user\/[A-Za-z0-9_]{1,100}$/u.test(row.path)
+    || /^\/v1\/draft\/[A-Za-z0-9_-]{1,128}(?:\/(?:picks|traded_picks))?$/u.test(row.path)
+    || /^\/v1\/players\/nfl(?:\?position=(?:QB|RB|WR|TE|K|DEF))?$/u.test(row.path)
+    || row.path === '/v1/state/nfl' || /^\/v1\/stats\/nfl\/regular\/2026\/(?:[1-9]|1[0-8])$/u.test(row.path),
+  'undeclared native GET route or query');
+}
 export type RequestAccounting = { coverageStartedAt: number; coverageEndedAt: number;
   ownerTotals: { owner: string; attempts: number }[]; attempts: HttpAttempt[] };
-export function evaluateRequestEnvelope(owners: readonly string[], ledger: RequestAccounting, start: number, end: number) {
+export function evaluateRequestEnvelope(owners: readonly string[], ledger: RequestAccounting, start: number, end: number,
+  policy?: CapacityRequestBudgetPolicy) {
+  assert(policy === undefined || policy === 'cp1-data-with-separate-existing-owners-v1', 'unknown request budget policy');
+  if (policy !== undefined) assert.deepEqual([...owners].sort(),
+    ['administration-maintenance', 'data-refresh', 'independent-measurement', 'primary-projection'], 'DATA policy requires the complete closed owner inventory');
   capacityTime(start); capacityTime(end); assert(end >= start); capacityTime(ledger.coverageStartedAt); capacityTime(ledger.coverageEndedAt);
   const totals = indexed(ledger.ownerTotals, row => row.owner, owners);
   const attempts = indexed(ledger.attempts, row => row.id);
@@ -41,9 +79,8 @@ export function evaluateRequestEnvelope(owners: readonly string[], ledger: Reque
   }
   for (const row of attempts.values()) {
     assert(owners.includes(row.owner), 'unaccounted request owner'); assert(typeof row.id === 'string' && row.id.length > 0);
-    assert(row.method === 'GET' || row.method === 'POST', 'explicit GET or POST method required');
+    assertCapacityHttpEndpoint(row, policy !== undefined);
     if (row.method === 'GET') {
-      assert(typeof row.path === 'string' && row.path.startsWith('/v1/'), 'invalid native GET path');
       assert(!Object.hasOwn(row, 'report'), 'GET cannot carry a report POST binding');
     } else {
       assert.equal(row.path, '/graphql', 'invalid weekly report POST path');
@@ -76,15 +113,27 @@ export function evaluateRequestEnvelope(owners: readonly string[], ledger: Reque
     const ordered = [...rows].sort((a, b) => a.at - b.at);
     return { totalAttempts: rows.length, minutePeak: peak(ordered, 60_000), hourPeak: peak(ordered, 3_600_000) };
   };
-  const byMethod = { GET: demand(ledger.attempts.filter(row => row.method === 'GET')),
-    POST: demand(ledger.attempts.filter(row => row.method === 'POST')) };
+  const metrics = (rows: readonly HttpAttempt[]) => ({
+    GET: demand(rows.filter(row => row.method === 'GET')),
+    POST: demand(rows.filter(row => row.method === 'POST')), allHTTP: demand(rows) });
+  const combined = metrics(ledger.attempts);
+  const byMethod = { GET: combined.GET, POST: combined.POST };
+  const byOwner = owners.map(owner => ({ owner, ...metrics(ledger.attempts.filter(row => row.owner === owner)) }));
+  // The reviewed user policy retains every existing-owner attempt in the report. Only DATA
+  // and independent measurement spend this envelope; failures, retries and POSTs still count.
+  // Omission preserves the older offline combined-envelope interpretation.
+  const gatedOwners = policy === undefined ? [...owners] : ['data-refresh', 'independent-measurement'];
+  const gated = metrics(ledger.attempts.filter(row => gatedOwners.includes(row.owner)));
   const withinLimits = (value: ReturnType<typeof demand>) => errors.length === 0
     && value.minutePeak <= CAPACITY_LIMITS.minuteGets && value.hourPeak <= CAPACITY_LIMITS.hourGets;
-  const getEnvelope = { policy: 'cp1-get-envelope' as const, ...byMethod.GET, pass: withinLimits(byMethod.GET) };
-  const allHttp = demand(ledger.attempts);
-  const allHttpEnvelope = { policy: 'candidate-all-http-envelope' as const, ...allHttp, pass: withinLimits(allHttp) };
-  return { totalAttempts: attempts.size, byPurpose: Object.fromEntries(['intake', 'refresh', 'retry', 'redirect', 'independent-measurement', 'other']
-    .map(purpose => [purpose, ledger.attempts.filter(row => row.purpose === purpose).length])), byMethod, getEnvelope, allHttpEnvelope, errors,
+  const getEnvelope = { policy: 'cp1-get-envelope' as const, ...gated.GET, pass: withinLimits(gated.GET) };
+  const allHttpEnvelope = { policy: 'candidate-all-http-envelope' as const, ...gated.allHTTP, pass: withinLimits(gated.allHTTP) };
+  return { totalAttempts: attempts.size, budgetPolicy: policy ?? 'legacy-combined-candidate', gatedOwners,
+    originBinding: { boundAttempts: ledger.attempts.filter(row => row.origin !== undefined).length,
+      unboundAttempts: ledger.attempts.filter(row => row.origin === undefined).length, complete: ledger.attempts.every(row => row.origin !== undefined) },
+    byPurpose: Object.fromEntries(['intake', 'refresh', 'retry', 'redirect', 'independent-measurement', 'other']
+      .map(purpose => [purpose, ledger.attempts.filter(row => row.purpose === purpose).length])),
+    byMethod, byOwner, combined, getEnvelope, allHttpEnvelope, errors,
     pass: getEnvelope.pass && allHttpEnvelope.pass };
 }
 export type OriginObservation = { id: string; pairId: string; version: string; payloadSha256: string;
@@ -118,7 +167,7 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
   const origins = indexed(evidence.origins, row => row.id);
   const attempts = indexed(evidence.requests.attempts, row => row.id);
   const errors: string[] = [];
-  const requestEnvelope = evaluateRequestEnvelope(manifest.source.requestOwners, evidence.requests, start, end);
+  const requestEnvelope = evaluateRequestEnvelope(manifest.source.requestOwners, evidence.requests, start, end, manifest.source.requestBudgetPolicy);
   const knownVersions = new Map<string, Set<string>>();
   const boundEvents = indexed(manifest.events, row => row.id);
   for (const event of plan.events) {
@@ -151,15 +200,22 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
     return at - origin.observedAt;
   }
   const intakes = (['intake-a', 'intake-b'] as const).map(cohort => {
+    const scheduledAt = start + plan.intakeStartOffsetMs;
     const row = intakeRows.get(cohort);
-    if (!row) return { cohort, receiptMs: 'infinity' as MeasuredMs, importMs: 'infinity' as MeasuredMs, pass: false };
+    if (!row) return { cohort, scheduledAt, submittedAt: null, dispatchLatenessMs: null, dispatchPass: false,
+      receiptMs: 'infinity' as MeasuredMs, importMs: 'infinity' as MeasuredMs, pass: false };
     capacityTime(row.submittedAt); for (const at of [row.receiptAt, row.acceptedAt, row.completeAt]) if (at !== null) capacityTime(at);
-    const ordered = row.submittedAt === start + plan.intakeStartOffsetMs && row.receiptAt !== null
+    // The planned +60s dispatch never moves. Use the same frozen 1s observer dispatch bound,
+    // while retaining actual submission/acceptance clocks for the independent receipt/import gates.
+    const dispatchLatenessMs = row.submittedAt - scheduledAt;
+    const dispatchPass = dispatchLatenessMs >= 0 && dispatchLatenessMs <= plan.sampleDispatchLatenessMs;
+    const ordered = row.receiptAt !== null
       && row.receiptAt >= row.submittedAt && row.acceptedAt !== null && row.acceptedAt >= row.submittedAt
       && row.acceptedAt <= row.receiptAt && row.completeAt !== null && row.completeAt >= row.acceptedAt && row.completeAt <= end;
     const receiptMs: MeasuredMs = ordered ? row.receiptAt! - row.submittedAt : 'infinity';
     const importMs: MeasuredMs = ordered && row.coverage === 'complete' ? row.completeAt! - row.acceptedAt! : 'infinity';
-    return { cohort, receiptMs, importMs, pass: meets(receiptMs, CAPACITY_LIMITS.receiptMs) && meets(importMs, CAPACITY_LIMITS.importMs) };
+    return { cohort, scheduledAt, submittedAt: row.submittedAt, dispatchLatenessMs, dispatchPass, receiptMs, importMs,
+      pass: dispatchPass && meets(receiptMs, CAPACITY_LIMITS.receiptMs) && meets(importMs, CAPACITY_LIMITS.importMs) };
   });
   const anchors = new Map<string, number>();
   for (const pair of plan.pairs) {
@@ -248,7 +304,7 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
       visibilityPass: meets(visibility.p95Ms, CAPACITY_LIMITS.changeP95Ms) };
   });
   let outage: null | { recoveryMs: MeasuredMs; backlogMs: MeasuredMs; lastGoodPreserved: boolean; pass: boolean } = null;
-  if (manifest.lane.kind === 'healthy') assert.equal(evidence.outage, null, 'undeclared outage cannot be excluded from healthy samples');
+  if (manifest.lane.kind === 'healthy') assert(evidence.outage === null, 'undeclared outage cannot be excluded from healthy samples');
   else {
     const row = evidence.outage;
     if (!row) outage = { recoveryMs: 'infinity', backlogMs: 'infinity', lastGoodPreserved: false, pass: false };

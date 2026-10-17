@@ -1,29 +1,25 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { bindCapacityManifest, createCapacityPlan, type BoundEvent, type CapacitySource, type CapacityLane } from './freshness-capacity-manifest';
-import { evaluateCapacityEvidence, evaluateRequestEnvelope, summarizeCapacity, type CapacityEvidence,
+import { bindCapacityManifest, type CapacitySource, type CapacityLane } from './freshness-capacity-manifest';
+import { assertCapacityHttpEndpoint, evaluateCapacityEvidence, evaluateRequestEnvelope, summarizeCapacity, type CapacityEvidence,
   type HttpAttempt, type OriginObservation, type ResourceRead } from './freshness-capacity-evidence';
+
+import { createCapacityFleetFixture } from './freshness-capacity-fixtures';
 
 const start = 1_000_000_000;
 // Synthetic witnesses test the offline arithmetic only. They are never SQL or elapsed-run evidence.
 function fixture() {
-  const plan = createCapacityPlan('synthetic-evaluator');
-  const value = (ordinal: number) => ({ raw: ordinal, custom: null, effective: ordinal });
-  const payload = (pairId: string, ordinal: number) => { const utf8 = JSON.stringify({ pairId: pairId.replace('/official-scores', '/lineups'), ordinal });
-    return { version: `v${ordinal}`, utf8, sha256: createHash('sha256').update(utf8).digest('hex') }; };
+  const fleet = createCapacityFleetFixture('synthetic-evaluator'), plan = fleet.prototype.plan;
+  const bindings = fleet.prototype.events;
+  const payload = (pairId: string, ordinal: number) => ordinal === 0
+    ? bindings.find(row => row.id === pairId + '/event-1')!.before
+    : bindings.find(row => row.id === pairId + '/event-' + ordinal)!.after;
   const source: CapacitySource = { readinessContractSha256: 'e'.repeat(64), acceptanceContractSha256: 'f'.repeat(64), plannedPostgresqlVersion: '18.6',
-    gitSha: 'a'.repeat(40), appTreeSha: 'b'.repeat(40), fixtureSha256: 'c'.repeat(64), readerQueryMixSha256: 'd'.repeat(64),
+    gitSha: 'a'.repeat(40), appTreeSha: 'b'.repeat(40), fixtureSha256: fleet.digest, readerQueryMixSha256: 'd'.repeat(64),
     clockRefs: { wall: 'synthetic-wall', monotonic: 'synthetic-monotonic' }, cleanupPlanRef: 'synthetic-cleanup',
-    requestOwners: ['ordinary-runner', 'independent-measurement'], unrelatedUsernames: ['synthetic-a', 'synthetic-b'],
-    formatWitnesses: { byes: 'fixture-byes', ties: 'fixture-ties', 'custom-zero': 'fixture-zero', 'unusual-scoring': 'fixture-scoring',
-      'pre-draft-incomplete': 'fixture-predraft', 'multiweek-legs': 'fixture-legs', 'overlap-deduplication': 'fixture-overlap', 'excess-capacity': 'fixture-capacity' },
-    leagues: plan.leagues.map(league => ({ key: league.key, nativeLeagueId: `synthetic-${league.key}`, season: 2026,
-      format: league.format, regression: league.regression, nativePeriod: '1', nativePeriods: Array.from({ length: 18 }, (_, index) => String(index + 1)),
-      extraPeriodCoverageGaps: [], rosterCount: 20, inSeason: true, initiallyPopulated: league.cohort === 'accepted', sourceEvidenceRef: 'synthetic-native-source' })),
-    initialReaders: plan.pairs.map(pair => ({ pairId: pair.id, reader: { selector: `${pair.id}/head`, version: 'v0', value: value(0) } })) };
-  const bindings: BoundEvent[] = plan.events.map(event => ({ id: event.id, before: payload(event.pairId, event.ordinal - 1), after: payload(event.pairId, event.ordinal),
-    changedFields: ['synthetic'], expectedReader: { selector: `${event.pairId}/head`, version: `v${event.ordinal}`, value: value(event.ordinal) },
-    retainedHistory: Array.from({ length: event.ordinal }, (_, ordinal) => ({ selector: `${event.pairId}/history/v${ordinal}`, version: `v${ordinal}`, value: value(ordinal) })) }));
+    requestOwners: ['ordinary-runner', 'independent-measurement'], unrelatedUsernames: [fleet.users[1].username, fleet.users[2].username],
+    endpointInventory: fleet.endpointInventory, formatWitnesses: fleet.formatWitnesses,
+    leagues: fleet.sourceLeagues, initialReaders: fleet.prototype.initialReaders };
   const manifest = bindCapacityManifest(plan, source, bindings, { kind: 'healthy' });
   const anchor = (pairId: string) => { const index = plan.pairs.findIndex(pair => pair.id === pairId);
     return start + (index < 32 ? 0 : 120_000 + index * 2_000 + 2); };
@@ -31,7 +27,7 @@ function fixture() {
   const attempts: HttpAttempt[] = [], origins: OriginObservation[] = [];
   for (const [index, pair] of plan.pairs.entries()) {
     const league = source.leagues.find(row => row.key === pair.leagueKey)!;
-    const resource = pair.family === 'rosters' ? 'rosters' : pair.family === 'transactions' ? 'transactions/1' : 'matchups/1';
+    const resource = pair.family === 'rosters' ? 'rosters' : pair.family === 'transactions' ? 'transactions/7' : 'matchups/7';
     for (let at = start - 240_000 + index * 2_000; at <= end - 1; at += 180_000) {
       if (index >= 32 && at < start + 60_010) continue;
       const ordinal = Math.max(0, Math.min(20, Math.floor((at - anchor(pair.id) - 60_000) / 360_000) + 1));
@@ -48,7 +44,7 @@ function fixture() {
     intakes: (['intake-a', 'intake-b'] as const).map(cohort => ({ cohort, submittedAt: start + 60_000, acceptedAt: start + 60_010,
       receiptAt: start + 60_020, completeAt: start + 246_002, coverage: 'complete' })),
     firstAcceptances: plan.pairs.map(pair => ({ pairId: pair.id, at: anchor(pair.id),
-      read: read(origins.find(origin => origin.pairId === pair.id && origin.version === 'v0')!, anchor(pair.id)),
+      read: read(origins.find(origin => origin.pairId === pair.id && origin.version === payload(pair.id, 0).version)!, anchor(pair.id)),
       reader: source.initialReaders.find(row => row.pairId === pair.id)!.reader })),
     requests: { coverageStartedAt: start - 3_600_000, coverageEndedAt: end,
       ownerTotals: [{ owner: 'ordinary-runner', attempts: attempts.length }, { owner: 'independent-measurement', attempts: 0 }], attempts },
@@ -70,6 +66,42 @@ function reportPost(attempt: HttpAttempt): HttpAttempt {
   return { ...attempt, method: 'POST', path: '/graphql', report: { family: 'weekly_report', externalLeagueId, nativeWeek,
     bodySha256: createHash('sha256').update(body).digest('hex') } };
 }
+
+describe('CP26 planned intake dispatch and actual SLA clocks', () => {
+  it.each([-1, 0, 1, 1_000, 1_001])('retains planned dispatch and measures actual lateness of %i ms', offset => {
+    const { manifest, evidence } = fresh(); const intake = evidence.intakes[0];
+    intake.submittedAt += offset; intake.receiptAt! += offset; intake.acceptedAt! += offset; intake.completeAt! += offset;
+    const report = evaluateCapacityEvidence(manifest, evidence);
+    expect(report.intakes[0]).toMatchObject({ scheduledAt: start + 60_000, submittedAt: start + 60_000 + offset,
+      dispatchLatenessMs: offset, dispatchPass: offset >= 0 && offset <= 1_000,
+      receiptMs: 20, importMs: 185_992, pass: offset >= 0 && offset <= 1_000 });
+    expect(report.pairs[0].sampleTiming[0].scheduledAt).toBe(start + 60_000);
+  });
+  it.each([2_000, 2_001])('measures the receipt gate from actual submission with %i ms duration', elapsed => {
+    const { manifest, evidence } = fresh(); const intake = evidence.intakes[0];
+    intake.submittedAt += 1_000; intake.acceptedAt = intake.submittedAt + 10; intake.receiptAt = intake.submittedAt + elapsed;
+    expect(evaluateCapacityEvidence(manifest, evidence).intakes[0]).toMatchObject({
+      dispatchPass: true, dispatchLatenessMs: 1_000, receiptMs: elapsed, pass: elapsed <= 2_000 });
+  });
+  it.each([14_400_000, 14_400_001])('measures the import gate from actual acceptance with %i ms duration', elapsed => {
+    const { manifest, evidence } = fresh(); const intake = evidence.intakes[0];
+    intake.submittedAt += 1_000; intake.acceptedAt = intake.submittedAt + 10; intake.receiptAt = intake.submittedAt + 20;
+    intake.completeAt = intake.acceptedAt + elapsed; evidence.endedAt = intake.completeAt + 1;
+    evidence.requests.coverageEndedAt = evidence.endedAt;
+    expect(evaluateCapacityEvidence(manifest, evidence).intakes[0]).toMatchObject({
+      dispatchPass: true, receiptMs: 20, importMs: elapsed, pass: elapsed <= 14_400_000 });
+  });
+  it('retains a missing intake as a failed planned dispatch', () => {
+    const { manifest, evidence } = fresh(); evidence.intakes.shift();
+    expect(evaluateCapacityEvidence(manifest, evidence).intakes[0]).toMatchObject({
+      scheduledAt: start + 60_000, submittedAt: null, dispatchLatenessMs: null, dispatchPass: false,
+      receiptMs: 'infinity', importMs: 'infinity', pass: false });
+  });
+  it.each([undefined, NaN, Infinity])('rejects a missing or nonfinite actual dispatch clock: %s', submittedAt => {
+    const { manifest, evidence } = fresh(); Object.assign(evidence.intakes[0], { submittedAt });
+    expect(() => evaluateCapacityEvidence(manifest, evidence)).toThrow();
+  });
+});
 
 describe('CP26 denominator and correctness reconciliation', () => {
   it('passes the bounded synthetic arithmetic without claiming actual CP26 qualification', () => {
@@ -137,7 +169,7 @@ describe('CP26 denominator and correctness reconciliation', () => {
     if (failure === 'wrong-origin-time') evidence.origins[0].observedAt++;
     if (failure === 'wrong-endpoint') evidence.requests.attempts[0].path = '/v1/league/unrelated/rosters';
     if (failure === 'future-version') {
-      const origin = evidence.origins.find(row => row.version === 'v1')!;
+      const origin = evidence.origins.find(row => row.version === manifest.events[0].after.version)!;
       const attempt = evidence.requests.attempts.find(row => row.id === origin.attemptId)!;
       origin.observedAt = start; attempt.endedAt = start; attempt.at = start - 1;
     }
@@ -165,10 +197,12 @@ describe('CP26 denominator and correctness reconciliation', () => {
     const { manifest, evidence } = fresh(); evidence.requests.attempts[0] = reportPost(evidence.requests.attempts[0]);
     expect(() => evaluateCapacityEvidence(manifest, evidence)).toThrow('origin needs successful GET attempt');
   });
-  it('does not hide import failure behind new-cohort freshness or a shifted acceptance anchor', () => {
+  it('does not hide import failure behind new-cohort freshness', () => {
     const { manifest, evidence } = fresh(); evidence.intakes[0].coverage = 'incomplete';
     expect(evaluateCapacityEvidence(manifest, evidence).intakes[0].pass).toBe(false);
-    evidence.intakes[0].coverage = 'complete'; evidence.firstAcceptances[32].at--;
+  });
+  it('does not accept a shifted first-acceptance anchor', () => {
+    const { manifest, evidence } = fresh(); evidence.firstAcceptances[32].at--;
     expect(evaluateCapacityEvidence(manifest, evidence).errors).toContain('unproved first acceptance: league-09/rosters');
   });
   it('records missing acceptance, missing intake and a truncated horizon as failures', () => {
@@ -261,7 +295,7 @@ describe('nearest-rank and method-aware shared rolling HTTP envelopes', () => {
 });
 
 describe('declared outage and complete backlog recovery', () => {
-  function outageFixture() {
+  function buildOutageFixture() {
     const { source, bindings, read } = base;
     const lane: CapacityLane = { kind: 'outage', startOffsetMs: 1_800_000, durationMs: 1_800_000, dependency: 'provider',
       backlog: [{ id: 'queued-first', pairId: base.manifest.plan.pairs[0].id, reader: bindings[10].expectedReader }],
@@ -288,6 +322,16 @@ describe('declared outage and complete backlog recovery', () => {
         reader: bindings[10].expectedReader }] };
     return { manifest, evidence: structuredClone(evidence) };
   }
+  // Build the immutable full-source variants once; each assertion gets independent mutable evidence.
+  const outageBase = buildOutageFixture();
+  function outageFixture() { return { manifest: outageBase.manifest, evidence: structuredClone(outageBase.evidence) }; }
+  if (outageBase.manifest.lane.kind !== 'outage') throw new Error('expected outage fixture');
+  const staleLane = structuredClone(outageBase.manifest.lane), initialWitness = outageBase.evidence.firstAcceptances[0];
+  staleLane.lastGood[0] = { pairId: initialWitness.pairId, reader: structuredClone(initialWitness.reader), payloadSha256: initialWitness.read.payloadSha256 };
+  const staleInitialManifest = bindCapacityManifest(outageBase.manifest.plan, outageBase.manifest.source, outageBase.manifest.events, staleLane);
+  const backlogLane = structuredClone(outageBase.manifest.lane), recoveredVersion = outageBase.evidence.outage!.recovered[0].read.version;
+  backlogLane.backlog[0].reader = structuredClone(outageBase.manifest.events.find(row => row.after.version === recoveredVersion && row.id.startsWith('league-01/rosters/'))!.expectedReader);
+  const staleBacklogManifest = bindCapacityManifest(outageBase.manifest.plan, outageBase.manifest.source, outageBase.manifest.events, backlogLane);
   it('separates outage-inclusive lag from healthy targets and requires fresh reads plus all queued results', () => {
     const { manifest, evidence } = outageFixture();
     const report = evaluateCapacityEvidence(manifest, evidence);
@@ -310,7 +354,8 @@ describe('declared outage and complete backlog recovery', () => {
     if (manifest.lane.kind !== 'outage') throw new Error('expected outage fixture');
     const lane = structuredClone(manifest.lane), initial = evidence.firstAcceptances[0];
     lane.lastGood[0] = { pairId: initial.pairId, reader: structuredClone(initial.reader), payloadSha256: initial.read.payloadSha256 };
-    const rebound = bindCapacityManifest(manifest.plan, manifest.source, manifest.events, lane);
+    const rebound = staleInitialManifest;
+    expect(lane).toEqual(rebound.lane);
     evidence.manifestDigest = rebound.digest;
     const witness = evidence.outage!.lastGood[0];
     for (const snapshot of [witness.before, witness.during]) {
@@ -333,7 +378,8 @@ describe('declared outage and complete backlog recovery', () => {
       const lane = structuredClone(manifest.lane);
       const expected = manifest.events.find(event => event.after.version === current.version && event.id.startsWith('league-01/rosters/'))!.expectedReader;
       lane.backlog[0].reader = structuredClone(expected);
-      const rebound = bindCapacityManifest(manifest.plan, manifest.source, manifest.events, lane);
+      const rebound = staleBacklogManifest;
+      expect(lane).toEqual(rebound.lane);
       row.backlog[0].reader = structuredClone(expected); row.backlog[0].read = late;
       evidence.manifestDigest = rebound.digest;
       const report = evaluateCapacityEvidence(rebound, evidence);
@@ -348,12 +394,166 @@ describe('declared outage and complete backlog recovery', () => {
   });
   it('rejects a fake provider outage with successful GETs and an undeclared healthy exclusion', () => {
     const { manifest, evidence } = outageFixture();
-    const provider = bindCapacityManifest(manifest.plan, manifest.source, manifest.events, { ...manifest.lane, kind: 'outage', dependency: 'provider' } as CapacityLane);
+    const provider = manifest; // The prebound lane already declares this exact provider outage.
     evidence.manifestDigest = provider.digest;
     const successful = structuredClone(base.evidence.requests.attempts.find(row => row.endedAt >= start + 1_800_000 && row.endedAt < start + 3_600_000)!);
     successful.sequence = evidence.requests.attempts.length + 1; evidence.requests.attempts.push(successful); evidence.requests.ownerTotals[0].attempts++;
     expect(() => evaluateCapacityEvidence(provider, evidence)).toThrow(/successful provider HTTP attempt/);
     evidence.manifestDigest = base.manifest.digest;
     expect(() => evaluateCapacityEvidence(base.manifest, evidence)).toThrow(/undeclared outage/);
+  });
+});
+
+describe('explicit Sleeper provider origins and maintained native routes', () => {
+  const attempt = (origin: string | undefined, path: string): HttpAttempt => ({ id: 'native-request', owner: 'primary', sequence: 1,
+    method: 'GET', ...(origin === undefined ? {} : { origin }), path, at: start, endedAt: start, purpose: 'other',
+    outcome: 'failed', responseSha256: null });
+  it.each([
+    ['https://api.sleeper.app', '/v1/state/nfl'],
+    ['https://api.sleeper.app', '/v1/user/cp26_manager'],
+    ['https://api.sleeper.app', '/v1/user/123/leagues/nfl/2026'],
+    ['https://api.sleeper.app', '/v1/league/123'],
+    ['https://api.sleeper.app', '/v1/league/123/rosters'],
+    ['https://api.sleeper.app', '/v1/league/123/users'],
+    ['https://api.sleeper.app', '/v1/league/123/matchups/18'],
+    ['https://api.sleeper.app', '/v1/league/123/transactions/0'],
+    ['https://api.sleeper.app', '/v1/league/123/winners_bracket'],
+    ['https://api.sleeper.app', '/v1/league/123/losers_bracket'],
+    ['https://api.sleeper.app', '/v1/league/123/traded_picks'],
+    ['https://api.sleeper.app', '/v1/league/123/drafts'],
+    ['https://api.sleeper.app', '/v1/draft/native-draft_1'],
+    ['https://api.sleeper.app', '/v1/draft/native-draft_1/picks'],
+    ['https://api.sleeper.app', '/v1/draft/native-draft_1/traded_picks'],
+    ['https://api.sleeper.app', '/v1/players/nfl'],
+    ...['QB', 'RB', 'WR', 'TE', 'K', 'DEF'].map(position => ['https://api.sleeper.app', '/v1/players/nfl?position=' + position]),
+    ['https://api.sleeper.app', '/v1/stats/nfl/regular/2026/6'],
+    ['https://api.sleeper.com', '/schedule/nfl/regular/2026'],
+    ['https://api.sleeper.com', '/scores/nfl/regular/2026/6'],
+  ])('binds the maintained %s%s request', (origin, path) => {
+    expect(() => assertCapacityHttpEndpoint(attempt(origin, path), true)).not.toThrow();
+  });
+  it.each([
+    ['https://evil.example', '/v1/state/nfl'], ['http://api.sleeper.app', '/v1/state/nfl'],
+    ['https://api.sleeper.app:443', '/v1/state/nfl'], ['https://user@api.sleeper.app', '/v1/state/nfl'],
+    ['https://api.sleeper.app', '//evil.example/v1/state/nfl'], ['https://api.sleeper.app', '/v1/league/123/../123'],
+    ['https://api.sleeper.app', '/v1/league/%31%32%33'], ['https://api.sleeper.app', '/v1/league/123#fragment'],
+    ['https://api.sleeper.app', '/v1/league/123?unused=1'], ['https://api.sleeper.app', '/v1/players/nfl?position=QB&position=RB'],
+    ['https://api.sleeper.app', '/v1/players/nfl?position=qb'], ['https://api.sleeper.app', '/v1/players/nfl?position=QB&extra=1'],
+    ['https://api.sleeper.app', '/v1/league/123/matchups/0'], ['https://api.sleeper.app', '/v1/league/123/transactions/19'],
+    ['https://api.sleeper.app', '/v1/user/123/leagues/nfl/2025'], ['https://api.sleeper.app', '/v1/not-maintained'],
+    ['https://api.sleeper.com', '/v1/state/nfl'], ['https://api.sleeper.app', '/schedule/nfl/regular/2026'],
+    ['https://api.sleeper.com', '/schedule/nfl/regular/2026?x=1'], ['https://api.sleeper.com', '/scores/nfl/regular/2026/19'],
+    ['https://sleeper.com', '/v1/state/nfl'], ['https://api.sleeper.app', '/graphql'],
+  ])('rejects unbound provider or route %s%s', (origin, path) => {
+    expect(() => assertCapacityHttpEndpoint(attempt(origin, path), true)).toThrow();
+  });
+  it('preserves legacy path-only arithmetic while making its missing origin explicit', () => {
+    const row = attempt(undefined, '/v1/league/legacy-label/rosters');
+    expect(() => assertCapacityHttpEndpoint(row)).not.toThrow();
+    expect(() => assertCapacityHttpEndpoint(row, true)).toThrow('explicit provider origin');
+    const result = evaluateRequestEnvelope(['primary'], { coverageStartedAt: start - 3_600_000, coverageEndedAt: start,
+      ownerTotals: [{ owner: 'primary', attempts: 1 }], attempts: [row] }, start, start);
+    expect(result).toMatchObject({ pass: true, originBinding: { boundAttempts: 0, unboundAttempts: 1, complete: false } });
+  });
+  it('charges calendar, score, catalog and failed requests in the same unchanged envelope', () => {
+    const rows = Array.from({ length: 41 }, (_, index) => ({ ...attempt(index % 2 ? 'https://api.sleeper.app' : 'https://api.sleeper.com',
+      index % 2 ? '/v1/players/nfl?position=QB' : '/scores/nfl/regular/2026/6'), id: 'physical-' + index, sequence: index + 1 }));
+    const result = evaluateRequestEnvelope(['primary'], { coverageStartedAt: start - 3_600_000, coverageEndedAt: start,
+      ownerTotals: [{ owner: 'primary', attempts: rows.length }], attempts: rows }, start, start);
+    expect(result).toMatchObject({ totalAttempts: 41, originBinding: { boundAttempts: 41, unboundAttempts: 0, complete: true },
+      getEnvelope: { minutePeak: 41, pass: false }, allHttpEnvelope: { minutePeak: 41, pass: false }, pass: false });
+  });
+  it('requires the exact report origin as well as its existing native body binding', () => {
+    const row = { ...reportPost(attempt(undefined, '/v1/state/nfl')), origin: 'https://sleeper.com' };
+    expect(() => assertCapacityHttpEndpoint(row, true)).not.toThrow();
+    expect(() => assertCapacityHttpEndpoint({ ...row, origin: 'https://api.sleeper.app' }, true)).toThrow('report provider binding');
+  });
+});
+describe('reviewed DATA budget with separately reported existing owners', () => {
+  const policy = 'cp1-data-with-separate-existing-owners-v1' as const;
+  const owners = ['data-refresh', 'primary-projection', 'administration-maintenance', 'independent-measurement'];
+  function ledger(groups: { owner: string; count: number; offset?: (index: number) => number; post?: boolean }[]) {
+    const attempts: HttpAttempt[] = [];
+    for (const group of groups) for (let index = 0; index < group.count; index++) {
+      const at = start + (group.offset?.(index) ?? 0);
+      const row: HttpAttempt = { id: 'budget-' + attempts.length, owner: group.owner,
+        sequence: attempts.filter(item => item.owner === group.owner).length + 1, method: 'GET',
+        origin: 'https://api.sleeper.app', path: '/v1/state/nfl', at, endedAt: at,
+        purpose: 'other', outcome: index % 2 ? 'timeout' : 'failed', responseSha256: null };
+      attempts.push(group.post ? { ...reportPost(row), origin: 'https://sleeper.com' } : row);
+    }
+    return { coverageStartedAt: start - 3_600_000, coverageEndedAt: start + 7_200_000,
+      ownerTotals: owners.map(owner => ({ owner, attempts: attempts.filter(row => row.owner === owner).length })), attempts };
+  }
+  const evaluate = (rows: ReturnType<typeof ledger>) => evaluateRequestEnvelope(owners, rows, start, start + 7_200_000, policy);
+  it('retains all physical traffic while gating DATA and measurement at the unchanged ceilings', () => {
+    const rows = ledger([{ owner: 'data-refresh', count: 39 }, { owner: 'independent-measurement', count: 1 },
+      { owner: 'primary-projection', count: 60 }, { owner: 'administration-maintenance', count: 31 }]);
+    const result = evaluate(rows);
+    expect(result).toMatchObject({ totalAttempts: 131, budgetPolicy: policy, gatedOwners: ['data-refresh', 'independent-measurement'],
+      getEnvelope: { totalAttempts: 40, minutePeak: 40, pass: true }, allHttpEnvelope: { totalAttempts: 40, pass: true },
+      combined: { GET: { totalAttempts: 131, minutePeak: 131 }, POST: { totalAttempts: 0 }, allHTTP: { totalAttempts: 131, minutePeak: 131 } }, pass: true });
+    expect(result.byOwner.map(row => [row.owner, row.allHTTP.totalAttempts, row.allHTTP.minutePeak])).toEqual([
+      ['data-refresh', 39, 39], ['primary-projection', 60, 60], ['administration-maintenance', 31, 31], ['independent-measurement', 1, 1]]);
+    expect(evaluateRequestEnvelope(owners, rows, start, start + 7_200_000)).toMatchObject({ budgetPolicy: 'legacy-combined-candidate', pass: false });
+  });
+  it('charges measurement, failed requests and arbitrary purposes to DATA without subtracting existing owners', () => {
+    const rows = ledger([{ owner: 'data-refresh', count: 40 }, { owner: 'independent-measurement', count: 1 },
+      { owner: 'primary-projection', count: 2 }]);
+    rows.attempts.forEach((row, index) => { row.purpose = index % 2 ? 'redirect' : 'retry'; });
+    expect(evaluate(rows)).toMatchObject({ getEnvelope: { minutePeak: 41, pass: false }, allHttpEnvelope: { minutePeak: 41, pass: false }, pass: false });
+  });
+  it('keeps POSTs separate in the DATA GET metric and charged to the conservative DATA all-HTTP ceiling', () => {
+    const rows = ledger([{ owner: 'data-refresh', count: 30 }, { owner: 'data-refresh', count: 11, post: true },
+      { owner: 'administration-maintenance', count: 50, post: true }]);
+    const result = evaluate(rows);
+    expect(result).toMatchObject({ getEnvelope: { minutePeak: 30, pass: true }, allHttpEnvelope: { minutePeak: 41, pass: false },
+      combined: { POST: { totalAttempts: 61 }, allHTTP: { totalAttempts: 91 } }, pass: false });
+    expect(result.byOwner.find(row => row.owner === 'administration-maintenance')?.POST.totalAttempts).toBe(50);
+  });
+  it('retains exact rolling-minute boundaries and the full genuine lookback', () => {
+    const rows = ledger([{ owner: 'data-refresh', count: 40, offset: () => -60_000 }, { owner: 'independent-measurement', count: 1 }]);
+    expect(evaluate(rows).allHttpEnvelope.minutePeak).toBe(1);
+    rows.attempts[0].at++; rows.attempts[0].endedAt++;
+    expect(evaluate(rows).allHttpEnvelope.minutePeak).toBe(2);
+    rows.coverageStartedAt++;
+    expect(evaluate(rows).pass).toBe(false);
+  });
+  it('enforces the unchanged hourly DATA ceiling while reporting unrelated hourly traffic', () => {
+    const rows = ledger([{ owner: 'data-refresh', count: 1_800, offset: index => index * 1_999 },
+      { owner: 'independent-measurement', count: 1, offset: () => 3_598_001 },
+      { owner: 'primary-projection', count: 2_000, offset: index => index * 1_700 }]);
+    expect(evaluate(rows)).toMatchObject({ getEnvelope: { hourPeak: 1_801, pass: false },
+      allHttpEnvelope: { hourPeak: 1_801, pass: false }, combined: { allHTTP: { hourPeak: 3_801 } }, pass: false });
+  });
+  it.each(['missing-owner', 'unknown-owner', 'sequence-gap', 'owner-total', 'missing-origin', 'unknown-policy'] as const)('rejects incomplete accounting under the new policy: %s', mutation => {
+    const rows = ledger([{ owner: 'data-refresh', count: 1 }, { owner: 'primary-projection', count: 1 }]);
+    if (mutation === 'missing-owner') rows.ownerTotals.pop();
+    if (mutation === 'unknown-owner') rows.attempts[0].owner = 'guessed-owner';
+    if (mutation === 'sequence-gap') rows.attempts[1].sequence = 2;
+    if (mutation === 'owner-total') rows.ownerTotals[1].attempts++;
+    if (mutation === 'missing-origin') delete rows.attempts[1].origin;
+    if (mutation === 'unknown-owner' || mutation === 'missing-origin') expect(() => evaluate(rows)).toThrow();
+    else if (mutation === 'unknown-policy') expect(() => evaluateRequestEnvelope(owners, rows, start, start + 7_200_000,
+      'after-the-run-choice' as typeof policy)).toThrow('unknown request budget policy');
+    else expect(evaluate(rows).pass).toBe(false);
+  });
+  const policyManifest = bindCapacityManifest(base.manifest.plan,
+    { ...base.source, requestOwners: owners, requestBudgetPolicy: policy }, base.bindings, { kind: 'healthy' });
+  it('uses the frozen manifest policy throughout the full evidence evaluator', () => {
+    const evidence = structuredClone(base.evidence); evidence.manifestDigest = policyManifest.digest;
+    evidence.requests.attempts.forEach(row => { row.owner = 'data-refresh'; row.origin = 'https://api.sleeper.app'; });
+    const others = ledger([{ owner: 'primary-projection', count: 60 }, { owner: 'administration-maintenance', count: 31 }]);
+    evidence.requests.attempts.push(...others.attempts);
+    evidence.requests.ownerTotals = owners.map(owner => ({ owner, attempts: evidence.requests.attempts.filter(row => row.owner === owner).length }));
+    const result = evaluateCapacityEvidence(policyManifest, evidence);
+    expect(result.requestEnvelope.budgetPolicy).toBe(policy);
+    expect(result.requestEnvelope.combined.allHTTP.minutePeak).toBeGreaterThan(40);
+    expect(result.requestEnvelope.pass).toBe(true); expect(result.offlineChecksPass).toBe(true);
+  });
+  it('requires all four declared owners even when an owner has zero requests', () => {
+    const rows = ledger([]);
+    expect(evaluate(rows).pass).toBe(true);
+    expect(() => evaluateRequestEnvelope(owners.slice(1), rows, start, start + 7_200_000, policy)).toThrow('complete closed owner inventory');
   });
 });

@@ -7,7 +7,8 @@ import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
 import { validatePublicIntake, type PublicIntakeInput, type PublicIntakeStore, type PublicIntakeWork,
-  type PublicIntakeSubmissionReceipt, type PublicDataBatchClaim, PUBLIC_DATA_BATCH_POLICY, PUBLIC_INTAKE_JOB } from '../public-intake-contracts';
+  type PublicIntakeSubmissionReceipt, type PublicDataBatchClaim, type PublicDataBatchAdmission,
+  PUBLIC_DATA_BATCH_POLICY, PUBLIC_DATA_SETTLED_REQUEST_BUDGET_POLICY, PUBLIC_INTAKE_JOB } from '../public-intake-contracts';
 import { parsePublicCaptureWitness } from '../public-capture-witness';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 
@@ -42,6 +43,29 @@ function batchClaim(value: unknown, workerId: string, origin: number): PublicDat
     throw new Error('Invalid public batch claim.');
   }
   return claim as PublicDataBatchClaim;
+}
+
+/** PostgreSQL can retain microseconds that Date.parse truncates. The relative
+ * delay is checked against that precision without comparing server/client clocks. */
+function batchTimestampMicros(value: unknown): number {
+  if (typeof value !== 'string') return NaN;
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if (!match) return NaN;
+  const micros = Date.parse(match[1] + match[3]) * 1_000 + Number((match[2] ?? '').padEnd(6, '0'));
+  return Number.isSafeInteger(micros) ? micros : NaN;
+}
+function batchAdmission(value: unknown): PublicDataBatchAdmission {
+  const result = record(value);
+  if (['admitted', 'denied', 'deadline'].includes(String(result.status))
+    && typeof result.status === 'string' && Object.keys(result).join('|') === 'status') return result as PublicDataBatchAdmission;
+  const interval = (batchTimestampMicros(result.retryAt) - batchTimestampMicros(result.serverNow)) / 1_000;
+  if (result.status !== 'budget-backoff'
+    || Object.keys(result).sort().join('|') !== 'retryAfterMs|retryAt|serverNow|status'
+    || !Number.isSafeInteger(result.retryAfterMs) || Number(result.retryAfterMs) < 1 || Number(result.retryAfterMs) > 3_620_000
+    || !Number.isFinite(interval) || interval <= 0 || Math.ceil(interval) !== result.retryAfterMs) {
+    throw new Error('Invalid public batch admission.');
+  }
+  return result as PublicDataBatchAdmission;
 }
 
 async function requireDraftCapability(client: DatabaseClient): Promise<void> {
@@ -194,8 +218,12 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     },
     async requireBatchCapability() {
       const rows = await client.query(`/* public-data-intake:batch-capability */
-        SELECT public.public_data_batch_capability() AS policy`);
-      if (rows.length !== 1 || rows[0].policy !== PUBLIC_DATA_BATCH_POLICY) throw new Error('Public batch intake requires installed R058.');
+        SELECT public.public_data_batch_capability() AS policy,
+          public.public_data_settled_request_budget_capability() AS budget_policy`);
+      if (rows.length !== 1 || rows[0].policy !== PUBLIC_DATA_BATCH_POLICY
+        || rows[0].budget_policy !== PUBLIC_DATA_SETTLED_REQUEST_BUDGET_POLICY) {
+        throw new Error('Public batch intake requires installed R058 and R062.');
+      }
     },
     async beginBatch(workerId, invocationStartedAt, requestId) {
       if (!refreshUuid(workerId) || !Number.isFinite(Date.parse(invocationStartedAt))
@@ -217,9 +245,9 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     },
     async admitBatch(work, fence) {
       const rows = await client.query(`/* public-data-intake:admit-batch */
-        SELECT public.admit_public_data_batch_dispatch($1::jsonb,$2::jsonb) AS admitted`, [JSON.stringify(work), JSON.stringify(fence)]);
-      if (rows.length !== 1 || typeof rows[0].admitted !== 'boolean') throw new Error('Invalid public batch admission.');
-      return rows[0].admitted;
+        SELECT public.admit_public_data_batch_dispatch_status($1::jsonb,$2::jsonb) AS result`, [JSON.stringify(work), JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Invalid public batch admission.');
+      return batchAdmission(rows[0].result);
     },
     async submit(input) {
       const validated = await submission(input);

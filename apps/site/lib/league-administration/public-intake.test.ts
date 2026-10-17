@@ -74,7 +74,7 @@ describe('selected bounded DATA batches through the existing step path', () => {
     const beginBatch = vi.fn<NonNullable<PublicIntakeStore['beginBatch']>>(async workerId => owner(workerId, 10));
     const advanceBatch = vi.fn<NonNullable<PublicIntakeStore['advanceBatch']>>(async (fence, workerId) => owner(workerId, fence.generation + 1));
     const intake = { ...f.intake, requireBatchCapability: vi.fn(async () => undefined), beginBatch, advanceBatch,
-      nextBatch: vi.fn(f.intake.next), admitBatch: vi.fn(async () => true),
+      nextBatch: vi.fn(f.intake.next), admitBatch: vi.fn<NonNullable<PublicIntakeStore['admitBatch']>>(async () => ({ status: 'admitted' })),
       recordLeagues: vi.fn(async () => { f.setWork('complete'); }) };
     const dependencies = { ...f.dependencies, intake, now: () => new Date(origin + elapsed) };
     return { ...f, intake, dependencies, setElapsed: (value: number) => { elapsed = value; },
@@ -157,7 +157,7 @@ describe('selected bounded DATA batches through the existing step path', () => {
     expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
   });
   it('stops a denied admission without fabricating source failure or completion', async () => {
-    const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValue(false);
+    const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValue({ status: 'denied' });
     expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0, completedSteps: 0 });
     expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled(); expect(f.intake.fail).not.toHaveBeenCalled();
     expect(f.intake.completeCore).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
@@ -233,9 +233,102 @@ describe('selected bounded DATA batches through the existing step path', () => {
     expect(f.dependencies.jobs.completeJob).toHaveBeenCalledTimes(1);
   });
   it('stops without any HTTP when atomic request admission is denied', async () => {
-    const f = batchFixture(); f.intake.admitBatch.mockResolvedValue(false);
+    const f = batchFixture(); f.intake.admitBatch.mockResolvedValue({ status: 'denied' });
     expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0, completedSteps: 0 });
     expect(f.source.identity).not.toHaveBeenCalled(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
+  });
+  const budgetBackoff = (retryAfterMs: number) => ({ status: 'budget-backoff' as const,
+    // Deliberate server/client skew: only the SQL relative delay controls waiting.
+    serverNow: '2099-01-01T00:00:00.000Z', retryAt: new Date(Date.parse('2099-01-01T00:00:00.000Z') + retryAfterMs).toISOString(), retryAfterMs });
+  it('waits once and rechecks the exact selected work/fence without renewing the original bounds', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(500));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.source.identity).not.toHaveBeenCalled();
+      f.setElapsed(499); await vi.advanceTimersByTimeAsync(499);
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce();
+      f.setElapsed(500); await vi.advanceTimersByTimeAsync(1);
+      expect(await running).toMatchObject({ status: 'complete', providerRequests: 2, completedSteps: 2 });
+      expect(f.intake.admitBatch.mock.calls[1]).toEqual(f.intake.admitBatch.mock.calls[0]);
+      expect(f.intake.nextBatch).toHaveBeenCalledTimes(3); expect(f.intake.recover).toHaveBeenCalledTimes(3);
+      expect(f.intake.admitBatch.mock.calls.every(([, bound]) => bound.deadlineAt === new Date(origin + 20_000).toISOString())).toBe(true);
+      expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('permits a separate single wait for a later selected work item within the same original window', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(100))
+        .mockResolvedValueOnce({ status: 'admitted' }).mockResolvedValueOnce(budgetBackoff(200));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(100); await vi.advanceTimersByTimeAsync(100);
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(3);
+      f.setElapsed(300); await vi.advanceTimersByTimeAsync(200);
+      expect(await running).toMatchObject({ status: 'complete', completedSteps: 2 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(4);
+      expect(f.intake.admitBatch.mock.calls[3]).toEqual(f.intake.admitBatch.mock.calls[2]);
+      expect(f.intake.admitBatch.mock.calls[2][1].generation).toBe(11);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['budget-backoff', 'denied', 'deadline'] as const)('does not repeat a wait after a %s recheck or fabricate task failure', async status => {
+    vi.useFakeTimers();
+    try {
+      const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(200))
+        .mockResolvedValueOnce(status === 'budget-backoff' ? budgetBackoff(200) : { status });
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(200); await vi.advanceTimersByTimeAsync(200);
+      expect(await running).toMatchObject({ status: status === 'deadline' ? 'deadline' : 'backoff', providerRequests: 0, completedSteps: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+      expect(f.refresh.selectResourceWork).toHaveBeenCalledOnce(); expect(f.intake.nextBatch).toHaveBeenCalledOnce();
+      expect(f.intake.fail).not.toHaveBeenCalled(); expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled();
+      expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it.each([10_000, 3_620_000])('does not start a wait of %ims that cannot fit the original admission window', async milliseconds => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValue(budgetBackoff(milliseconds));
+      expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
+      expect(f.source.identity).not.toHaveBeenCalled(); expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('checks the original deadline again after a late timer without rechecking admission', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(100));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(10_000); await vi.advanceTimersByTimeAsync(100);
+      expect(await running).toMatchObject({ status: 'deadline', stopReason: 'admission-deadline', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['phase', 'work'] as const)('cancels a budget wait on %s abort without a second SQL admission or task failure', async aborted => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(), phase = new AbortController(), workSignal = new AbortController();
+      f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(500));
+      const running = runPublicDataBatch(id, { ...f.dependencies, preAdmission: { signal: phase.signal,
+        intake: f.intake, jobs: f.dependencies.jobs, refresh: {} as PublicDataRefreshStore,
+        cleanup: () => ({ intake: f.intake, jobs: f.dependencies.jobs }) } }, workSignal.signal, origin);
+      await vi.advanceTimersByTimeAsync(0); (aborted === 'phase' ? phase : workSignal).abort();
+      expect(await running).toMatchObject({ status: aborted === 'phase' ? 'deadline' : 'unavailable', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.source.identity).not.toHaveBeenCalled();
+      expect(f.intake.fail).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not retry an unknown acknowledgment from the one permitted recheck', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(50)).mockRejectedValueOnce(new Error('acknowledgment lost'));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(50); await vi.advanceTimersByTimeAsync(50);
+      expect(await running).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(2); expect(f.source.core).not.toHaveBeenCalled();
+      expect(f.refresh.recordResourceSelectionFailure).toHaveBeenCalledExactlyOnceWith(f.active,
+        expect.objectContaining({ generation: 10 }), 'admission-unconfirmed');
+    } finally { vi.useRealTimers(); }
   });
   it('preserves completed-step accounting and stops on a later provider failure', async () => {
     const f = batchFixture(); f.source.leagues.mockRejectedValue(new Error('provider unavailable'));

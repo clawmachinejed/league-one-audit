@@ -61,6 +61,16 @@ export async function runPublicPlayerDirectoryStep(dependencies: PublicIntakeDep
   return runOwnedPublicIntakeStep(undefined, dependencies, signal, 'player-directory') as Promise<PlayerDirectoryOutcome>;
 }
 
+/** One relative wait is bounded by the original invocation, never a new lease. */
+async function waitForBatchBudget(milliseconds: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', aborted); resolve(); }, milliseconds);
+    signal.addEventListener('abort', aborted, { once: true });
+  });
+}
+
 /** R058 advances the existing singleton owner between fully settled steps, without renewing any deadline. */
 export async function runPublicDataBatch(requestId: string | undefined,
   dependencies: PublicIntakeDependencies & Readonly<{ refresh?: PublicDataRefreshStore }>,
@@ -111,6 +121,7 @@ export async function runPublicDataBatch(requestId: string | undefined,
         { ...dependencies, deadlineAt: new Date(workDeadline).toISOString() }, signal, 'intake', owner.fence, true);
       providerRequests += outcome.providerRequests;
       if (outcome.failureHandled) return result('unavailable', 'failed'); // Existing step cleanup owns this failure.
+      if (outcome.admissionDeadline) { await complete(); return result(completedSteps ? 'progress' : 'deadline', 'admission-deadline'); }
       if (outcome.status !== 'progress') { await complete(); return result(outcome.status, 'work-status'); }
       completedSteps++;
       if (index === 39) { await complete(); return result('progress', 'step-bound'); }
@@ -160,7 +171,8 @@ async function runOwnedPublicIntakeStep(requestId: string | undefined,
 async function runClaimedPublicIntakeStep(requestId: string | undefined,
   dependencies: PublicIntakeDependencies & Readonly<{ refresh?: PublicDataRefreshStore }>,
   signal: AbortSignal, mode: 'intake' | 'player-directory', fence: AdministrationWriteFence,
-  batch: boolean): Promise<(PublicDataRefreshOutcome | PlayerDirectoryOutcome) & Readonly<{ failureHandled?: true }>> {
+  batch: boolean): Promise<(PublicDataRefreshOutcome | PlayerDirectoryOutcome)
+    & Readonly<{ failureHandled?: true; admissionDeadline?: true }>> {
   const { intake, jobs, administration } = dependencies;
   const refresh = mode === 'intake' && requestId === undefined ? dependencies.refresh : undefined;
   const phase = refresh || batch ? dependencies.preAdmission : undefined;
@@ -241,7 +253,30 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
     signal.throwIfAborted();
     phaseSignal.throwIfAborted();
     if (refresh) selectionFailure = 'admission-unconfirmed';
-    if (!await (batch ? phaseIntake.admitBatch!(work, fence) : phaseIntake.admit(work, fence))) {
+    if (batch) {
+      let admission = await phaseIntake.admitBatch!(work, fence);
+      if (admission.status === 'budget-backoff') {
+        selectionFailure = undefined; // No reservation or source attempt was made.
+        const deadline = Date.parse(fence.deadlineAt) - 10_000;
+        if (now().getTime() + admission.retryAfterMs < deadline) {
+          const waitingSignal = AbortSignal.any([signal, phaseSignal]);
+          try { await waitForBatchBudget(admission.retryAfterMs, waitingSignal); }
+          catch (error) { if (!waitingSignal.aborted) throw error; }
+          if (waitingSignal.aborted || now().getTime() >= deadline) {
+            return { status: 'backoff', providerRequests: 0, admissionDeadline: true };
+          }
+          // Exactly the selected work and owner are retried; no reselection,
+          // recovery, rotation or deadline renewal occurs during this wait.
+          if (refresh) selectionFailure = 'admission-unconfirmed';
+          admission = await phaseIntake.admitBatch!(work, fence);
+        }
+      }
+      if (admission.status !== 'admitted') {
+        selectionFailure = undefined;
+        return { status: 'backoff', providerRequests: 0,
+          ...(admission.status === 'deadline' ? { admissionDeadline: true as const } : {}) };
+      }
+    } else if (!await phaseIntake.admit(work, fence)) {
       selectionFailure = undefined;
       await finishOwner();
       return { status: 'backoff', providerRequests: 0 };

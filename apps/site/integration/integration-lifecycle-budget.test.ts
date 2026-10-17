@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS } from './integration-lifecycle-budget';
+import { IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS, integrationLifecycleForQualification } from './integration-lifecycle-budget';
 import { runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
 import { createIntegrationReceiptJournal } from './integration-receipt-journal';
 
@@ -165,5 +165,43 @@ describe('immutable deadline-safe receipt snapshots', () => {
     expect(JSON.parse(writes[0].text).failures).toEqual([]);
     expect(JSON.parse(writes[1].text).failures).toEqual(['branch-deletion']);
     expect(journal.latestPath).toBe('run-owned-0002.json');
+  });
+});
+
+describe('closed healthy fleet lifecycle', () => {
+  it('extends only the explicit named profile and preserves one absolute work deadline', async () => {
+    const budget = new IntegrationLifecycleBudget('data-freshness-capacity-healthy-v1');
+    expect(budget.envelope).toEqual({ profile: 'data-freshness-capacity-healthy-v1', workMs: 240 * 60_000, lifecycleMs: 250 * 60_000, branchExpiryMs: 270 * 60_000, ciMinutes: 270 });
+    const f = fixture(); f.runtime.execute.mockImplementation(never);
+    const result = runIntegrationLifecycle(f.runtime, f.receipt, f.journal, undefined, budget);
+    await vi.advanceTimersByTimeAsync(240 * 60_000 - 1); expect(f.runtime.delete).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1); expect(await result).toBe(false);
+    expect(f.runtime.execute.mock.calls[0][0].aborted).toBe(true); expect(f.runtime.delete).toHaveBeenCalledOnce();
+    expect(f.receipt.lifecycle?.limitMs).toBe(250 * 60_000); expect(f.receipt.cancellationReason).toBe('deadline');
+    expect(new IntegrationLifecycleBudget().envelope).toMatchObject({ workMs: 30 * 60_000, lifecycleMs: 40 * 60_000, branchExpiryMs: 60 * 60_000, ciMinutes: 50 });
+  });
+  it('rejects arbitrary extended deadlines and lookalike profiles', () => {
+    for (const value of ['data-freshness-capacity-outage-v1', '270', { workMs: 240 * 60_000 }])
+      expect(() => new IntegrationLifecycleBudget(value as 'default')).toThrow('Unknown integration lifecycle profile');
+  });
+});
+
+
+describe('closed provider recovery lifecycle', () => {
+  it('keeps setup and outage within the same 340 minute work budget and ten minute teardown reserve', async () => {
+    const profile='data-freshness-capacity-recovery-v1' as const;
+    const budget=new IntegrationLifecycleBudget(profile);
+    expect(budget.envelope).toEqual({profile,workMs:340*60_000,lifecycleMs:350*60_000,branchExpiryMs:360*60_000,ciMinutes:360});
+    const f=fixture();f.runtime.provision.mockImplementation(async()=>{await new Promise(resolve=>setTimeout(resolve,60*60_000));});f.runtime.execute.mockImplementation(never);
+    const result=runIntegrationLifecycle(f.runtime,f.receipt,f.journal,undefined,budget);
+    await vi.advanceTimersByTimeAsync(340*60_000-1);expect(f.runtime.delete).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);expect(await result).toBe(false);
+    expect(f.runtime.execute.mock.calls[0][0].aborted).toBe(true);expect(f.receipt.lifecycle?.limitMs).toBe(350*60_000);
+    expect(f.receipt.lifecycle?.elapsedMs).toBe(340*60_000);expect(f.runtime.delete).toHaveBeenCalledOnce();
+  });
+  it('selects only the exact closed names and keeps historical profiles on the default envelope',()=>{
+    expect(integrationLifecycleForQualification('data-freshness-capacity-healthy-v1')).toBe('data-freshness-capacity-healthy-v1');
+    expect(integrationLifecycleForQualification('data-freshness-capacity-recovery-v1')).toBe('data-freshness-capacity-recovery-v1');
+    for(const profile of ['full','data-batch-calibration-v1','data-freshness-capacity-recovery-v2',undefined])expect(integrationLifecycleForQualification(profile)).toBe('default');
   });
 });

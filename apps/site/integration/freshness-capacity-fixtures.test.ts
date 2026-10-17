@@ -6,7 +6,7 @@ import { projectExactMatchupValues } from '../lib/aggregator/exact-matchup-value
 import type { AdministrationEnvelope, JsonObject, JsonValue } from '../lib/league-administration/contracts';
 import { bindCapacityManifest, capacityDigest, type CapacitySource, type BoundEvent } from './freshness-capacity-manifest';
 import { CAPACITY_FIXTURE_GAPS, capacityChangedNativeFields, capacityFixtureReaderBinding, capacityNativeFixtureReport, capacityPrototypeSampleBindings,
-  createCapacityNativeFixturePrototype, projectCapacityFixtureValue, simulatedCapacityEnvelope,
+  createCapacityNativeFixturePrototype, createCapacityFleetFixture, capacityFormatReaderExpectation, loadCapacityNamedSourceFixture, projectCapacityFixtureValue, simulatedCapacityEnvelope,
   type CapacityNativeFixturePrototype } from './freshness-capacity-fixtures';
 
 let fixture: CapacityNativeFixturePrototype;
@@ -123,23 +123,27 @@ describe('native CP26 synthetic binding inventory', () => {
     expect(samples.find(sample => sample.pairId === 'league-01/transactions')!.binding.calls).toEqual(['readAcceptedTransactions(mapping,7)']);
   });
   it('composes native events with the manifest API using test-only source placeholders, without creating run-ready evidence', () => {
-    // These pins and witness labels test structural API composition only; none is exported as source evidence.
+    const fleet = createCapacityFleetFixture('test-only-native-composition');
+    // Explicit test pins remain nonexecuted; source bindings now contain native bytes and structured field witnesses.
     const testSource: CapacitySource = { readinessContractSha256: 'e'.repeat(64), acceptanceContractSha256: 'f'.repeat(64),
       plannedPostgresqlVersion: '18.6', gitSha: 'a'.repeat(40), appTreeSha: 'b'.repeat(40),
-      fixtureSha256: fixture.digest, readerQueryMixSha256: capacityDigest(fixture.readerBindings),
+      fixtureSha256: fleet.digest, readerQueryMixSha256: capacityDigest(fleet.prototype.readerBindings),
       clockRefs: { wall: 'test-only-unexecuted-wall', monotonic: 'test-only-unexecuted-monotonic' },
       cleanupPlanRef: 'test-only-unexecuted-cleanup', requestOwners: ['ordinary-runner', 'independent-measurement'],
-      unrelatedUsernames: ['test-only-user-a', 'test-only-user-b'],
-      formatWitnesses: { byes: 'test-only-no-witness', ties: 'test-only-no-witness', 'custom-zero': 'test-only-no-witness',
-        'unusual-scoring': 'test-only-no-witness', 'pre-draft-incomplete': 'test-only-no-witness',
-        'multiweek-legs': 'test-only-no-witness', 'overlap-deduplication': 'test-only-no-witness', 'excess-capacity': 'test-only-no-witness' },
-      leagues: fixture.plan.leagues.map(planned => ({ key: planned.key,
-        nativeLeagueId: fixture.leagues.find(league => league.key === planned.key)!.nativeLeagueId, season: 2026,
-        format: planned.format, regression: planned.regression, nativePeriod: '7',
-        nativePeriods: Array.from({ length: 18 }, (_, index) => String(index + 1)), extraPeriodCoverageGaps: [],
-        rosterCount: 20, inSeason: true, initiallyPopulated: planned.cohort === 'accepted',
-        sourceEvidenceRef: 'test-only-authored-simulation-with-unresolved-gates' })), initialReaders: fixture.initialReaders };
-    const manifest = bindCapacityManifest(fixture.plan, testSource, fixture.events, { kind: 'healthy' });
+      unrelatedUsernames: [fleet.users[1].username, fleet.users[2].username], endpointInventory: fleet.endpointInventory,
+      formatWitnesses: fleet.formatWitnesses, leagues: fleet.sourceLeagues, initialReaders: fleet.prototype.initialReaders };
+    const manifest = bindCapacityManifest(fleet.prototype.plan, testSource, fleet.prototype.events, { kind: 'healthy' });
+    expect(fleet.endpointInventory).toHaveLength(1_060);
+    expect(fleet.users.filter(row => row.cohort !== 'auxiliary').map(row => row.leagueKeys.length)).toEqual([8, 4, 4]);
+    expect(fleet.endpointInventory.filter(row => row.resource === 'matchups')).toHaveLength(288);
+    expect(fleet.endpointInventory.filter(row => row.resource === 'transactions')).toHaveLength(304);
+    expect(fleet.endpointInventory.filter(row => row.resource === 'weekly-report')).toHaveLength(288);
+    expect(fleet.endpointInventory.filter(row => row.resource === 'player-position-catalog')).toHaveLength(6);
+    for (const witness of Object.values(fleet.formatWitnesses)) for (const binding of witness.bindings) {
+      const endpoint = fleet.endpointInventory.find(row => row.id === binding.endpointId)!;
+      expect(binding.expectedReader).toEqual(capacityFormatReaderExpectation(endpoint));
+      expect(witness.provenance.kind).toBe('authored-synthetic-2026');
+    }
     expect(manifest.events).toHaveLength(1_280);
     expect(manifest.events[19].retainedHistory).toHaveLength(20);
     for (const row of manifest.events) for (const prior of row.retainedHistory) expect(prior.selector.length).toBeLessThanOrEqual(300);
@@ -196,5 +200,53 @@ it('replays retained real 2026 and true-2025 exact-value slices without changing
       expect(checked).toBeGreaterThan(0); observed.push(checked);
     }
     expect(observed).toEqual([20, 3]); expect(denied).not.toHaveBeenCalled();
+  } finally { denied.mockRestore(); }
+});
+it('replays immutable named2026 league, roster, five-week score and original bracket slices through existing normalizers', () => {
+  const retained = loadCapacityNamedSourceFixture(), denied = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Retained replay must stay offline'));
+  try {
+    const identities = new Map<string, string>(), counts: Record<string, number> = {}, types: Record<string, number> = {};
+    for (const collection of retained.collections) for (const sample of collection.samples) {
+      if (identities.has(sample.key)) expect(identities.get(sample.key)).toBe(sample.nativeLeagueId); else identities.set(sample.key, sample.nativeLeagueId);
+      for (const resource of sample.resources) {
+        const document = resource.document, scope = { leagueKey: `cp26-retained-${sample.key}`, provider: 'sleeper' as const, externalLeagueId: sample.nativeLeagueId, season: 2026 };
+        const envelope: AdministrationEnvelope = { schemaVersion: 'league-administration-v1', normalizerVersion: 'sleeper-administration-v1', dialect: 'sleeper-nfl-v1',
+          scope, family: document.family, week: document.week, completeness: 'complete', payload: document.payload,
+          provenance: { origin: 'network', requestStartedAt: document.requestStartedAt, requestCompletedAt: document.requestCompletedAt,
+            sourceObservedAt: document.sourceObservedAt, checkedAt: document.requestCompletedAt } };
+        const normalized = normalizeAdministrationObservation(envelope);
+        // The source stays null even when normalization represents no supplied advancements. No completed bracket is inferred.
+        expect(normalized.status, JSON.stringify(normalized)).toBe('accepted');
+        if (document.payload === null) expect(resource.slicePayloadSha256).toBe(resource.original.payloadSha256);
+        counts[document.family] = (counts[document.family] ?? 0) + 1;
+        if (document.family === 'league') {
+          types[sample.key] = Number(((document.payload as JsonObject).settings as JsonObject).type);
+          expect(typeof (document.payload as JsonObject).name).toBe('string');
+          expect(String((document.payload as JsonObject).name).length).toBeGreaterThan(0);
+          expect(retained.extraction.fields.league).toContain('name');
+        }
+        if (document.family === 'rosters' && normalized.status === 'accepted') {
+          const rows = document.payload as JsonObject[];
+          expect(normalized.value?.family).toBe('rosters');
+          if (normalized.value?.family === 'rosters') {
+            expect(normalized.value.teams.map(row => row.externalRosterId)).toEqual(rows.map(row => String(row.roster_id)));
+            expect(normalized.value.teams.map(row => row.playerExternalIds)).toEqual(rows.map(row => row.players));
+          }
+        }
+        if (document.family === 'matchups') {
+          const rows = document.payload as JsonObject[], projected = projectExactMatchupValues(normalized, rows.map(row => ({ externalRosterId: String(row.roster_id), seasonTeamId: `00000000-0000-0000-0000-${String(row.roster_id).padStart(12, '0')}` })));
+          expect(projected.teams).toHaveLength(rows.length); expect(projected.season).toBe(2026);
+          for (const row of rows) {
+            const team = projected.teams.find(team => team.externalRosterId === String(row.roster_id))!;
+            expect(team.rawPoints).toEqual({ state: 'supplied', value: String(row.points) });
+            expect(team.customPoints).toEqual(row.custom_points === null ? { state: 'null' } : { state: 'supplied', value: String(row.custom_points) });
+          }
+        }
+        expect(envelope.provenance.sourceObservedAt).toBe(document.sourceObservedAt);
+      }
+    }
+    expect(types).toEqual({ league1: 1, league2: 1, dynasty: 2 });
+    expect(counts).toEqual({ league: 6, rosters: 3, matchups: 15, winners_bracket: 3, losers_bracket: 3 });
+    expect(retained).toMatchObject({ executionReady: false, checkpoint26Qualified: false }); expect(denied).not.toHaveBeenCalled();
   } finally { denied.mockRestore(); }
 });

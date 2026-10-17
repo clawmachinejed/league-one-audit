@@ -76,25 +76,49 @@ describe('SQL-issued batch ownership and atomic admission', () => {
     await expect(store.advanceBatch!(owner.fence, worker)).rejects.toThrow('successor');
     expect(query).not.toHaveBeenCalled();
   });
-  it.each([[], [{ policy: 'future' }], [{ policy: 'public-data-batch-v1' }, { policy: 'public-data-batch-v1' }]].map(rows => ({ rows })))(
-    'requires exactly the installed batch capability: %#', async ({ rows }) => {
-      const { store } = setup(rows); await expect(store.requireBatchCapability!()).rejects.toThrow('R058');
+  const capability = { policy: 'public-data-batch-v1', budget_policy: 'public-data-settled-request-budget-v1' };
+  it.each([[], [{ policy: 'future' }], [{ policy: 'public-data-batch-v1' }],
+    [{ ...capability, budget_policy: 'future' }], [{ ...capability, budget_policy: ['public-data-settled-request-budget-v1'] }],
+    [capability, capability]].map(rows => ({ rows })))(
+    'requires both installed batch and settled-budget capabilities: %#', async ({ rows }) => {
+      const { store, query } = setup(rows); await expect(store.requireBatchCapability!()).rejects.toThrow('R062');
+      expect(query).toHaveBeenCalledOnce();
     });
-  it('uses fixed batch capability/selection/admission calls and refuses ambiguous admission', async () => {
-    const { store, query } = setup([{ policy: 'public-data-batch-v1' }]);
+  it('uses fixed batch capability/selection/admission calls and preserves every status', async () => {
+    const { store, query } = setup([capability]);
     await store.requireBatchCapability!();
+    expect(query).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('public.public_data_settled_request_budget_capability()'));
     query.mockResolvedValue([{ result: work }]);
     expect(await store.nextBatch!(requestId)).toEqual(work);
     expect(query).toHaveBeenLastCalledWith(expect.stringContaining('public.next_public_data_batch_intake('), [requestId]);
-    query.mockResolvedValue([{ admitted: false }]);
-    expect(await store.admitBatch!(work, owner.fence)).toBe(false);
-    query.mockResolvedValue([{ admitted: true }]);
-    expect(await store.admitBatch!(work, owner.fence)).toBe(true);
-    for (const rows of [[], [{ admitted: 'true' }], [{ admitted: true }, { admitted: true }]]) {
-      query.mockResolvedValue(rows); await expect(store.admitBatch!(work, owner.fence)).rejects.toThrow('admission');
+    for (const status of ['admitted', 'denied', 'deadline']) {
+      query.mockResolvedValue([{ result: { status } }]);
+      expect(await store.admitBatch!(work, owner.fence)).toEqual({ status });
+      expect(query).toHaveBeenLastCalledWith(expect.stringContaining('public.admit_public_data_batch_dispatch_status('),
+        [JSON.stringify(work), JSON.stringify(owner.fence)]);
     }
     query.mockResolvedValue([{ result: 'complete' }, { result: 'complete' }]);
     await expect(store.nextBatch!(requestId)).rejects.toThrow('acknowledgment');
+  });
+  const backoff = { status: 'budget-backoff', serverNow: '2026-10-16T08:00:00.000999-04:00',
+    retryAt: '2026-10-16T12:00:00.500001+00:00', retryAfterMs: 500 };
+  it('preserves native microsecond clocks and verifies the server-relative ceiling without client clock assumptions', async () => {
+    const { store, query } = setup([{ result: backoff }]);
+    expect(await store.admitBatch!(work, owner.fence)).toEqual(backoff);
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it.each([[], [{ admitted: true }], [{ result: null }], [{ result: true }], [{ result: { status: ['admitted'] } }],
+    [{ result: { status: 'admitted', extra: true } }], [{ result: { status: 'admitted' } }, { result: { status: 'admitted' } }],
+    ...[{}, { status: 'future' }, { serverNow: 'invalid' }, { retryAt: backoff.serverNow }, { retryAt: '2026-10-16T12:00:00Z' },
+      { retryAfterMs: '500' }, { retryAfterMs: 499 }, { retryAfterMs: 501 }, { retryAfterMs: 0 }, { retryAfterMs: -1 },
+      { retryAfterMs: 0.5 }, { retryAfterMs: Infinity }, { retryAfterMs: Number.MAX_SAFE_INTEGER + 1 },
+      { retryAt: '2026-10-16T13:00:20.002Z', retryAfterMs: 3_620_002 }, { extra: true },
+      { serverNow: '2026-10-16T12:00:00' }].map(change => [{ result: { ...backoff, ...change,
+        ...(Object.keys(change).length === 0 ? { retryAt: undefined } : {}) } }]),
+  ].map(rows => ({ rows })))('rejects ambiguous or malformed admission without a retry: %#', async ({ rows }) => {
+    const { store, query } = setup(rows);
+    await expect(store.admitBatch!(work, owner.fence)).rejects.toThrow();
+    expect(query).toHaveBeenCalledOnce();
   });
 });
 

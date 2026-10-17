@@ -15,6 +15,8 @@ on:
           - data-process-recovery-v1
           - data-runner-cycles-v1
           - data-batch-calibration-v1
+          - data-freshness-capacity-healthy-v1
+          - data-freshness-capacity-recovery-v1
           - data-backend-controls-v1
           - data-competing-workers-v1
           - data-within-season-history-v1
@@ -65,8 +67,8 @@ jobs:
     if: github.repository == 'clawmachinejed/league-one-audit'
     environment: integration-test
     runs-on: ubuntu-latest
-    # Preserve ten minutes around the supervisor's fixed 40-minute lifecycle deadline.
-    timeout-minutes: 50
+    # Only the two closed fleet profiles receive their reviewed lifecycle and CI margins.
+    timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}
     steps:
       # Approvers review this exact selected head, including workflow, supervisor,
       # tests and dependencies. No untrusted fork or automatic PR trigger.
@@ -106,6 +108,12 @@ jobs:
               ;;
             workflow_dispatch:data-runner-cycles-v1)
               pnpm test:integration --profile=data-runner-cycles-v1
+              ;;
+            workflow_dispatch:data-freshness-capacity-healthy-v1)
+              pnpm test:integration --profile=data-freshness-capacity-healthy-v1
+              ;;
+            workflow_dispatch:data-freshness-capacity-recovery-v1)
+              pnpm test:integration --profile=data-freshness-capacity-recovery-v1
               ;;
             workflow_dispatch:data-batch-calibration-v1)
               pnpm test:integration --profile=data-batch-calibration-v1

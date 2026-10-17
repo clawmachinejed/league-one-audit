@@ -4,13 +4,13 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertIntegrationFreshInstallEvidence, assertIntegrationPostgresqlVersionEvidence, runDisposableIntegration, type IntegrationRunReceipt } from '../integration/disposable-integration';
-import { IntegrationLifecycleBudget } from '../integration/integration-lifecycle-budget';
+import { IntegrationLifecycleBudget, integrationLifecycleForQualification } from '../integration/integration-lifecycle-budget';
 import { createIntegrationReceiptJournal } from '../integration/integration-receipt-journal';
 
 import { parseQualificationArguments } from '../integration/qualification-profile';
 
 const profile = parseQualificationArguments(process.argv.slice(2));
-const budget = new IntegrationLifecycleBudget();
+const budget = new IntegrationLifecycleBudget(integrationLifecycleForQualification(profile));
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 const gitOptions = { cwd: root, encoding: 'utf8' as const, windowsHide: true, timeout: 2_000 };
 const gitSha = execFileSync('git', ['rev-parse', 'HEAD'], gitOptions).trim();
@@ -27,7 +27,7 @@ const interrupt = () => controller.abort('sigint');
 const terminate = () => controller.abort('sigterm');
 process.on('SIGINT', interrupt); process.on('SIGTERM', terminate);
 const workTimeout = setTimeout(() => controller.abort('deadline'), Math.max(1, budget.workDeadline - performance.now()));
-// The phase budget starts cleanup by minute 30. This last-resort local exit also
+// The selected closed phase budget starts cleanup before its reserved teardown. This last-resort local exit also
 // bounds leaked handles; it does not claim remote cancellation or cloud deletion.
 // The last immutable in-progress receipt retains unresolved-resource evidence.
 const timeout = setTimeout(() => {

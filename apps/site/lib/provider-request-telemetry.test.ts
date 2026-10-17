@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectionLogEntry } from './projections/ports/logger';
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ unstable_cache: (callback: unknown) => callback }));
-import { observeProviderAdapter, recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
+import { getProviderRequestOwner, withProviderRequestOwner, observeProviderAdapter, recordProviderCache, sleeperEndpointFamily, startProviderHttp } from './provider-request-telemetry';
 import { getRawLineupMatchups, getCurrentLeagueWeek } from './sleeper';
 
 const logger = () => ({ write: vi.fn<(level: string, entry: ProjectionLogEntry) => void>() });
@@ -86,5 +86,47 @@ describe('safe provider request telemetry', () => {
     expect(sleeperEndpointFamily('/league/private-id/rosters')).toBe('rosters');
     expect(sleeperEndpointFamily('/league/private-id')).toBe('league');
     expect(sleeperEndpointFamily('/unknown/private-id')).toBe('other');
+  });
+});
+
+
+describe('passive physical request owner context', () => {
+  it('isolates overlapping owners through asynchronous work and restores the outside context', async () => {
+    let release!: () => void;
+    const paused = new Promise<void>(resolve => { release = resolve; });
+    const first = withProviderRequestOwner('data-refresh', async () => {
+      expect(getProviderRequestOwner()).toBe('data-refresh');
+      await paused; expect(getProviderRequestOwner()).toBe('data-refresh'); return 'data';
+    });
+    const second = withProviderRequestOwner('primary-projection', async () => {
+      await Promise.resolve(); expect(getProviderRequestOwner()).toBe('primary-projection'); release(); return 'primary';
+    });
+    expect(getProviderRequestOwner()).toBeNull();
+    expect(await Promise.all([first, second])).toEqual(['data', 'primary']);
+    expect(getProviderRequestOwner()).toBeNull();
+  });
+  it('restores nested owners and preserves synchronous value and error identity', () => {
+    const value = {}, failure = new Error('original');
+    expect(withProviderRequestOwner('primary-projection', () => {
+      expect(withProviderRequestOwner('independent-measurement', () => {
+        expect(getProviderRequestOwner()).toBe('independent-measurement'); return value;
+      })).toBe(value);
+      expect(getProviderRequestOwner()).toBe('primary-projection');
+      expect(() => withProviderRequestOwner('administration-maintenance', () => { throw failure; })).toThrow(failure);
+      expect(getProviderRequestOwner()).toBe('primary-projection'); return value;
+    })).toBe(value);
+    expect(getProviderRequestOwner()).toBeNull();
+  });
+  it('preserves promise identity and the original asynchronous rejection', async () => {
+    const failure = new Error('original rejection');
+    const operation = Promise.reject(failure);
+    const result = withProviderRequestOwner('data-refresh', () => operation);
+    expect(result).toBe(operation); await expect(result).rejects.toBe(failure);
+    expect(getProviderRequestOwner()).toBeNull();
+  });
+  it('rejects unknown runtime labels before entering the operation', () => {
+    const run = vi.fn();
+    expect(() => withProviderRequestOwner('url-guessed-owner' as never, run)).toThrow('Unknown provider request owner');
+    expect(run).not.toHaveBeenCalled(); expect(getProviderRequestOwner()).toBeNull();
   });
 });

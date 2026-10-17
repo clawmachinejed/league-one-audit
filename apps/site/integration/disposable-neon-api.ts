@@ -1,3 +1,4 @@
+import { integrationLifecycleEnvelope, type IntegrationLifecycleProfile } from './integration-lifecycle-budget';
 // This control-plane client is used only by the supervised, disposable SQL test runner.
 // API semantics: https://neon.com/api_spec/release/v2.json
 const API_ORIGIN = 'https://console.neon.tech/api/v2';
@@ -256,7 +257,8 @@ export class DisposableNeonApi {
   }
 
   async createBranch(config: DisposableNeonConfig, runId: string,
-    onIntent?: (intent: DisposableNeonCreationIntent) => void | Promise<void>): Promise<DisposableNeonBranchReceipt> {
+    onIntent?: (intent: DisposableNeonCreationIntent) => void | Promise<void>, lifecycleProfile: IntegrationLifecycleProfile = 'default'): Promise<DisposableNeonBranchReceipt> {
+    const envelope = integrationLifecycleEnvelope(lifecycleProfile);
     if (!/^[a-z0-9][a-z0-9-]{5,80}$/.test(runId)) throw new Error('Invalid disposable integration run identity');
     await this.validateTarget(config);
     const branchName = `l1-integration-${runId}`;
@@ -270,7 +272,7 @@ export class DisposableNeonApi {
       throw new Error('Disposable Neon project already has two non-parent branches');
     }
     const startedAt = Date.now();
-    const expiresAt = new Date(startedAt + 3_600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const expiresAt = new Date(startedAt + envelope.branchExpiryMs).toISOString().replace(/\.\d{3}Z$/, 'Z');
     await onIntent?.(Object.freeze({ projectId: config.projectId, parentBranchId: config.parentBranchId, branchName, expiresAt }));
     let response: JsonObject;
     let receipt: DisposableNeonBranchReceipt;

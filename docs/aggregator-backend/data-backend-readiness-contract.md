@@ -2,6 +2,8 @@
 
 Revision: data-backend-readiness-v1, October 9, 2026 (America/Indianapolis). This is **checkpoint 1: freeze the completion contract**, read with [the current scope](data-backend-scope.md) and [the evidence record](data-backend-evidence.md). The coverage decisions below define the requested outcome; the numeric operating values are selected engineering acceptance targets, not measured capabilities or new spending/runtime authority.
 
+User-approved amendment, October 17, 2026: the shared player-directory target uses provider-compliant daily scheduling instead of guaranteed successful refresh within 24 hours. All league import, active-data freshness, other daily-resource and recovery targets remain unchanged. This changes acceptance wording only; it does not establish recurring execution, grant spending authority or activate a production schedule.
+
 ## Completion boundary and source
 
 The outcome is a generic public Sleeper username → stable provider identity → associated **2026** leagues → existing adapters and canonical typed PostgreSQL storage → refresh/recovery → stored-only backend readers. Any public username is eligible: no named-user or pilot whitelist. League One, League Two and Dynasty are regression customers. Complete backend coverage includes all eight official families below, even when a projection or analysis cannot support the league.
@@ -46,7 +48,8 @@ Generic eligibility is independent of this benchmark. A username with more assoc
 | Active rosters, lineups, official scores and transactions | For each league and family after its first acceptance, source-observation age p95 ≤ 5 minutes and p99 ≤ 10 minutes. Controlled change-to-stored-reader visibility p95 ≤ 5 minutes. Steady-state measurement includes the two concurrent intakes above. |
 | Discovery, identity, manager facts and settings | Successful source refresh within 24 hours. Period-applicable settings still require actual evidence before interpreting that period; this cadence grants no historical applicability. |
 | Brackets, official results and standings | Successful source refresh within 15 minutes while active; within 24 hours while inactive. |
-| Player directory; drafts and picks | Successful source refresh within 24 hours. Shared catalog acquisition counts once; no five-minute live-draft promise. |
+| Shared player directory | Refresh at the first eligible scheduled run after the existing 24-hour attempt guard. Report actual source-observation age, last successful refresh and each attempt/failure; shared catalog acquisition counts once. This catalog-only target follows the user-approved daily schedule. |
+| Drafts and picks | Successful source refresh within 24 hours; no five-minute live-draft promise. |
 | Earlier 2026 corrections | Complete correction sweep of earlier periods, transactions and drafts within 24 hours, retaining corrected versions and earlier evidence. |
 | Provider request envelope | Proposed DATA release ceiling: ≤ 40 GET attempts per rolling minute and ≤ 1,800 per rolling hour, including intake, refresh, failed/retried requests and redirects. Count each HTTP attempt; shared acquisition counts once. |
 | Outage and backlog | After a controlled 30-minute provider or worker/database outage, restore active freshness within 15 minutes of dependency/service recovery and clear the declared queued backlog within 4 hours. Preserve last-good records and report outage-inclusive lag and failures. |

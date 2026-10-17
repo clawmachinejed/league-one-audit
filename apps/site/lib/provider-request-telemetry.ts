@@ -12,6 +12,26 @@ export type ProviderEndpointFamily =
 type Outcome = 'available' | 'unavailable' | 'invalid' | 'not-ready';
 const context = new AsyncLocalStorage<ProjectionLoggerPort>();
 
+/** Passive execution attribution only; this does not grant acquisition authority. */
+export type ProviderRequestOwner = 'primary-projection' | 'data-refresh'
+  | 'administration-maintenance' | 'independent-measurement';
+const requestOwner = new AsyncLocalStorage<ProviderRequestOwner>();
+const requestOwners: readonly ProviderRequestOwner[] = [
+  'primary-projection', 'data-refresh', 'administration-maintenance', 'independent-measurement',
+];
+
+/** Uninstrumented callers remain explicitly unknown, never inferred from their URL. */
+export function getProviderRequestOwner(): ProviderRequestOwner | null {
+  return requestOwner.getStore() ?? null;
+}
+
+/** Preserve the operation's value, error and asynchronous lifetime without another worker. */
+export function withProviderRequestOwner<T>(owner: ProviderRequestOwner, run: () => T): T {
+  if (!requestOwners.includes(owner)) throw new Error('Unknown provider request owner.');
+  return requestOwner.run(owner, run);
+}
+
+
 function emit(entry: ProjectionLogEntry): void {
   try { context.getStore()?.write(entry.outcome === 'failed' ? 'warn' : 'info', entry); } catch {
     // Request metrics never change provider results, cache eligibility, or worker behavior.

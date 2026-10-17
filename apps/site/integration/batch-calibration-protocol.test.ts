@@ -8,11 +8,16 @@ const config=():BatchConfig=>({nonce:randomUUID(),fixtureId:randomUUID(),request
 const runtimeUrl='postgresql://league_one_runtime:synthetic@ep-example.us-east-2.aws.neon.tech/calibration_test?sslmode=require';
 const endpoint=()=>typeof neonConfig.fetchEndpoint==='function'?neonConfig.fetchEndpoint(new URL(runtimeUrl).hostname,5432,{jwtAuth:false}):neonConfig.fetchEndpoint;
 describe('closed CP26 native fixture protocol',()=>{
-  it('binds each SQL observation hash to a literal in the maintained store',async()=>{
+  it('preserves historical boolean admission while binding current status admission and unchanged SQL literals',async()=>{
     const source=await readFile(new URL('../lib/league-administration/neon/public-intake.ts',import.meta.url),'utf8');
     const tree=ts.createSourceFile('public-intake.ts',source,ts.ScriptTarget.Latest,true),literals:string[]=[];
     const visit=(node:ts.Node)=>{if(ts.isStringLiteral(node)||ts.isNoSubstitutionTemplateLiteral(node))literals.push(node.text);ts.forEachChild(node,visit);};visit(tree);
-    for(const statement of Object.values(BATCH_SQL))expect(literals).toContain(statement);
+    expect(BATCH_SQL.admit).toBe(`/* public-data-intake:admit-batch */
+        SELECT public.admit_public_data_batch_dispatch($1::jsonb,$2::jsonb) AS admitted`);
+    expect(literals).not.toContain(BATCH_SQL.admit);
+    expect(literals).toContain(`/* public-data-intake:admit-batch */
+        SELECT public.admit_public_data_batch_dispatch_status($1::jsonb,$2::jsonb) AS result`);
+    for(const [name,statement] of Object.entries(BATCH_SQL))if(name!=='admit')expect(literals).toContain(statement);
   });
   it('freezes four distinct source leagues and exact method/path/body inventory',()=>{
     const id=randomUUID(),fixture=batchFixture(id);expect(batchFixture(id)).toEqual(fixture);expect(fixture.leagues).toHaveLength(4);

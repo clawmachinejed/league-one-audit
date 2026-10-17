@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import { DisposableNeonApi } from './disposable-neon-api';
 import { assertEmptyDisposableDatabase, disposableConfiguration, DISPOSABLE_AUTHORIZATION,
   assertIntegrationPostgresqlVersionEvidence, captureIntegrationPostgresqlVersion,
-  integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
+  integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runDisposableIntegration, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
+import { IntegrationLifecycleBudget, HEALTHY_FLEET_LIFECYCLE_PROFILE } from './integration-lifecycle-budget';
 import { qualificationDigest, type QualificationContext } from './qualification-profile';
 
 const valid = {
@@ -270,4 +271,22 @@ describe('disposable lifecycle failure boundaries', () => {
     expect(await runIntegrationLifecycle(runtime, receipt, journal)).toBe(false);
     expect(runtime.close).toHaveBeenCalledOnce(); expect(runtime.delete).toHaveBeenCalledOnce();
   });
+});
+
+it('rejects mismatched closed healthy lifecycle budgets before any provisioner or network use',async()=>{
+  const denied=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No provisioning permitted'));
+  try {
+    await expect(runDisposableIntegration({environment:{NODE_ENV:'test'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:HEALTHY_FLEET_LIFECYCLE_PROFILE,budget:new IntegrationLifecycleBudget()})).rejects.toThrow('Lifecycle');
+    await expect(runDisposableIntegration({environment:{NODE_ENV:'test'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:'full',budget:new IntegrationLifecycleBudget(HEALTHY_FLEET_LIFECYCLE_PROFILE)})).rejects.toThrow('Lifecycle');
+    expect(denied).not.toHaveBeenCalled();
+  } finally {denied.mockRestore();}
+});
+
+
+it('rejects recovery with a healthy budget before any provisioner or network use',async()=>{
+  const denied=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No provisioning permitted'));
+  try {
+    await expect(runDisposableIntegration({environment:{NODE_ENV:'test'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:'data-freshness-capacity-recovery-v1',budget:new IntegrationLifecycleBudget(HEALTHY_FLEET_LIFECYCLE_PROFILE)})).rejects.toThrow('Lifecycle');
+    expect(denied).not.toHaveBeenCalled();
+  }finally{denied.mockRestore();}
 });

@@ -1028,3 +1028,42 @@ DO $$ DECLARE role_name text; BEGIN
   END IF;
 END; $$;
 -- END OPTIONAL PUBLIC DATA CORRECTION PREPARATION DENIAL
+
+-- BEGIN OPTIONAL SETTLED PUBLIC DATA REQUEST BUDGET GRANTS
+DO $$ DECLARE role_name text; helper text; entry_point text; table_name text;
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regprocedure('public.public_data_settled_request_budget_capability()') IS NOT NULL THEN
+    FOREACH helper IN ARRAY ARRAY[
+      'public.public_data_settled_capture_upper_bound(public.public_data_dispatches,public.public_data_dispatch_outcomes)',
+      'public.record_public_data_settled_request_bound()','public.public_data_settled_request_budget(integer)',
+      'public.admit_public_data_settled_direct_status(jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN RAISE EXCEPTION 'restricted role can execute private settled budget helper'; END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+    FOREACH entry_point IN ARRAY ARRAY['public.public_data_settled_request_budget_capability()','public.admit_public_data_batch_dispatch_status(jsonb,jsonb)'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',entry_point);
+      FOREACH role_name IN ARRAY ARRAY['league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',entry_point,role_name);
+        END IF;
+      END LOOP;
+      EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',entry_point);
+      IF NOT has_function_privilege('league_one_runtime',entry_point,'EXECUTE') OR EXISTS(
+        SELECT 1 FROM pg_proc function_entry,LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+        WHERE function_entry.oid=to_regprocedure(entry_point) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+        RAISE EXCEPTION 'incorrect settled budget entry point privileges'; END IF;
+    END LOOP;
+    FOREACH table_name IN ARRAY ARRAY['public_data_dispatches','public_data_dispatch_outcomes'] LOOP
+      IF has_table_privilege('league_one_runtime','public.'||table_name,denied)
+        OR has_any_column_privilege('league_one_runtime','public.'||table_name,'INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'runtime can write immutable settled budget evidence'; END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL SETTLED PUBLIC DATA REQUEST BUDGET GRANTS

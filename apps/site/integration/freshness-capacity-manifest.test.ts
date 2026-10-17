@@ -1,24 +1,19 @@
-import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
-import { bindCapacityManifest, capacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan,
-  type CapacitySource, type BoundEvent, type CapacityPlan } from './freshness-capacity-manifest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { createCapacityFleetFixture } from './freshness-capacity-fixtures';
+import { bindCapacityManifest, capacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan, assertCapacityEndpointInventory, assertCapacityManifest,
+  type CapacitySource } from './freshness-capacity-manifest';
 
-function fixture(plan: CapacityPlan) {
-  const source: CapacitySource = { readinessContractSha256: 'e'.repeat(64), acceptanceContractSha256: 'f'.repeat(64), plannedPostgresqlVersion: '18.6', gitSha: 'a'.repeat(40), appTreeSha: 'b'.repeat(40), fixtureSha256: 'c'.repeat(64), readerQueryMixSha256: 'd'.repeat(64),
+const fixtureCache = new Map<string, ReturnType<typeof createCapacityFleetFixture>>();
+function fixture(plan: ReturnType<typeof createCapacityPlan>) {
+  let fleet = fixtureCache.get(plan.seed);
+  if (!fleet) { fleet = createCapacityFleetFixture(plan.seed); fixtureCache.set(plan.seed, fleet); }
+  const source: CapacitySource = { readinessContractSha256: 'e'.repeat(64), acceptanceContractSha256: 'f'.repeat(64), plannedPostgresqlVersion: '18.6',
+    gitSha: 'a'.repeat(40), appTreeSha: 'b'.repeat(40), fixtureSha256: fleet.digest, readerQueryMixSha256: 'd'.repeat(64),
     clockRefs: { wall: 'synthetic-wall-clock', monotonic: 'synthetic-monotonic-clock' }, cleanupPlanRef: 'synthetic-cleanup-plan',
-    requestOwners: ['ordinary-runner', 'independent-measurement'], unrelatedUsernames: ['synthetic-a', 'synthetic-b'],
-    formatWitnesses: { byes: 'fixture-byes', ties: 'fixture-ties', 'custom-zero': 'fixture-zero', 'unusual-scoring': 'fixture-scoring',
-      'pre-draft-incomplete': 'fixture-predraft', 'multiweek-legs': 'fixture-legs', 'overlap-deduplication': 'fixture-overlap', 'excess-capacity': 'fixture-capacity' },
-    leagues: plan.leagues.map(league => ({ key: league.key, nativeLeagueId: `synthetic-${league.key}`, season: 2026,
-      format: league.format, regression: league.regression, nativePeriod: '1', nativePeriods: Array.from({ length: 18 }, (_, index) => String(index + 1)), extraPeriodCoverageGaps: [],
-      rosterCount: 20, inSeason: true, initiallyPopulated: league.cohort === 'accepted', sourceEvidenceRef: 'synthetic-source' })),
-    initialReaders: plan.pairs.map(pair => ({ pairId: pair.id, reader: { selector: pair.id + '/head', version: 'v0', value: { raw: 0, custom: null, effective: 0 } } })) };
-  const payload = (pairId: string, ordinal: number) => { const utf8 = JSON.stringify({ pairId, ordinal });
-    return { version: `v${ordinal}`, utf8, sha256: createHash('sha256').update(utf8).digest('hex') }; };
-  const events: BoundEvent[] = plan.events.map(event => ({ id: event.id, before: payload(event.pairId, event.ordinal - 1), after: payload(event.pairId, event.ordinal),
-    changedFields: ['synthetic'], expectedReader: { selector: `${event.pairId}/head`, version: `v${event.ordinal}`, value: { raw: event.ordinal, custom: null, effective: event.ordinal } },
-    retainedHistory: Array.from({ length: event.ordinal }, (_, ordinal) => ({ selector: `${event.pairId}/history/v${ordinal}`, version: `v${ordinal}`, value: { raw: ordinal, custom: null, effective: ordinal } })) }));
-  return { source, events };
+    requestOwners: ['ordinary-runner', 'independent-measurement'], unrelatedUsernames: [fleet.users[1].username, fleet.users[2].username],
+    endpointInventory: fleet.endpointInventory, formatWitnesses: fleet.formatWitnesses, leagues: fleet.sourceLeagues,
+    initialReaders: fleet.prototype.initialReaders };
+  return structuredClone({ source, events: fleet.prototype.events });
 }
 
 describe('CP26 immutable planning inventory', () => {
@@ -69,10 +64,11 @@ describe('CP26 immutable planning inventory', () => {
 
 describe('CP26 supplied source binding', () => {
   const plan = createCapacityPlan('binding-test');
+  beforeAll(() => { fixtureCache.set(plan.seed, createCapacityFleetFixture(plan.seed)); }, 30_000);
   it('binds exact supplied payload bytes and oracles without creating execution/qualification authority', () => {
     const { source, events } = fixture(plan); const manifest = bindCapacityManifest(plan, source, events, { kind: 'healthy' });
     source.leagues[0].nativeLeagueId = 'caller-changed';
-    expect(manifest.source.leagues[0].nativeLeagueId).toBe('synthetic-league-01');
+    expect(manifest.source.leagues[0].nativeLeagueId).toBe('9260000000000000001');
     expect(Object.isFrozen(manifest.events[0].before)).toBe(true);
     expect(capacityReadiness(manifest)).toMatchObject({ sourceBindingsComplete: true, executionReady: false, checkpoint26Qualified: false });
     expect(capacityReadiness(manifest).blockers.join(' ')).toMatch(/restricted LOGIN/);
@@ -90,7 +86,7 @@ describe('CP26 supplied source binding', () => {
     if (mutation === 'later-history') events[0].retainedHistory[0].version = 'v20';
     if (mutation === 'broken-chain') events[1].before = events[2].before;
     if (mutation === 'reused-version') events[1].after.version = events[0].after.version;
-    if (mutation === 'initial-version-reuse') events[0].after.version = 'v0';
+    if (mutation === 'initial-version-reuse') events[0].after.version = events[0].before.version;
     if (mutation === 'score-fields') events[40].expectedReader.value = { effective: 0 };
     if (mutation === 'populated-intake') source.leagues[8].initiallyPopulated = true;
     if (mutation === 'duplicate-league') source.leagues[1].nativeLeagueId = source.leagues[0].nativeLeagueId;
@@ -98,7 +94,7 @@ describe('CP26 supplied source binding', () => {
     if (mutation === 'wrong-period') source.leagues[0].nativePeriod = '19';
     if (mutation === 'missing-period') source.leagues[0].nativePeriods.pop();
     if (mutation === 'extra-period') source.leagues[0].nativePeriods.push('19');
-    if (mutation === 'missing-edge') source.formatWitnesses['multiweek-legs'] = '';
+    if (mutation === 'missing-edge') Object.assign(source.formatWitnesses, { 'multiweek-legs': '' });
     if (mutation === 'missing-measurement-owner') source.requestOwners.pop();
     expect(() => bindCapacityManifest(plan, source, events, { kind: 'healthy' })).toThrow();
   });
@@ -124,4 +120,57 @@ describe('CP26 supplied source binding', () => {
     expect(() => bindCapacityManifest(plan, source, events, { ...manifest.lane, kind: 'outage', startOffsetMs: 9_000_000,
       durationMs: 1_800_000, backlog: [], lastGood: [], dependency: 'provider' })).toThrow();
   });
+});
+
+// Endpoint validation is independent of execution: these reject plausible-looking but unbound evidence.
+describe('strict complete native inventory and format bindings', () => {
+  const plan = createCapacityPlan('binding-test');
+  it.each(['missing-endpoint', 'duplicate-route', 'wrong-method', 'post-body', 'irrelevant-manager', 'wrong-native-week',
+    'foreign-league', 'missing-draft-fanout', 'unpaired-score', 'wrong-offset', 'wrong-event', 'wrong-version-hash',
+    'discovery-subset', 'missing-position-catalog', 'position-query', 'label-witness', 'wrong-field-value',
+    'missing-field', 'unknown-reader', 'claimed-unexecuted-value', 'retained-2025-relabel', 'fake-overlap'] as const)('rejects %s', mutation => {
+    const { source, events } = fixture(plan), endpoints = source.endpointInventory;
+    const roster = endpoints.find(row => row.id === 'league-01:rosters')!, matchups = endpoints.find(row => row.id === 'league-01:matchups:7')!;
+    const report = endpoints.find(row => row.resource === 'weekly-report')!, witness = source.formatWitnesses['custom-zero'];
+    if (mutation === 'missing-endpoint') endpoints.splice(endpoints.findIndex(row => row.id === 'league-16:report:18'), 1);
+    if (mutation === 'duplicate-route') endpoints.push({ ...endpoints[0], id: 'duplicate-physical-route' });
+    if (mutation === 'wrong-method') roster.method = 'POST';
+    if (mutation === 'post-body') report.requestUtf8 = '{}';
+    if (mutation === 'irrelevant-manager') roster.scope.nativeManagerId = '123';
+    if (mutation === 'wrong-native-week') matchups.scope.nativeWeek = 8;
+    if (mutation === 'foreign-league') roster.scope.nativeLeagueId = '123';
+    if (mutation === 'missing-draft-fanout') endpoints.splice(endpoints.findIndex(row => row.id === 'league-12:draft-picks'), 1);
+    if (mutation === 'unpaired-score') matchups.pairIds.pop();
+    if (mutation === 'wrong-offset') Object.assign(matchups.versions[1].publication, { offsetMs: 60_001 });
+    if (mutation === 'wrong-event') matchups.versions[1].eventIds.pop();
+    if (mutation === 'wrong-version-hash') roster.versions[1].sha256 = '0'.repeat(64);
+    if (mutation === 'discovery-subset') { const row = endpoints.find(row => row.id === 'discovery:intake-a')!; row.versions[0].utf8 = '[]'; }
+    if (mutation === 'missing-position-catalog') endpoints.splice(endpoints.findIndex(row => row.id === 'shared:players:K'), 1);
+    if (mutation === 'position-query') endpoints.find(row => row.id === 'shared:players:K')!.url += '&position=QB';
+    if (mutation === 'label-witness') Object.assign(source.formatWitnesses, { 'custom-zero': 'label-only' });
+    if (mutation === 'wrong-field-value') witness.bindings[0].fields[0].value = 123;
+    if (mutation === 'missing-field') witness.bindings[0].fields[0].pointer = '/missing';
+    if (mutation === 'unknown-reader') Object.assign(witness.bindings[0].expectedReader, { api: 'inventedReader' });
+    if (mutation === 'claimed-unexecuted-value') Object.assign(witness.bindings[0].expectedReader, { status: 'not-executed' });
+    if (mutation === 'retained-2025-relabel') witness.provenance = { kind: 'retained-source', season: 2025, path: 'retained-2025.json', sha256: witness.bindings[0].payloadSha256 };
+    if (mutation === 'fake-overlap') source.formatWitnesses['overlap-deduplication'].bindings.pop();
+    expect(() => assertCapacityEndpointInventory(plan, source.leagues, events, endpoints, source.formatWitnesses)).toThrow();
+  });
+  it('fully revalidates caller clones despite the optimization for returned deeply frozen manifests', () => {
+    const { source, events } = fixture(plan), manifest = bindCapacityManifest(plan, source, events, { kind: 'healthy' });
+    expect(() => assertCapacityManifest(manifest)).not.toThrow();
+    const clone = structuredClone(manifest); clone.source.endpointInventory[0].versions[0].sha256 = '0'.repeat(64);
+    expect(() => assertCapacityManifest(clone)).toThrow();
+  });
+});
+
+beforeAll(()=>{fixtureCache.set('unit-policy',createCapacityFleetFixture('unit-policy'));},30_000);
+it('freezes an explicit DATA-only request policy without changing historical omitted-policy manifests',()=>{
+ const plan=createCapacityPlan('unit-policy'),{source,events}=fixture(plan);
+ expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBeUndefined();
+ source.requestBudgetPolicy='cp1-data-with-separate-existing-owners-v1';
+ expect(()=>bindCapacityManifest(plan,source,events,{kind:'healthy'})).toThrow();
+ source.requestOwners=['data-refresh','independent-measurement','primary-projection','administration-maintenance'];
+ expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBe(source.requestBudgetPolicy);
+ expect(()=>bindCapacityManifest(plan,{...source,requestBudgetPolicy:'combined' as never},events,{kind:'healthy'})).toThrow();
 });

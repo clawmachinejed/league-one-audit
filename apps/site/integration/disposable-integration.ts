@@ -9,7 +9,7 @@ import { INTEGRATION_MUTEX, INTEGRATION_OWNER_ENV, assertIntegrationOwner } from
 import { superviseCapacityChild } from './collection-capacity-supervision';
 import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV } from './integration-artifacts';
-import { IntegrationDeadlineError, IntegrationLifecycleBudget, INTEGRATION_LIFECYCLE_MS,
+import { IntegrationDeadlineError, IntegrationLifecycleBudget, integrationLifecycleForQualification, INTEGRATION_WORK_DEADLINE_ENV,
   INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
 
 import { FRESH_INSTALL_PROFILE, createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
@@ -261,7 +261,7 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
       && /^[A-Z0-9_]{1,64}$/u.test(error.code)) (receipt.diagnostics ??= []).push({ stage, code: error.code });
   };
   const updateEvidence = () => {
-    receipt.lifecycle = { limitMs: INTEGRATION_LIFECYCLE_MS, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
+    receipt.lifecycle = { limitMs: budget.envelope.lifecycleMs, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
       elapsedMs: Math.ceil(budget.elapsed()) };
     // Every in-progress journal is conservative if the process/host is lost.
     receipt.unresolvedResources = unresolvedResources(receipt);
@@ -316,7 +316,9 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
   journal: (receipt: IntegrationRunReceipt, signal: AbortSignal) => Promise<void>; signal: AbortSignal;
   output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
-  const budget = options.budget ?? new IntegrationLifecycleBudget();
+  const lifecycleProfile = integrationLifecycleForQualification(options.profile);
+  const budget = options.budget ?? new IntegrationLifecycleBudget(lifecycleProfile);
+  assert.equal(budget.envelope.profile, lifecycleProfile, 'Lifecycle envelope must match the selected closed profile');
   const config = disposableConfiguration(options.environment);
   const freshInstall = options.profile === FRESH_INSTALL_PROFILE;
   const controller = new AbortController();
@@ -333,7 +335,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   const journal = async (signal: AbortSignal) => {
     if (controller.signal.aborted) receipt.cancellationReason = integrationCancellationReason(controller.signal.reason);
     receipt.unresolvedResources = unresolvedResources(receipt);
-    receipt.lifecycle = { limitMs: INTEGRATION_LIFECYCLE_MS, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
+    receipt.lifecycle = { limitMs: budget.envelope.lifecycleMs, teardownReserveMs: INTEGRATION_TEARDOWN_RESERVE_MS,
       elapsedMs: Math.ceil(budget.elapsed()) };
     await options.journal(receipt, signal);
   };
@@ -385,7 +387,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
         receipt.attemptedBranchName = intent.branchName; receipt.expiresAt = intent.expiresAt;
         await save();
         controller.signal.throwIfAborted();
-      });
+      }, lifecycleProfile);
       signal.throwIfAborted();
       Object.assign(receipt, { branchId: branch.branchId, branchName: branch.branchName, expiresAt: branch.expiresAt });
       await save();
@@ -476,7 +478,8 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       signal.throwIfAborted();
       await save(); // Acknowledged immutable evidence is required before child launch.
       childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
-        [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context) };
+        [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context),
+        ...(lifecycleProfile !== 'default' ? { [INTEGRATION_WORK_DEADLINE_ENV]: String(Date.now() + Math.max(0, Math.floor(budget.workDeadline - performance.now()))) } : {}) };
       receipt.provisionStep = 'complete';
     },
     async execute(signal) {

@@ -16,6 +16,7 @@ vi.mock('../worker/orchestrator', () => ({ runWithDependencies: runtime.runCurre
 vi.mock('../worker/future-orchestrator', () => ({ runFutureWithDependencies: runtime.runFuture }));
 
 import { runProductionProjectionSync } from './projection-dispatch';
+import { getProviderRequestOwner } from '../../provider-request-telemetry';
 
 const now = new Date('2026-09-03T12:00:00.000Z');
 const period = { season: 2026, seasonType: 'regular', week: 1 };
@@ -318,5 +319,58 @@ describe('bounded optional DATA module loading', () => {
       release({ status: 'unavailable', providerRequests: 0 }); await call;
       expect(runtime.maintenance).toHaveBeenCalledOnce();
     } finally { release?.({ status: 'unavailable', providerRequests: 0 }); vi.useRealTimers(); }
+  });
+});
+
+
+describe('actual facade request owner boundaries', () => {
+  it('isolates concurrent DATA and primary, then attributes awaited maintenance without leaking context', async () => {
+    let releaseData!: () => void;
+    const dataPending = new Promise<void>(resolve => { releaseData = resolve; });
+    let dataStarted!: () => void;
+    const started = new Promise<void>(resolve => { dataStarted = resolve; });
+    const primaryValue = { status: 'skipped', reason: 'idle', cadence: 'idle' };
+    const seen: string[] = [];
+    runtime.data.mockImplementation(async () => {
+      seen.push(String(getProviderRequestOwner())); dataStarted(); await dataPending;
+      expect(getProviderRequestOwner()).toBe('data-refresh'); return { status: 'idle', providerRequests: 0 };
+    });
+    runtime.runCurrent.mockImplementation(async () => {
+      await started; expect(getProviderRequestOwner()).toBe('primary-projection');
+      seen.push(String(getProviderRequestOwner())); releaseData(); return primaryValue;
+    });
+    runtime.maintenance.mockImplementation(async () => {
+      await Promise.resolve(); seen.push(String(getProviderRequestOwner()));
+      expect(getProviderRequestOwner()).toBe('administration-maintenance');
+    });
+    const result = await runProductionProjectionSync({ invocationStartedAt: Date.now(), publicDataRefresh: { enabled: true } });
+    expect(result).toBe(primaryValue);
+    expect(seen).toEqual(['data-refresh', 'primary-projection', 'administration-maintenance']);
+    expect(getProviderRequestOwner()).toBeNull();
+  });
+  it.each(['current', 'future'] as const)('retains primary attribution across forced %s preflight and publication', async lane => {
+    runtime.preflight.mockImplementation(async () => {
+      expect(getProviderRequestOwner()).toBe('primary-projection'); await Promise.resolve(); return preflight(lane);
+    });
+    const checkOwner = async () => {
+      expect(getProviderRequestOwner()).toBe('primary-projection'); await Promise.resolve();
+      expect(getProviderRequestOwner()).toBe('primary-projection');
+      return lane === 'current' ? { status: 'completed', publishedLeagues: 2 }
+        : { status: 'completed', action: 'materialize', period, publishedLeagues: 1, unchangedLeagues: 1, failedLeagues: 0 };
+    };
+    runtime.runCurrent.mockImplementation(checkOwner); runtime.runFuture.mockImplementation(checkOwner);
+    await runProductionProjectionSync({ force: true });
+    expect(runtime.data).not.toHaveBeenCalled(); expect(runtime.maintenance).not.toHaveBeenCalled();
+    expect(getProviderRequestOwner()).toBeNull();
+  });
+  it('preserves primary rejection and still drains DATA with its original owner', async () => {
+    const failure = new Error('original primary error'); let drained = false;
+    runtime.runCurrent.mockImplementation(async () => { expect(getProviderRequestOwner()).toBe('primary-projection'); throw failure; });
+    runtime.data.mockImplementation(async () => {
+      await Promise.resolve(); expect(getProviderRequestOwner()).toBe('data-refresh'); drained = true;
+      return { status: 'idle', providerRequests: 0 };
+    });
+    await expect(runProductionProjectionSync({ invocationStartedAt: Date.now(), publicDataRefresh: { enabled: true } })).rejects.toBe(failure);
+    expect(drained).toBe(true); expect(getProviderRequestOwner()).toBeNull();
   });
 });
