@@ -1007,3 +1007,24 @@ DO $$ DECLARE name text; denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,
  END IF;
 END; $$;
 -- END OPTIONAL PUBLIC DATA RESOURCE SCHEDULE GRANTS
+
+-- BEGIN OPTIONAL PUBLIC DATA CORRECTION PREPARATION DENIAL
+-- R060 adds no runtime entry point. Keep the shared helper private for late roles.
+DO $$ DECLARE role_name text; BEGIN
+  IF to_regprocedure('public.select_public_data_refresh_mode(jsonb,boolean)') IS NOT NULL THEN
+    REVOKE ALL ON FUNCTION public.select_public_data_refresh_mode(jsonb,boolean) FROM PUBLIC;
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION public.select_public_data_refresh_mode(jsonb,boolean) FROM %I',role_name);
+        IF has_function_privilege(role_name,'public.select_public_data_refresh_mode(jsonb,boolean)','EXECUTE') THEN
+          RAISE EXCEPTION 'restricted role can execute private correction preparation helper'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+      LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+      WHERE function_entry.oid=to_regprocedure('public.select_public_data_refresh_mode(jsonb,boolean)')
+        AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute private correction preparation helper'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL PUBLIC DATA CORRECTION PREPARATION DENIAL

@@ -1,6 +1,17 @@
 # CP26 freshness, capacity, budgets and backlog candidate
 
-## Current continuation: resource scheduling and import progress
+## Current continuation: correction-cycle admission
+
+Browser access was restored on October 17. Fresh preflight matched clean local/GitHub `main` and Vercel's Ready production deployment `8C3YSnXRCbmPETftQgRtirfyck5e` at `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Actual Vercel settings retained `clawmachinejed/league-one-audit`, root `apps/site`, production branch `main` and Node 24. The dedicated CP26 worktree was clean at `b39381ba1b215f0e89b56ca0a083209426222fd2` before authoring. No competing owner was observed in inspected worktrees, PRs, Actions and deployments; natural cron and database leases were not inspected.
+
+- **Resource:** already-approved current-2026 Sleeper correction sweeps and their terminal-cycle scheduling metadata.
+- **Existing path:** the existing public DATA batch selector prepares ordinary refresh cycles before active/history arbitration; capture, typed storage, immutable history and stored readers remain the same path.
+- **Persisted result:** additive migration 060 inspects at most 16 targets and creates at most one new ordinary cycle per selection, preserving capacity, legacy behavior, immutable outcomes and original owner/deadline limits. Metadata preparation reserves no HTTP and spends no service credit.
+- **Proof and gaps:** two independent restricted in-memory SQL executions reproduced the published selector leaving an eligible target at zero cycles despite nine charged history credits, with active work alone and with a fresh ordinary import. An actual 059-to-060 upgrade then created the due cycle while preserving the queued import's turn, credit, replay, legacy behavior, deadline and role restrictions. Full local verification passed 8,460 unit tests with one existing scoped-IPv6 skip, plus dependency, lint, type and build checks. Independent boundary, terminal, recovery and role checks passed, with no unresolved source-review blocker. Exact-source publication evidence is recorded separately. These checks do not establish elapsed-starvation, Neon/LOGIN, daily-completion or full-fleet qualification.
+
+Independent scope confirmation `DATA-CP26-2026-10-17-CORRECTION-ADMISSION-SCOPE` covers the additive 060 migration, its focused migration test, private-helper denial checks in `provision-runtime-role.sql`, and the exact plan/evidence/scope records. Published 059 and historical qualification pins remain unchanged. The consumed one-attempt calibration allowance is not reused. No production activation, merge or paid qualification is included. **CP26 remains unqualified.**
+
+## Published foundation: resource scheduling and import progress
 
 The user approved continuing CP26 source work after the short calibration and chronology repair. The current increment separates active resource recurrence from whole-history cycle completion and allocates service to pending ordinary imports under the existing singleton DATA worker. The explicit resource policy must require the existing bounded batch policy; omitted policy retains legacy behavior. No production caller or cron is enabled by this source increment. The consumed one-attempt calibration allowance is not reused. **CP26 remains unqualified.**
 
@@ -21,7 +32,7 @@ Three physical acquisitions cover the four active families: core (two HTTP reque
 
 Durable service accounting charges reserved HTTP at admission, including failed or unused reservations. When both lanes remain eligible, active work earns credit and already queued history consumes it at a four-to-one ratio, providing at least 20% history service asymptotically with bounded initial/rounding debt. Ordinary pending imports rotate by last charged service. This is a request-allocation property, not a completion-time promise. Original 10/20/22/25-second invocation boundaries and 80/3,620-second reservation windows remain unchanged. Admitted work can still checkpoint or recover within its original authority after configuration changes; new admission revalidates current permission.
 
-Whole-history cycle creation is deferred until no independently eligible active or queued history work exists. Initiation of future correction cycles under continuous saturation is therefore not guaranteed here. Daily/preseason/offseason, bracket/report cadence, full-fleet capacity and outage recovery remain unqualified. Due clocks currently recognize scheduled receipts only; a coincident ordinary capture does not postpone recurrence and can cause redundant requests. At sixteen active leagues, four-minute recurrence can produce 17,280 small occurrence records per day, so storage/retention sizing remains a separate open gate.
+At published source `b39381b`, whole-history cycle creation was deferred until no independently eligible active or queued history work existed. Additive 060 addresses that initiation gap through the bounded preparation pass above; full ordinary capacity can still prevent admission. Daily/preseason/offseason, bracket/report cadence, full-fleet capacity and outage recovery remain unqualified. Due clocks currently recognize scheduled receipts only; a coincident ordinary capture does not postpone recurrence and can cause redundant requests. At sixteen active leagues, four-minute recurrence can produce 17,280 small occurrence records per day, so storage/retention sizing remains a separate open gate.
 
 ## Earlier increment: bounded batches and a short calibration
 
