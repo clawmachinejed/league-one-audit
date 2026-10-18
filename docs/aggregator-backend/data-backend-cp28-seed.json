@@ -1,0 +1,593 @@
+{
+  "schemaVersion": 1,
+  "qualification": "UNQUALIFIED",
+  "provenance": {
+    "artifactSha256": "acaaf6ab5493e9193c45a8ea4fd7c181aeb63d09cd6b7b585cabbe5ff17450fe",
+    "artifactBytes": 1038171,
+    "gitSha": "b41fca034e9982014f3396f960c91c3a718b0169",
+    "datasetDigest": "627a597e81d7a762ec7c1258eff43471065ba18277fd064a6209d3b59ff843c4",
+    "tableCountsSha256": "a0593e7de6257cb420ebb4da347951b856f7fd044e9b4f5dbf1d564317a9ce4e"
+  },
+  "dataset": {
+    "leagues": 16,
+    "rosters": 320,
+    "weeks": 288,
+    "players": 160,
+    "receiptCount": 848
+  },
+  "measurements": {
+    "relationCount": 113,
+    "rowCount": 101272,
+    "allocatedBytes": 47693824,
+    "metric": "pg_total_relation_size",
+    "indexesAndToastIncluded": true,
+    "columnSizeMeasured": false
+  },
+  "tables": [
+    {
+      "table": "league_administration_contents",
+      "rows": 480,
+      "totalBytes": 1490944
+    },
+    {
+      "table": "league_administration_enrollment_seasons",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_administration_enrollments",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_administration_heads",
+      "rows": 416,
+      "totalBytes": 147456
+    },
+    {
+      "table": "league_administration_manager_entries",
+      "rows": 336,
+      "totalBytes": 155648
+    },
+    {
+      "table": "league_administration_memberships",
+      "rows": 336,
+      "totalBytes": 131072
+    },
+    {
+      "table": "league_administration_observation_mappings",
+      "rows": 16,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_administration_observations",
+      "rows": 480,
+      "totalBytes": 401408
+    },
+    {
+      "table": "league_administration_team_entries",
+      "rows": 6080,
+      "totalBytes": 3416064
+    },
+    {
+      "table": "league_administration_transaction_entries",
+      "rows": 320,
+      "totalBytes": 286720
+    },
+    {
+      "table": "league_bracket_contents",
+      "rows": 32,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_bracket_edges",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_bracket_entrants",
+      "rows": 96,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_bracket_matches",
+      "rows": 48,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_bracket_results",
+      "rows": 96,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_bracket_rounds",
+      "rows": 32,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_calculation_capture_inputs",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_calculation_source_captures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_configuration_activations",
+      "rows": 80,
+      "totalBytes": 114688
+    },
+    {
+      "table": "league_configuration_heads",
+      "rows": 80,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_configuration_versions",
+      "rows": 16,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_draft_metadata_contents",
+      "rows": 32,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_draft_metadata_entries",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_draft_metadata_facts",
+      "rows": 48,
+      "totalBytes": 98304
+    },
+    {
+      "table": "league_draft_metadata_slot_rosters",
+      "rows": 960,
+      "totalBytes": 253952
+    },
+    {
+      "table": "league_draft_metadata_user_slots",
+      "rows": 960,
+      "totalBytes": 303104
+    },
+    {
+      "table": "league_draft_selection_catalog_entries",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_draft_selection_contents",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_draft_selection_entries",
+      "rows": 320,
+      "totalBytes": 573440
+    },
+    {
+      "table": "league_draft_selection_link_receipts",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_draft_selection_player_links",
+      "rows": 320,
+      "totalBytes": 311296
+    },
+    {
+      "table": "league_draft_selections",
+      "rows": 320,
+      "totalBytes": 122880
+    },
+    {
+      "table": "league_exact_matchup_player_points",
+      "rows": 46080,
+      "totalBytes": 15785984
+    },
+    {
+      "table": "league_exact_matchup_starter_points",
+      "rows": 23040,
+      "totalBytes": 4194304
+    },
+    {
+      "table": "league_exact_matchup_team_values",
+      "rows": 5760,
+      "totalBytes": 3612672
+    },
+    {
+      "table": "league_exact_matchup_value_contents",
+      "rows": 288,
+      "totalBytes": 81920
+    },
+    {
+      "table": "league_manager_directory_entries",
+      "rows": 336,
+      "totalBytes": 188416
+    },
+    {
+      "table": "league_manager_directory_versions",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_native_period_calendar_evidence",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_official_standings_captures",
+      "rows": 32,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_official_standings_contents",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_official_standings_teams",
+      "rows": 320,
+      "totalBytes": 270336
+    },
+    {
+      "table": "league_period_authorities",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_player_directory_attempts",
+      "rows": 1,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_player_directory_captures",
+      "rows": 1,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_player_directory_contents",
+      "rows": 1,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_player_directory_entries",
+      "rows": 160,
+      "totalBytes": 221184
+    },
+    {
+      "table": "league_player_directory_heads",
+      "rows": 1,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_player_directory_source_slices",
+      "rows": 1,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_player_directory_versions",
+      "rows": 1,
+      "totalBytes": 57344
+    },
+    {
+      "table": "league_roster_capture_receipts",
+      "rows": 848,
+      "totalBytes": 2580480
+    },
+    {
+      "table": "league_roster_player_link_receipts",
+      "rows": 32,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_roster_player_links",
+      "rows": 5120,
+      "totalBytes": 4743168
+    },
+    {
+      "table": "league_roster_resource_acceptances",
+      "rows": 848,
+      "totalBytes": 294912
+    },
+    {
+      "table": "league_roster_resource_attempts",
+      "rows": 848,
+      "totalBytes": 729088
+    },
+    {
+      "table": "league_roster_resource_heads",
+      "rows": 496,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_roster_resource_scopes",
+      "rows": 496,
+      "totalBytes": 933888
+    },
+    {
+      "table": "league_season_drafts",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_season_teams",
+      "rows": 320,
+      "totalBytes": 188416
+    },
+    {
+      "table": "league_seasons",
+      "rows": 16,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_source_connection_history",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_source_connections",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_source_manager_accounts",
+      "rows": 336,
+      "totalBytes": 139264
+    },
+    {
+      "table": "league_source_mapping_revisions",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_team_manager_entries",
+      "rows": 640,
+      "totalBytes": 352256
+    },
+    {
+      "table": "league_team_manager_memberships",
+      "rows": 672,
+      "totalBytes": 278528
+    },
+    {
+      "table": "league_traded_pick_assets",
+      "rows": 32,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_traded_pick_catalog_entries",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_traded_pick_contents",
+      "rows": 32,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_traded_pick_entries",
+      "rows": 32,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_week_expected_games",
+      "rows": 0,
+      "totalBytes": 8192
+    },
+    {
+      "table": "league_week_lineup_watch_states",
+      "rows": 0,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_week_materialization_states",
+      "rows": 0,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_week_observations",
+      "rows": 0,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_weekly_report_contents",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_weekly_report_teams",
+      "rows": 320,
+      "totalBytes": 262144
+    },
+    {
+      "table": "leagues",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "projection_jobs",
+      "rows": 1,
+      "totalBytes": 98304
+    },
+    {
+      "table": "public_data_bracket_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_bracket_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_collection_reservations",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_directory_captures",
+      "rows": 32,
+      "totalBytes": 90112
+    },
+    {
+      "table": "public_data_dispatch_outcomes",
+      "rows": 528,
+      "totalBytes": 753664
+    },
+    {
+      "table": "public_data_dispatches",
+      "rows": 528,
+      "totalBytes": 385024
+    },
+    {
+      "table": "public_data_draft_checkpoints",
+      "rows": 80,
+      "totalBytes": 106496
+    },
+    {
+      "table": "public_data_draft_tasks",
+      "rows": 80,
+      "totalBytes": 98304
+    },
+    {
+      "table": "public_data_exact_period_checkpoints",
+      "rows": 288,
+      "totalBytes": 262144
+    },
+    {
+      "table": "public_data_exact_period_tasks",
+      "rows": 288,
+      "totalBytes": 155648
+    },
+    {
+      "table": "public_data_history_service",
+      "rows": 0,
+      "totalBytes": 8192
+    },
+    {
+      "table": "public_data_identity_observations",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_intakes",
+      "rows": 16,
+      "totalBytes": 81920
+    },
+    {
+      "table": "public_data_league_candidates",
+      "rows": 16,
+      "totalBytes": 90112
+    },
+    {
+      "table": "public_data_league_lists",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "public_data_period_inventory_plans",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_period_inventory_sources",
+      "rows": 32,
+      "totalBytes": 81920
+    },
+    {
+      "table": "public_data_refresh_configurations",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_cycle_outcomes",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_cycles",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_selection_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_targets",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "public_data_rejections",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_report_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_report_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_resource_authorities",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_configurations",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_occurrences",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_selection_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_selections",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_resource_service",
+      "rows": 1,
+      "totalBytes": 24576
+    },
+    {
+      "table": "public_data_resource_target_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resources",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_transaction_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_transaction_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    }
+  ]
+}

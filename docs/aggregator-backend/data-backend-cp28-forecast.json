@@ -1,0 +1,1014 @@
+{
+  "schemaVersion": 1,
+  "qualification": "UNQUALIFIED",
+  "originalEvidenceVerification": "ORIGINAL_HASH_SOURCE_AND_TABLE_EXTRACTION_REVERIFIED",
+  "provenance": {
+    "artifactSha256": "acaaf6ab5493e9193c45a8ea4fd7c181aeb63d09cd6b7b585cabbe5ff17450fe",
+    "artifactBytes": 1038171,
+    "gitSha": "b41fca034e9982014f3396f960c91c3a718b0169",
+    "datasetDigest": "627a597e81d7a762ec7c1258eff43471065ba18277fd064a6209d3b59ff843c4",
+    "tableCountsSha256": "a0593e7de6257cb420ebb4da347951b856f7fd044e9b4f5dbf1d564317a9ce4e"
+  },
+  "assumptionsSha256": "01ea051930d466f3001f6442d23a4b49005d3ada5a8c5a3df7a4695cce64c28b",
+  "measurement": {
+    "relationCount": 113,
+    "rowCount": 101272,
+    "allocatedBytes": 47693824,
+    "metric": "pg_total_relation_size",
+    "indexesAndToastIncluded": true,
+    "columnSizeMeasured": false
+  },
+  "horizon": {
+    "start": "2026-01-01",
+    "endExclusive": "2028-04-01",
+    "days": 821,
+    "activeDays": 126,
+    "inactiveDays": 695,
+    "activeHoursPerDay": 24
+  },
+  "interpretation": "Illustrative event-volume sensitivities, not statistical bounds or measured marginal growth. The full 821-day exposure is added to one CP27 seed snapshot; it does not reconstruct a calendar history from that later snapshot. Low/base miss the five-minute active scheduling target; high schedules at five minutes but proves no latency or success. The 126 active and 695 inactive days, fractions, byte-ratio factors and reserves are synthetic assumptions. Active means 24 hours per active day. Daily historical sweeps add 17 earlier exact and transaction periods to the separately modeled current period. Drafts use one draft with the seed's 20 picks. Catalog occupancy 12229 is the historical October 10 CP5 live observed row count (source 1257f8a4087c8e542ad6ba1b0b974761e6179bda, artifact sha256 8ca9455a766592edecbd3fb9911cf7c5fc84d97e20184a3fd4fb94b3188d3350), not a current fleet census; raw payload bytes are not database allocation. Catalog content changes retain a whole new version. All reserves are assumed capacity allowances, not measured omitted growth or proven bounds. Core capture multiplicity is four for the CP27 managerEvidenceVersion v2 path: settings, players, legacy managers and v2 team-manager evidence; standings attaches to an existing receipt. Every changed fraction denotes captures yielding a distinct retained content hash/version; a new observation or return to an existing hash is not a new content version.",
+  "warnings": [
+    "This is a partial offline allocation-ratio sensitivity, not measured growth, storage qualification, endurance evidence, a capacity guarantee, or statistical bounds. Fractional event counts are expected values under assumed fractions, not observed event counts.",
+    "The 113-relation prefix snapshot includes indexes/TOAST already; no added index multiplier or separate pg_column_size measurement exists.",
+    "The prefix inventory is not complete attributable DATA storage: scoring_profiles, scoring_entities and external_scoring_entity_ids are omitted; league_week_* tables may include unrelated projection allocation.",
+    "Seed allocation is included once. Incremental groups are disjoint. Allocation/count ratios include minimum pages, existing indexes and vacant capacity; true marginal slopes need multiple authorized measurements.",
+    "The 821-day exposure is added to one retained seed snapshot as a sensitivity; it is not a chronology reconstructed from the later CP27 snapshot. March 31, 2027 is administrative, not a refresh stop or finality signal.",
+    "Every changed fraction means the fraction of modeled captures creating a distinct retained content hash/version, not merely a new observation or a semantic change back to an already retained hash. Catalog changes retain an entire new catalog, not a fraction of its entries. Observation proof grows on unchanged successful captures; shared catalog growth is counted once per fleet.",
+    "Twenty rosters per league is benchmark team count, not a roster-size cap. Held-player sensitivity is separate. 400 unique leagues is a capacity sensitivity, not 400 manager memberships or qualified scope.",
+    "Percentage/fixed reserves are explicitly synthetic; they do not measure omitted bytes or close completeness gaps. No automatic purge, reduced evidence, annual traversal, production change or new run is authorized."
+  ],
+  "incrementalAllocationGroups": {
+    "proof": {
+      "tables": [
+        "league_roster_capture_receipts",
+        "league_roster_resource_attempts",
+        "league_roster_resource_acceptances"
+      ],
+      "allocatedBytes": 3604480,
+      "rows": 2544,
+      "seedDenominator": 848,
+      "seedUnit": "typed capture: receipt + attempt + acceptance",
+      "allocatedBytesPerSeedUnit": 4250.566037735849
+    },
+    "rosterLinks": {
+      "tables": [
+        "league_roster_player_link_receipts",
+        "league_roster_player_links"
+      ],
+      "allocatedBytes": 4792320,
+      "rows": 5152,
+      "seedDenominator": 32,
+      "seedUnit": "roster capture with 160 held-player links",
+      "allocatedBytesPerSeedUnit": 149760
+    },
+    "exactValues": {
+      "tables": [
+        "league_exact_matchup_value_contents",
+        "league_exact_matchup_team_values",
+        "league_exact_matchup_player_points",
+        "league_exact_matchup_starter_points"
+      ],
+      "allocatedBytes": 23674880,
+      "rows": 75168,
+      "seedDenominator": 288,
+      "seedUnit": "exact league-period content with 20 teams and 160 players",
+      "allocatedBytesPerSeedUnit": 82204.44444444444
+    },
+    "rawObservations": {
+      "tables": [
+        "league_administration_contents",
+        "league_administration_observations"
+      ],
+      "allocatedBytes": 1892352,
+      "rows": 960,
+      "seedDenominator": 480,
+      "seedUnit": "legacy raw content plus observation",
+      "allocatedBytesPerSeedUnit": 3942.4
+    },
+    "rawTeamEntries": {
+      "tables": [
+        "league_administration_team_entries"
+      ],
+      "allocatedBytes": 3416064,
+      "rows": 6080,
+      "seedDenominator": 6080,
+      "seedUnit": "legacy raw team entry",
+      "allocatedBytesPerSeedUnit": 561.8526315789474
+    },
+    "transactionEntries": {
+      "tables": [
+        "league_administration_transaction_entries"
+      ],
+      "allocatedBytes": 286720,
+      "rows": 320,
+      "seedDenominator": 16,
+      "seedUnit": "transaction response containing the seed average of 20 entries",
+      "allocatedBytesPerSeedUnit": 17920
+    },
+    "catalogContent": {
+      "tables": [
+        "league_player_directory_contents",
+        "league_player_directory_entries"
+      ],
+      "allocatedBytes": 286720,
+      "rows": 161,
+      "seedDenominator": 1,
+      "seedUnit": "whole distinct shared catalog content with 160 players",
+      "allocatedBytesPerSeedUnit": 286720
+    },
+    "catalogObservation": {
+      "tables": [
+        "league_player_directory_attempts",
+        "league_player_directory_captures",
+        "league_player_directory_source_slices",
+        "league_player_directory_versions"
+      ],
+      "allocatedBytes": 221184,
+      "rows": 4,
+      "seedDenominator": 1,
+      "seedUnit": "shared successful catalog observation",
+      "allocatedBytesPerSeedUnit": 221184
+    },
+    "dispatch": {
+      "tables": [
+        "public_data_dispatches",
+        "public_data_dispatch_outcomes"
+      ],
+      "allocatedBytes": 1138688,
+      "rows": 1056,
+      "seedDenominator": 528,
+      "seedUnit": "dispatch plus outcome",
+      "allocatedBytesPerSeedUnit": 2156.6060606060605
+    },
+    "standingsCapture": {
+      "tables": [
+        "league_official_standings_captures"
+      ],
+      "allocatedBytes": 106496,
+      "rows": 32,
+      "seedDenominator": 32,
+      "seedUnit": "standings capture",
+      "allocatedBytesPerSeedUnit": 3328
+    },
+    "standingsContent": {
+      "tables": [
+        "league_official_standings_contents",
+        "league_official_standings_teams"
+      ],
+      "allocatedBytes": 303104,
+      "rows": 336,
+      "seedDenominator": 16,
+      "seedUnit": "standings content with 20 teams",
+      "allocatedBytesPerSeedUnit": 18944
+    },
+    "directoryCapture": {
+      "tables": [
+        "public_data_directory_captures"
+      ],
+      "allocatedBytes": 90112,
+      "rows": 32,
+      "seedDenominator": 32,
+      "seedUnit": "manager directory capture",
+      "allocatedBytesPerSeedUnit": 2816
+    },
+    "directoryContent": {
+      "tables": [
+        "league_manager_directory_versions",
+        "league_manager_directory_entries"
+      ],
+      "allocatedBytes": 237568,
+      "rows": 352,
+      "seedDenominator": 16,
+      "seedUnit": "manager directory content",
+      "allocatedBytesPerSeedUnit": 14848
+    },
+    "brackets": {
+      "tables": [
+        "league_bracket_contents",
+        "league_bracket_rounds",
+        "league_bracket_matches",
+        "league_bracket_edges",
+        "league_bracket_entrants",
+        "league_bracket_results"
+      ],
+      "allocatedBytes": 229376,
+      "rows": 304,
+      "seedDenominator": 16,
+      "seedUnit": "paired bracket content",
+      "allocatedBytesPerSeedUnit": 14336
+    },
+    "reports": {
+      "tables": [
+        "league_weekly_report_contents",
+        "league_weekly_report_teams"
+      ],
+      "allocatedBytes": 294912,
+      "rows": 336,
+      "seedDenominator": 16,
+      "seedUnit": "weekly report content",
+      "allocatedBytesPerSeedUnit": 18432
+    },
+    "draftValues": {
+      "tables": [
+        "league_draft_metadata_contents",
+        "league_draft_metadata_entries",
+        "league_draft_metadata_facts",
+        "league_draft_metadata_slot_rosters",
+        "league_draft_metadata_user_slots",
+        "league_draft_selection_contents",
+        "league_draft_selection_entries",
+        "league_traded_pick_contents",
+        "league_traded_pick_entries"
+      ],
+      "allocatedBytes": 1466368,
+      "rows": 2416,
+      "seedDenominator": 16,
+      "seedUnit": "draft cycle with one draft and 20 selections; stable selection/asset identities excluded",
+      "allocatedBytesPerSeedUnit": 91648
+    },
+    "draftLinks": {
+      "tables": [
+        "league_draft_selection_link_receipts",
+        "league_draft_selection_player_links"
+      ],
+      "allocatedBytes": 360448,
+      "rows": 336,
+      "seedDenominator": 16,
+      "seedUnit": "draft-selection acceptance with 20 links",
+      "allocatedBytesPerSeedUnit": 22528
+    }
+  },
+  "snapshotOnlyRelationsWithUnmeasuredFutureGrowth": [
+    {
+      "table": "league_administration_enrollment_seasons",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_administration_enrollments",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_administration_heads",
+      "rows": 416,
+      "totalBytes": 147456
+    },
+    {
+      "table": "league_administration_manager_entries",
+      "rows": 336,
+      "totalBytes": 155648
+    },
+    {
+      "table": "league_administration_memberships",
+      "rows": 336,
+      "totalBytes": 131072
+    },
+    {
+      "table": "league_administration_observation_mappings",
+      "rows": 16,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_calculation_capture_inputs",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_calculation_source_captures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_configuration_activations",
+      "rows": 80,
+      "totalBytes": 114688
+    },
+    {
+      "table": "league_configuration_heads",
+      "rows": 80,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_configuration_versions",
+      "rows": 16,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_draft_selection_catalog_entries",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_draft_selections",
+      "rows": 320,
+      "totalBytes": 122880
+    },
+    {
+      "table": "league_native_period_calendar_evidence",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_period_authorities",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "league_player_directory_heads",
+      "rows": 1,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_roster_resource_heads",
+      "rows": 496,
+      "totalBytes": 106496
+    },
+    {
+      "table": "league_roster_resource_scopes",
+      "rows": 496,
+      "totalBytes": 933888
+    },
+    {
+      "table": "league_season_drafts",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_season_teams",
+      "rows": 320,
+      "totalBytes": 188416
+    },
+    {
+      "table": "league_seasons",
+      "rows": 16,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_source_connection_history",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "league_source_connections",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_source_manager_accounts",
+      "rows": 336,
+      "totalBytes": 139264
+    },
+    {
+      "table": "league_source_mapping_revisions",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "league_team_manager_entries",
+      "rows": 640,
+      "totalBytes": 352256
+    },
+    {
+      "table": "league_team_manager_memberships",
+      "rows": 672,
+      "totalBytes": 278528
+    },
+    {
+      "table": "league_traded_pick_assets",
+      "rows": 32,
+      "totalBytes": 49152
+    },
+    {
+      "table": "league_traded_pick_catalog_entries",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "league_week_expected_games",
+      "rows": 0,
+      "totalBytes": 8192
+    },
+    {
+      "table": "league_week_lineup_watch_states",
+      "rows": 0,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_week_materialization_states",
+      "rows": 0,
+      "totalBytes": 40960
+    },
+    {
+      "table": "league_week_observations",
+      "rows": 0,
+      "totalBytes": 49152
+    },
+    {
+      "table": "leagues",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "projection_jobs",
+      "rows": 1,
+      "totalBytes": 98304
+    },
+    {
+      "table": "public_data_bracket_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_bracket_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_collection_reservations",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_draft_checkpoints",
+      "rows": 80,
+      "totalBytes": 106496
+    },
+    {
+      "table": "public_data_draft_tasks",
+      "rows": 80,
+      "totalBytes": 98304
+    },
+    {
+      "table": "public_data_exact_period_checkpoints",
+      "rows": 288,
+      "totalBytes": 262144
+    },
+    {
+      "table": "public_data_exact_period_tasks",
+      "rows": 288,
+      "totalBytes": 155648
+    },
+    {
+      "table": "public_data_history_service",
+      "rows": 0,
+      "totalBytes": 8192
+    },
+    {
+      "table": "public_data_identity_observations",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_intakes",
+      "rows": 16,
+      "totalBytes": 81920
+    },
+    {
+      "table": "public_data_league_candidates",
+      "rows": 16,
+      "totalBytes": 90112
+    },
+    {
+      "table": "public_data_league_lists",
+      "rows": 16,
+      "totalBytes": 65536
+    },
+    {
+      "table": "public_data_period_inventory_plans",
+      "rows": 16,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_period_inventory_sources",
+      "rows": 32,
+      "totalBytes": 81920
+    },
+    {
+      "table": "public_data_refresh_configurations",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_cycle_outcomes",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_cycles",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_selection_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_refresh_targets",
+      "rows": 0,
+      "totalBytes": 24576
+    },
+    {
+      "table": "public_data_rejections",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_report_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_report_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_resource_authorities",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_configurations",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_occurrences",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_selection_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resource_selections",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_resource_service",
+      "rows": 1,
+      "totalBytes": 24576
+    },
+    {
+      "table": "public_data_resource_target_failures",
+      "rows": 0,
+      "totalBytes": 16384
+    },
+    {
+      "table": "public_data_resources",
+      "rows": 0,
+      "totalBytes": 32768
+    },
+    {
+      "table": "public_data_transaction_checkpoints",
+      "rows": 16,
+      "totalBytes": 49152
+    },
+    {
+      "table": "public_data_transaction_tasks",
+      "rows": 16,
+      "totalBytes": 49152
+    }
+  ],
+  "missingOrUnmeasuredGrowth": [
+    "Shared scoring_profiles, scoring_entities and external_scoring_entity_ids, including indexes/TOAST, are absent from the prefix inventory.",
+    "Recurring/resource control rows, cycles, occurrence/intake/identity/list/candidate/selection fanout, resource inventories, task/checkpoint history, retries, failures and rejections lack measured marginal growth.",
+    "Raw bracket/report/draft payload versions, configuration/activation/calendar/period authority and manager/membership corrections are not explicitly event-priced.",
+    "New canonical draft-selection/traded-pick asset identities are not full-version append rows and are not multiplied by correction counts; their new-identity growth is unmeasured.",
+    "Full native transaction, draft-selection, co-owner, unusual format, late-correction and payload-size distributions differ from the synthetic seed.",
+    "MVCC/dead tuples, fragmentation, index/page utilization, autovacuum behavior, retained WAL/backups and service billing attribution are not measured; reserves do not prove their bounds."
+  ],
+  "results": [
+    {
+      "scenario": "low",
+      "uniqueLeagues": 16,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": false,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 59504,
+        "currentExactDispatches": 59504,
+        "historicalExactDispatches": 223312,
+        "currentTransactionDispatches": 59504,
+        "historicalTransactionDispatches": 223312,
+        "bracketDispatches": 204656,
+        "reportDispatches": 204656,
+        "draftCycles": 13136,
+        "draftDispatches": 65680,
+        "directoryDispatches": 13136,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 1766112,
+        "dispatchOutcomePairs": 1113264,
+        "rosterLinkCaptures": 59504,
+        "rosterPlayerLinkRows": 9520640,
+        "changedExactContents": 617.371,
+        "changedCoreCaptures": 59.504,
+        "changedTransactionContents": 81.835,
+        "changedCatalogContentsShared": 82.1,
+        "changedBracketPairs": 204.656,
+        "changedReportContents": 2046.56,
+        "changedDraftCycles": 13.136,
+        "changedDirectoryContents": 13.136,
+        "draftSelectionLinkCaptures": 13136,
+        "modeledChangedRawObservations": 818.214,
+        "modeledChangedRawTeamRows": 13537.504
+      },
+      "componentBytes": {
+        "captureProof": 3753487843.019,
+        "rosterLinkFanout": 4455659520,
+        "changedExactTypedValues": 25375328.256,
+        "changedRawObservations": 1612864.225,
+        "changedRawTeamEntries": 3803041.124,
+        "changedTransactionEntries": 733243.392,
+        "sharedCatalogObservations": 90796032,
+        "sharedChangedCatalogVersions": 11769856,
+        "dispatchOutcomes": 1200435944.727,
+        "standingsCaptures": 99014656,
+        "changedStandingsContents": 563621.888,
+        "directoryCaptures": 18495488,
+        "changedDirectoryContents": 97521.664,
+        "changedBracketContents": 1466974.208,
+        "changedReportContents": 18861096.96,
+        "changedDraftContents": 601944.064,
+        "draftSelectionLinks": 147963904
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 0,
+        "largerSharedCatalogSeedAssumptionBytes": 0,
+        "incrementalAllocationRatioBytes": 9830738879.527,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 983073887.953,
+        "unmeasuredSharedDependenciesReserveBytes": 67108864,
+        "mvccAndOperationalReserveBytes": 1092861545.548,
+        "forecastBytes": 12021477001.028,
+        "forecastGiB": 11.196,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -1284058761.028,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 371.766,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    },
+    {
+      "scenario": "base",
+      "uniqueLeagues": 16,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": false,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 204656,
+        "currentExactDispatches": 204656,
+        "historicalExactDispatches": 223312,
+        "currentTransactionDispatches": 204656,
+        "historicalTransactionDispatches": 223312,
+        "bracketDispatches": 204656,
+        "reportDispatches": 204656,
+        "draftCycles": 13136,
+        "draftDispatches": 65680,
+        "directoryDispatches": 13136,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 2782176,
+        "dispatchOutcomePairs": 1548720,
+        "rosterLinkCaptures": 204656,
+        "rosterPlayerLinkRows": 65489920,
+        "changedExactContents": 10456.112,
+        "changedCoreCaptures": 2046.56,
+        "changedTransactionContents": 2269.872,
+        "changedCatalogContentsShared": 410.5,
+        "changedBracketPairs": 2046.56,
+        "changedReportContents": 10232.8,
+        "changedDraftCycles": 131.36,
+        "changedDirectoryContents": 131.36,
+        "draftSelectionLinkCaptures": 13136,
+        "modeledChangedRawObservations": 16819.104,
+        "modeledChangedRawTeamRows": 250053.44
+      },
+      "componentBytes": {
+        "captureProof": 11825822816.604,
+        "rosterLinkFanout": 61298565120,
+        "changedExactTypedValues": 1719077756.018,
+        "changedRawObservations": 66307635.61,
+        "changedRawTeamEntries": 140493183.299,
+        "changedTransactionEntries": 40676106.24,
+        "sharedCatalogObservations": 181592064,
+        "sharedChangedCatalogVersions": 8995848064,
+        "dispatchOutcomes": 3339978938.182,
+        "standingsCaptures": 681095168,
+        "changedStandingsContents": 38770032.64,
+        "directoryCaptures": 36990976,
+        "changedDirectoryContents": 1950433.28,
+        "changedBracketContents": 29339484.16,
+        "changedReportContents": 188610969.6,
+        "changedDraftContents": 12038881.28,
+        "draftSelectionLinks": 295927808
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 0,
+        "largerSharedCatalogSeedAssumptionBytes": 21627648,
+        "incrementalAllocationRatioBytes": 88893085436.912,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 22223271359.228,
+        "unmeasuredSharedDependenciesReserveBytes": 268435456,
+        "mvccAndOperationalReserveBytes": 22290822744.828,
+        "forecastBytes": 133744936468.969,
+        "forecastGiB": 124.56,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -123007518228.969,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 23.235,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    },
+    {
+      "scenario": "high",
+      "uniqueLeagues": 16,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": true,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 591728,
+        "currentExactDispatches": 591728,
+        "historicalExactDispatches": 223312,
+        "currentTransactionDispatches": 591728,
+        "historicalTransactionDispatches": 223312,
+        "bracketDispatches": 204656,
+        "reportDispatches": 204656,
+        "draftCycles": 13136,
+        "draftDispatches": 65680,
+        "directoryDispatches": 13136,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 5491680,
+        "dispatchOutcomePairs": 2709936,
+        "rosterLinkCaptures": 591728,
+        "rosterPlayerLinkRows": 355036800,
+        "changedExactContents": 120578.72,
+        "changedCoreCaptures": 29586.4,
+        "changedTransactionContents": 31819.52,
+        "changedCatalogContentsShared": 821,
+        "changedBracketPairs": 10232.8,
+        "changedReportContents": 40931.2,
+        "changedDraftCycles": 656.8,
+        "changedDirectoryContents": 656.8,
+        "draftSelectionLinkCaptures": 13136,
+        "modeledChangedRawObservations": 211571.04,
+        "modeledChangedRawTeamRows": 3003302.4
+      },
+      "componentBytes": {
+        "captureProof": 46685496996.226,
+        "rosterLinkFanout": 664628889600,
+        "changedExactTypedValues": 74340800170.667,
+        "changedRawObservations": 1668195336.192,
+        "changedRawTeamEntries": 3374826713.735,
+        "changedTransactionEntries": 1140411596.8,
+        "sharedCatalogObservations": 363184128,
+        "sharedChangedCatalogVersions": 35983392256,
+        "dispatchOutcomes": 11688528802.909,
+        "standingsCaptures": 3938541568,
+        "changedStandingsContents": 1120969523.2,
+        "directoryCaptures": 73981952,
+        "changedDirectoryContents": 19504332.8,
+        "changedBracketContents": 293394841.6,
+        "changedReportContents": 1508887756.8,
+        "changedDraftContents": 120388812.8,
+        "draftSelectionLinks": 591855616
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 0,
+        "largerSharedCatalogSeedAssumptionBytes": 43255296,
+        "incrementalAllocationRatioBytes": 847541250003.729,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 423770625001.865,
+        "unmeasuredSharedDependenciesReserveBytes": 1073741824,
+        "mvccAndOperationalReserveBytes": 445366798082.358,
+        "forecastBytes": 1717843364031.951,
+        "forecastGiB": 1599.866,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -1707105945791.951,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 2.065,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    },
+    {
+      "scenario": "low",
+      "uniqueLeagues": 400,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": false,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 1487600,
+        "currentExactDispatches": 1487600,
+        "historicalExactDispatches": 5582800,
+        "currentTransactionDispatches": 1487600,
+        "historicalTransactionDispatches": 5582800,
+        "bracketDispatches": 5116400,
+        "reportDispatches": 5116400,
+        "draftCycles": 328400,
+        "draftDispatches": 1642000,
+        "directoryDispatches": 328400,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 44152800,
+        "dispatchOutcomePairs": 27831600,
+        "rosterLinkCaptures": 1487600,
+        "rosterPlayerLinkRows": 238016000,
+        "changedExactContents": 15434.28,
+        "changedCoreCaptures": 1487.6,
+        "changedTransactionContents": 2045.88,
+        "changedCatalogContentsShared": 82.1,
+        "changedBracketPairs": 5116.4,
+        "changedReportContents": 51164,
+        "changedDraftCycles": 328.4,
+        "changedDirectoryContents": 328.4,
+        "draftSelectionLinkCaptures": 328400,
+        "modeledChangedRawObservations": 20455.36,
+        "modeledChangedRawTeamRows": 338437.6
+      },
+      "componentBytes": {
+        "captureProof": 93837196075.472,
+        "rosterLinkFanout": 111391488000,
+        "changedExactTypedValues": 634383206.4,
+        "changedRawObservations": 40321605.632,
+        "changedRawTeamEntries": 95076028.093,
+        "changedTransactionEntries": 18331084.8,
+        "sharedCatalogObservations": 90796032,
+        "sharedChangedCatalogVersions": 11769856,
+        "dispatchOutcomes": 30010898618.182,
+        "standingsCaptures": 2475366400,
+        "changedStandingsContents": 14090547.2,
+        "directoryCaptures": 462387200,
+        "changedDirectoryContents": 2438041.6,
+        "changedBracketContents": 36674355.2,
+        "changedReportContents": 471527424,
+        "changedDraftContents": 15048601.6,
+        "draftSelectionLinks": 3699097600
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 565837824,
+        "largerSharedCatalogSeedAssumptionBytes": 0,
+        "incrementalAllocationRatioBytes": 243306890676.178,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 24330689067.618,
+        "unmeasuredSharedDependenciesReserveBytes": 67108864,
+        "mvccAndOperationalReserveBytes": 26831822025.58,
+        "forecastBytes": 295150042281.376,
+        "forecastGiB": 274.88,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -284412624041.376,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 14.871,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    },
+    {
+      "scenario": "base",
+      "uniqueLeagues": 400,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": false,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 5116400,
+        "currentExactDispatches": 5116400,
+        "historicalExactDispatches": 5582800,
+        "currentTransactionDispatches": 5116400,
+        "historicalTransactionDispatches": 5582800,
+        "bracketDispatches": 5116400,
+        "reportDispatches": 5116400,
+        "draftCycles": 328400,
+        "draftDispatches": 1642000,
+        "directoryDispatches": 328400,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 69554400,
+        "dispatchOutcomePairs": 38718000,
+        "rosterLinkCaptures": 5116400,
+        "rosterPlayerLinkRows": 1637248000,
+        "changedExactContents": 261402.8,
+        "changedCoreCaptures": 51164,
+        "changedTransactionContents": 56746.8,
+        "changedCatalogContentsShared": 410.5,
+        "changedBracketPairs": 51164,
+        "changedReportContents": 255820,
+        "changedDraftCycles": 3284,
+        "changedDirectoryContents": 3284,
+        "draftSelectionLinkCaptures": 328400,
+        "modeledChangedRawObservations": 420477.6,
+        "modeledChangedRawTeamRows": 6251336
+      },
+      "componentBytes": {
+        "captureProof": 295645570415.094,
+        "rosterLinkFanout": 1532464128000,
+        "changedExactTypedValues": 42976943900.444,
+        "changedRawObservations": 1657690890.24,
+        "changedRawTeamEntries": 3512329582.484,
+        "changedTransactionEntries": 1016902656,
+        "sharedCatalogObservations": 181592064,
+        "sharedChangedCatalogVersions": 8995848064,
+        "dispatchOutcomes": 83499473454.545,
+        "standingsCaptures": 17027379200,
+        "changedStandingsContents": 969250816,
+        "directoryCaptures": 924774400,
+        "changedDirectoryContents": 48760832,
+        "changedBracketContents": 733487104,
+        "changedReportContents": 4715274240,
+        "changedDraftContents": 300972032,
+        "draftSelectionLinks": 7398195200
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 1131675648,
+        "largerSharedCatalogSeedAssumptionBytes": 21627648,
+        "incrementalAllocationRatioBytes": 2002068572850.808,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 500517143212.702,
+        "unmeasuredSharedDependenciesReserveBytes": 268435456,
+        "mvccAndOperationalReserveBytes": 500811029727.902,
+        "forecastBytes": 3004866178367.412,
+        "forecastGiB": 2798.5,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -2994128760127.412,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 0.929,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    },
+    {
+      "scenario": "high",
+      "uniqueLeagues": 400,
+      "qualification": "UNQUALIFIED",
+      "activeCadenceMeetsFiveMinuteSchedulingSensitivity": true,
+      "freshnessProven": false,
+      "events": {
+        "coreDispatches": 14793200,
+        "currentExactDispatches": 14793200,
+        "historicalExactDispatches": 5582800,
+        "currentTransactionDispatches": 14793200,
+        "historicalTransactionDispatches": 5582800,
+        "bracketDispatches": 5116400,
+        "reportDispatches": 5116400,
+        "draftCycles": 328400,
+        "draftDispatches": 1642000,
+        "directoryDispatches": 328400,
+        "catalogObservationsShared": 821,
+        "typedCaptureTriples": 137292000,
+        "dispatchOutcomePairs": 67748400,
+        "rosterLinkCaptures": 14793200,
+        "rosterPlayerLinkRows": 8875920000,
+        "changedExactContents": 3014468,
+        "changedCoreCaptures": 739660,
+        "changedTransactionContents": 795488,
+        "changedCatalogContentsShared": 821,
+        "changedBracketPairs": 255820,
+        "changedReportContents": 1023280,
+        "changedDraftCycles": 16420,
+        "changedDirectoryContents": 16420,
+        "draftSelectionLinkCaptures": 328400,
+        "modeledChangedRawObservations": 5289276,
+        "modeledChangedRawTeamRows": 75082560
+      },
+      "componentBytes": {
+        "captureProof": 1167137424905.661,
+        "rosterLinkFanout": 16615722240000,
+        "changedExactTypedValues": 1858520004266.667,
+        "changedRawObservations": 41704883404.8,
+        "changedRawTeamEntries": 84370667843.368,
+        "changedTransactionEntries": 28510289920,
+        "sharedCatalogObservations": 363184128,
+        "sharedChangedCatalogVersions": 35983392256,
+        "dispatchOutcomes": 292213220072.727,
+        "standingsCaptures": 98463539200,
+        "changedStandingsContents": 28024238080,
+        "directoryCaptures": 1849548800,
+        "changedDirectoryContents": 487608320,
+        "changedBracketContents": 7334871040,
+        "changedReportContents": 37722193920,
+        "changedDraftContents": 3009720320,
+        "draftSelectionLinks": 14796390400
+      },
+      "budget": {
+        "existingMeasuredPrefixAllocationBytes": 47693824,
+        "additionalLeagueSeedAssumptionBytes": 2263351296,
+        "largerSharedCatalogSeedAssumptionBytes": 43255296,
+        "incrementalAllocationRatioBytes": 20316213416877.223,
+        "unmeasuredControlAndOmittedFamilyReserveBytes": 10158106708438.611,
+        "unmeasuredSharedDependenciesReserveBytes": 1073741824,
+        "mvccAndOperationalReserveBytes": 10667211858644.543,
+        "forecastBytes": 41144960026200.375,
+        "forecastGiB": 38319.23,
+        "budgetBytes": 10737418240,
+        "headroomBytes": -41134222607960.375,
+        "modeledBudgetExceeded": true,
+        "completeBudgetFitProven": false
+      },
+      "unchangedRosterOnlyBudgetExhaustionActiveDays": 0.083,
+      "breakEvenMeaning": "10 GiB minus the original seed, divided by only fresh unchanged roster-link fanout at this cadence and occupancy; omits every other growth component and reserve. Active-day units, not a calendar forecast."
+    }
+  ]
+}

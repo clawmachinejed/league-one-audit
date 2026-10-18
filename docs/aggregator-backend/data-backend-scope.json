@@ -2462,6 +2462,14 @@
       "proof": "Independent scope and actual-diff review plus offline regression evidence. Hosted SQL validation requires separate immutable-source approval.",
       "reviewer": "Coordinating root and independent GPT-6 Astra ultra snapshot/reader reviewers before authoring",
       "reviewReference": "DATA-CP27-2026-10-18-JSON-ORACLE-SCOPE; docs/aggregator-backend/data-backend-cp27-plan.md"
+    },
+    {
+      "path": "scripts/analyze-data-retention.mjs",
+      "resource": "CP28 offline retained DATA storage sensitivity",
+      "purpose": "Read bounded local JSON only and emit deterministic allocation-ratio arithmetic to stdout using a pinned CP27 table inventory, explicit event/cadence assumptions and separate unmeasured-family reserves. No SQL, network, credentials, provisioning, writes, runtime changes or qualification authority.",
+      "proof": "Required: pinned source/hash/count validation, no duplicate table allocation or shared catalog multiplication, unit/algebra and adverse-input self-tests; independent actual-diff and model review. Forecasts remain UNQUALIFIED and are not measured marginal growth.",
+      "reviewer": "Independent nonauthor /root/historical_bytes confirmed exact file and purpose before authoring; final review remains separate",
+      "reviewReference": "DATA-CP28-2026-10-18-OFFLINE-STORAGE-SCOPE; docs/aggregator-backend/data-backend-cp28-retention.md"
     }
   ],
   "governanceChanges": [
