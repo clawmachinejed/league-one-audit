@@ -14,6 +14,7 @@ on:
           - data-fresh-install-v1
           - data-process-recovery-v1
           - data-runner-cycles-v1
+          - data-reader-performance-v1
           - data-batch-calibration-v1
           - data-live-public-batch-v1
           - data-freshness-capacity-ownership-v1
@@ -122,6 +123,9 @@ jobs:
               ;;
             workflow_dispatch:data-freshness-capacity-ownership-v1)
               pnpm test:integration --profile=data-freshness-capacity-ownership-v1
+              ;;
+            workflow_dispatch:data-reader-performance-v1)
+              pnpm test:integration --profile=data-reader-performance-v1
               ;;
             workflow_dispatch:data-batch-calibration-v1)
               pnpm test:integration --profile=data-batch-calibration-v1

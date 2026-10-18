@@ -1,3 +1,6 @@
+import { READER_PERFORMANCE_PROFILE, READER_PERFORMANCE_MODULE, READER_PERFORMANCE_SOURCE_DIGEST,
+  READER_PERFORMANCE_SUITE, READER_PERFORMANCE_TESTS, READER_PERFORMANCE_FULL_NAMES,
+  READER_PERFORMANCE_PATTERN, READER_PERFORMANCE_SUPPORT_SOURCES, assertReaderPerformanceSupportSources } from './qualification-profile';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,6 +12,8 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
 import { BATCH_EVIDENCE_FILE, BATCH_CASE_NAMES, BATCH_CASE_LIMITS } from './batch-calibration-evidence';
+// Load the real validator and its authored source fixture once during test-module setup.
+import { READER_PERFORMANCE_EVIDENCE_FILE } from './reader-performance';
 import { BATCH_CALIBRATION_PROFILE, BATCH_CALIBRATION_MODULE, BATCH_CALIBRATION_SOURCE_DIGEST, BATCH_CALIBRATION_SUITE,
   BATCH_CALIBRATION_FULL_NAMES, BATCH_CALIBRATION_PATTERN, BATCH_CALIBRATION_SUPPORT_SOURCES, assertBatchCalibrationSupportSources } from './qualification-profile';
 import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLES,
@@ -93,6 +98,15 @@ import { BACKEND_CONTROLS_EVIDENCE_FILE, BACKEND_CONTROLS_LIMITS, BACKEND_CONTRO
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
+// Source-only historical fixtures; current shared-harness drift must still fail.
+let frozenHarness: Promise<string> | undefined;
+function historicalHarnessSource() {
+  return frozenHarness ??= promisify(execFile)('git', ['show', 'b8abdb576d2f10cafd238908d201d9ee5a462f00:apps/site/integration/neon-integration-harness.ts'],
+    { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 }).then(result => {
+    expect(qualificationSourceDigest(result.stdout)).toBe('a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783'); return result.stdout;
+  });
+}
+
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE | typeof CLOSEOUT_PROFILES[number]['profile'] = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
@@ -3298,7 +3312,12 @@ it('checks the actual CP22 draft-reader assertion against supplied status and ad
 
 async function competingWorkersFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
   const previous = await officialResultsEvidenceFixture();
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
+  const historicalRoot = await mkdtemp(join(tmpdir(), 'cp23-historical-report-')); directories.push(historicalRoot);
+  await mkdir(join(historicalRoot, 'integration'));
+  for (const path of [COMPETING_WORKERS_MODULE, ...COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)])
+    await writeFile(join(historicalRoot, path), path === 'integration/neon-integration-harness.ts'
+      ? await historicalHarnessSource() : await readFile(new URL('../' + path, import.meta.url), 'utf8'));
+  const context = await createQualificationContext(historicalRoot, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
   const evidence = structuredClone(previous.evidence);
   evidence.contextDigest = qualificationDigest(context);
   evidence.specifications = [{ path: COMPETING_WORKERS_MODULE, pattern: COMPETING_WORKERS_PATTERN, otherFilters: false }];
@@ -3418,14 +3437,17 @@ it('independently inventories CP23 source names hooks allowance and fixed manual
 
 it('binds CP23 worker, protocol and pinned harness source independently from the five collected cases', async () => {
   const siteRoot = fileURLToPath(new URL('..', import.meta.url));
-  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  const drift = [];
+  for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) drift.push(entry.path);
+  expect(drift).toEqual(['integration/neon-integration-harness.ts']);
   const directory = await mkdtemp(join(tmpdir(), 'competing-workers-support-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   const source = await readFile(new URL('../' + COMPETING_WORKERS_MODULE, import.meta.url), 'utf8');
   await writeFile(join(directory, COMPETING_WORKERS_MODULE), source);
   await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE)).rejects.toThrow();
   for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
-    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+    entry.path === 'integration/neon-integration-harness.ts' ? await historicalHarnessSource() : await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
   expect(context.modules).toEqual([{ path: COMPETING_WORKERS_MODULE, sourceDigest: COMPETING_WORKERS_SOURCE_DIGEST }]);
   expect(COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
@@ -4095,10 +4117,10 @@ it('binds every CP25 support source independently without changing historical so
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'lib/projections/runtime/projection-dispatch.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
-  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
 });
 
@@ -4212,7 +4234,7 @@ it('CP26 calibration preserves historical source pins and rejects current schedu
   for (const entry of BATCH_CALIBRATION_SUPPORT_SOURCES) {
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/league-administration/public-intake-contracts.ts', 'lib/league-administration/public-intake-reader.ts',
     'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'scripts/provision-runtime-role.sql']);
   // Read the actual reviewed historical bytes from local Git objects. The verify
@@ -4240,15 +4262,20 @@ it('CP26 calibration preserves historical source pins and rejects current schedu
 
 async function fleetReportFixture(profile:'data-freshness-capacity-healthy-v1'|'data-freshness-capacity-recovery-v1'|'data-freshness-capacity-daily-v1'|'data-live-public-batch-v1'|'data-freshness-capacity-ownership-v1'){
  const previous=await officialResultsEvidenceFixture(),fleet=await import('./freshness-capacity-profile');
- const context=await createQualificationContext(fileURLToPath(new URL('..',import.meta.url)),'a'.repeat(40),randomUUID(),profile);
+ const pins=await import('./qualification-profile');
  const inventory={
-  [fleet.FLEET_HEALTHY_PROFILE]:{names:fleet.FLEET_HEALTHY_FULL_NAMES,suite:fleet.FLEET_HEALTHY_SUITE},
-  [fleet.FLEET_RECOVERY_PROFILE]:{names:fleet.FLEET_RECOVERY_FULL_NAMES,suite:fleet.FLEET_RECOVERY_SUITE},
-  [fleet.FLEET_DAILY_PROFILE]:{names:fleet.FLEET_DAILY_FULL_NAMES,suite:fleet.FLEET_DAILY_SUITE},
-  [fleet.FLEET_LIVE_PROFILE]:{names:fleet.FLEET_LIVE_FULL_NAMES,suite:fleet.FLEET_LIVE_SUITE},
-  [fleet.FLEET_OWNERSHIP_PROFILE]:{names:fleet.FLEET_OWNERSHIP_FULL_NAMES,suite:fleet.FLEET_OWNERSHIP_SUITE},
+  [fleet.FLEET_HEALTHY_PROFILE]:{names:fleet.FLEET_HEALTHY_FULL_NAMES,suite:fleet.FLEET_HEALTHY_SUITE,module:fleet.FLEET_HEALTHY_MODULE,sourceDigest:pins.FLEET_HEALTHY_SOURCE_DIGEST},
+  [fleet.FLEET_RECOVERY_PROFILE]:{names:fleet.FLEET_RECOVERY_FULL_NAMES,suite:fleet.FLEET_RECOVERY_SUITE,module:fleet.FLEET_RECOVERY_MODULE,sourceDigest:pins.FLEET_RECOVERY_SOURCE_DIGEST},
+  [fleet.FLEET_DAILY_PROFILE]:{names:fleet.FLEET_DAILY_FULL_NAMES,suite:fleet.FLEET_DAILY_SUITE,module:fleet.FLEET_DAILY_MODULE,sourceDigest:pins.FLEET_DAILY_SOURCE_DIGEST},
+  [fleet.FLEET_LIVE_PROFILE]:{names:fleet.FLEET_LIVE_FULL_NAMES,suite:fleet.FLEET_LIVE_SUITE,module:fleet.FLEET_LIVE_MODULE,sourceDigest:pins.FLEET_LIVE_SOURCE_DIGEST},
+  [fleet.FLEET_OWNERSHIP_PROFILE]:{names:fleet.FLEET_OWNERSHIP_FULL_NAMES,suite:fleet.FLEET_OWNERSHIP_SUITE,module:fleet.FLEET_OWNERSHIP_MODULE,sourceDigest:pins.FLEET_OWNERSHIP_SOURCE_DIGEST},
  };
- const {names,suite}=inventory[profile],modulePath=context.modules[0].path,pattern=qualificationArguments(profile,'reporter').at(-1)!;
+ const {names,suite,module:modulePath,sourceDigest}=inventory[profile],pattern=qualificationArguments(profile,'reporter').at(-1)!;
+ // Historical report-oracle fixture only (DATA-CP27-2026-10-18-OWNER-LOSS-PIN-ISOLATION-SCOPE).
+ // The source-binding test below independently restores and verifies the exact CP26 bytes.
+ const context:QualificationBinding['context']={...previous.binding.context,nonce:randomUUID(),profile,
+  modules:[{path:modulePath,sourceDigest}],profileDigest:qualificationDigest({version:1,profile,module:modulePath,
+   pattern,sourceDigest,inventory:names,supportSources:pins.FLEET_SUPPORT_SOURCES})};
  const evidence=structuredClone(previous.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:modulePath,pattern,otherFilters:false}];evidence.collected=[modulePath];evidence.modules=[{...evidence.modules[0],path:modulePath,suites:[{id:'suite',name:suite,mode:'run',errors:0}],cases:names.map((name,index)=>({...previous.evidence.modules[0].cases[0],id:'case-'+index,name,diagnostic:{retryCount:0,repeatCount:0,flaky:false,duration:1,startTime:1234+index*2}}))}];return{binding:{context,directory:previous.binding.directory},evidence,modulePath,names,pattern};
 }
 for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capacity-recovery-v1','data-freshness-capacity-daily-v1','data-live-public-batch-v1','data-freshness-capacity-ownership-v1'] as const){
@@ -4256,11 +4283,45 @@ for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capac
  it('CP26 fleet rejects incomplete reordered retried filtered or unhooked cases '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);for(const mutate of [(row:QualificationReport)=>{row.modules[0].cases.pop();},(row:QualificationReport)=>{row.modules[0].cases.reverse();},(row:QualificationReport)=>{row.modules[0].cases[1].diagnostic!.startTime=0;},(row:QualificationReport)=>{row.modules[0].cases[0].diagnostic!.retryCount=1;},(row:QualificationReport)=>{row.modules[0].cases[0].state='skipped';},(row:QualificationReport)=>{row.hooks.pop();}]){const changed=structuredClone(evidence);mutate(changed);expect(()=>validateQualificationReport(binding.context,changed)).toThrow();}});
  it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
 }
-it('CP26 fleet binds all new support bytes before provisioning and preserves LF portability',async()=>{
- const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile'),sourceRoot=fileURLToPath(new URL('..',import.meta.url));await expect(assertFleetSupportSources(sourceRoot)).resolves.toBeUndefined();expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
- const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});await writeFile(join(siteRoot,path),await readFile(join(sourceRoot,path)));}
+it('CP26 fleet binds frozen support bytes rejects current harness and supervisor drift and preserves LF portability',async()=>{
+ const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile');
+ const sourceRoot=fileURLToPath(new URL('..',import.meta.url)),supervisorPath='integration/disposable-integration.ts',harnessPath='integration/neon-integration-harness.ts';
+ expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);
+ for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);
+ expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
+ // Source-only historical fixture: local immutable Git objects, never a network fallback.
+ // Independently confirmed in DATA-CP27-2026-10-18-OWNER-LOSS-PIN-ISOLATION-SCOPE.
+ const historicalSha='82c2ebf4e16ae707b8bb8f738b917cec441c5c11',git=promisify(execFile);
+ const historicalSource=async(path:string)=>{
+  try{return(await git('git',['show',historicalSha+':apps/site/'+path],{cwd:sourceRoot,encoding:'utf8',maxBuffer:2*1024*1024})).stdout;}
+  catch{throw new Error('Historical CP26 source object required locally: '+historicalSha+':apps/site/'+path);}
+ };
+ const [historicalSupervisor,historicalHarness,historicalProfiles,currentProfiles]=await Promise.all([historicalSource(supervisorPath),historicalSource(harnessPath),
+  historicalSource('integration/qualification-profile.ts'),readFile(join(sourceRoot,'integration/qualification-profile.ts'),'utf8')]);
+ const supportPattern=/export const FLEET_SUPPORT_SOURCES = \[[\s\S]*?\] as const;/u;
+ const frozenSupport=historicalProfiles.match(supportPattern)?.[0],currentSupport=currentProfiles.match(supportPattern)?.[0];
+ expect(frozenSupport).toBeDefined();expect(currentSupport).toBeDefined();
+ expect(qualificationSourceDigest(currentSupport!)).toBe(qualificationSourceDigest(frozenSupport!));
+ for(const name of ['HEALTHY','RECOVERY','DAILY','LIVE','OWNERSHIP']){
+  const pattern=new RegExp("export const FLEET_"+name+"_SOURCE_DIGEST = '[a-f0-9]{64}';",'u');
+  const frozen=historicalProfiles.match(pattern)?.[0];expect(frozen).toBeDefined();expect(currentProfiles.match(pattern)?.[0]).toBe(frozen);
+ }
+ expect(qualificationSourceDigest(historicalSupervisor)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===supervisorPath)!.sourceDigest);
+ const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
+  if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
+ }
+ expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath].sort());
+ expect(qualificationSourceDigest(historicalHarness)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===harnessPath)!.sourceDigest);
+ await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+changed[0]);
+ await expect(createQualificationContext(sourceRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE))
+  .rejects.toThrow('reviewed LF digest: '+changed[0]);
+ const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');
+ const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];
+ for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});
+  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:path===harnessPath?historicalHarness:await readFile(join(sourceRoot,path)));}
+ await expect(assertFleetSupportSources(siteRoot)).resolves.toBeUndefined();
  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
- for(const path of [fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
+ for(const path of [supervisorPath,harnessPath,fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
  for(const [profile,modulePath]of [[fleet.FLEET_LIVE_PROFILE,fleet.FLEET_LIVE_MODULE],[fleet.FLEET_OWNERSHIP_PROFILE,fleet.FLEET_OWNERSHIP_MODULE]] as const){
   const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile),file=join(siteRoot,modulePath),original=await readFile(file,'utf8');
   await writeFile(file,original+'\n// altered short profile\n');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile)).rejects.toThrow('reviewed LF digest');
@@ -4344,6 +4405,167 @@ it('CP26 short live profile loads the actual integration config with its emitted
     timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
   });
   expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [modulePath], environment: 'node',
+    globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
+    hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
+    serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
+});
+
+
+async function readerPerformanceReportFixture() {
+  const previous = await officialResultsEvidenceFixture();
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: READER_PERFORMANCE_PROFILE,
+    modules: [{ path: READER_PERFORMANCE_MODULE, sourceDigest: READER_PERFORMANCE_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: READER_PERFORMANCE_PROFILE,
+      module: READER_PERFORMANCE_MODULE, pattern: READER_PERFORMANCE_PATTERN, sourceDigest: READER_PERFORMANCE_SOURCE_DIGEST,
+      inventory: READER_PERFORMANCE_FULL_NAMES, supportSources: READER_PERFORMANCE_SUPPORT_SOURCES }) };
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: READER_PERFORMANCE_MODULE, pattern: READER_PERFORMANCE_PATTERN, otherFilters: false }];
+  evidence.collected = [READER_PERFORMANCE_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: READER_PERFORMANCE_MODULE,
+    suites: [{ id: 'suite', name: READER_PERFORMANCE_SUITE, mode: 'run', errors: 0 }],
+    cases: READER_PERFORMANCE_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0],
+      id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+
+it('CP27 selects only the three fixed reader cases and one protected manual workflow arm', async () => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  expect(parseQualificationArguments(['--profile=' + READER_PERFORMANCE_PROFILE])).toBe(READER_PERFORMANCE_PROFILE);
+  expect(qualificationArguments(READER_PERFORMANCE_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', '--configLoader', 'runner', READER_PERFORMANCE_MODULE, '--testNamePattern', READER_PERFORMANCE_PATTERN]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([READER_PERFORMANCE_MODULE]);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70);
+  expect(full.modules.some(module => module.path === READER_PERFORMANCE_MODULE)).toBe(false);
+  const pattern = new RegExp(READER_PERFORMANCE_PATTERN);
+  for (const name of READER_PERFORMANCE_FULL_NAMES) {
+    const selectorName = name.replaceAll(' > ', ' ');
+    expect(pattern.test(selectorName)).toBe(true); expect(pattern.test(selectorName + ' extra')).toBe(false);
+    expect(pattern.test('prefix ' + selectorName)).toBe(false);
+  }
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-reader-performance-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-reader-performance-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-reader-performance-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
+  expect(workflow).toContain('cancel-in-progress: false');
+  for (const args of [['--profile=data-reader-performance-v2'], ['--profile', READER_PERFORMANCE_PROFILE],
+    ...['--retry=1', '--repeat=2', '--testNamePattern=one', READER_PERFORMANCE_MODULE,
+      '--profile=' + BATCH_CALIBRATION_PROFILE].map(extra => ['--profile=' + READER_PERFORMANCE_PROFILE, extra])]) {
+    expect(() => parseQualificationArguments(args)).toThrow();
+  }
+});
+
+it('CP27 rejects missing reordered retried skipped and malformed report execution', async () => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  const mutations: ((value: QualificationReport) => void)[] = [
+    value => { value.modules[0].cases.pop(); },
+    value => { value.modules[0].cases.reverse(); },
+    value => { value.modules[0].cases[0].configuredRepeats = 1; },
+    value => { value.modules[0].cases[0].configuredRetries = true; },
+    value => { value.modules[0].cases[0].state = 'skipped'; },
+    value => { value.modules[0].cases[0].diagnostic = null; },
+    value => { value.modules[0].cases[1].diagnostic!.startTime = 1; },
+    value => { value.modules[0].cases[1].diagnostic!.retryCount = 1; },
+    value => { value.modules[0].cases[1].errors = 1; },
+    value => { value.hooks.pop(); },
+    value => { value.hooks[0].starts = 2; },
+    value => { value.specifications[0].otherFilters = true; },
+    value => { value.specifications[0].pattern = '.*'; },
+    value => { value.contextDigest = '0'.repeat(64); },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(evidence); mutate(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+});
+
+it.each(['missing', 'forged', 'oversized'] as const)('CP27 rejects a %s semantic companion after report and acknowledged cleanup', async kind => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  const companion = join(binding.directory, READER_PERFORMANCE_EVIDENCE_FILE);
+  if (kind === 'forged') await writeFile(companion, JSON.stringify({ kind: 'forged', pass: true, cleanup: true }));
+  if (kind === 'oversized') await writeFile(companion, ' '.repeat(QUALIFICATION_MAX_BYTES + 1));
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+
+it('CP27 source pins bind its module helper and existing reader dependencies without changing old pins', async () => {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertReaderPerformanceSupportSources(sourceRoot)).resolves.toBeUndefined();
+  expect(READER_PERFORMANCE_SUPPORT_SOURCES).toHaveLength(26);
+  expect(new Set(READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)).size).toBe(26);
+  const source = await readFile(join(sourceRoot, READER_PERFORMANCE_MODULE), 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(READER_PERFORMANCE_SOURCE_DIGEST);
+  const companion = await import('./reader-performance');
+  expect(companion.READER_PERFORMANCE_PROFILE).toBe(READER_PERFORMANCE_PROFILE);
+  expect(companion.READER_PERFORMANCE_MODULE).toBe(READER_PERFORMANCE_MODULE);
+  expect(companion.READER_PERFORMANCE_SUITE).toBe(READER_PERFORMANCE_SUITE);
+  expect(companion.READER_PERFORMANCE_TESTS).toEqual(READER_PERFORMANCE_TESTS);
+  expect(companion.READER_PERFORMANCE_FULL_NAMES).toEqual(READER_PERFORMANCE_FULL_NAMES);
+  expect(BATCH_CALIBRATION_SOURCE_DIGEST).toBe('305c24f10fd8c7b7ddf3e1915904885e15e7ba537661a7cb9323d9d62867c284');
+  expect(RUNNER_CYCLES_SOURCE_DIGEST).toBe('07cbe0462988ce9fca97cfd89f34db76e22857422adaa98acc53a203cbd3e896');
+  expect(WITHIN_SEASON_HISTORY_SOURCE_DIGEST).toBe('19c770060a21ae6d6c56316cffbee799309ac71f946518d079b8deded709c10d');
+});
+
+it('CP27 fails closed on module or helper drift while normalizing only checkout line endings', async () => {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  const directory = await mkdtemp(join(tmpdir(), 'reader-performance-source-')); directories.push(directory);
+  for (const path of [READER_PERFORMANCE_MODULE, ...READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)]) {
+    const target = join(directory, path); await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, await readFile(join(sourceRoot, path), 'utf8'));
+  }
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE);
+  for (const path of [READER_PERFORMANCE_MODULE, 'integration/reader-performance.ts',
+    'integration/reader-performance-snapshot.ts', 'integration/reader-performance-oracle.ts', 'integration/neon-integration-harness.ts',
+    'integration/disposable-integration.ts', 'integration/integration-owner-loss-diagnostics.ts',
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-transaction-reader.ts']) {
+    const target = join(directory, path), original = await readFile(target, 'utf8');
+    await writeFile(target, original + '\n ');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(target, original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE))
+      .resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(target, original);
+  }
+});
+
+
+it('CP27 reader performance profile loads the actual integration config with its emitted loader', async () => {
+  const { binding } = await readerPerformanceReportFixture();
+  const args = qualificationArguments(READER_PERFORMANCE_PROFILE, '/reporter');
+  const script = `
+    import net from 'node:net';
+    import path from 'node:path';
+    import { createRequire } from 'node:module';
+    import { pathToFileURL } from 'node:url';
+    net.Socket.prototype.connect = function () { throw new Error('Config-only regression forbids network'); };
+    const require = createRequire(path.join(process.cwd(), 'package.json'));
+    const vitestRequire = createRequire(require.resolve('vitest/package.json'));
+    const { loadConfigFromFile } = await import(pathToFileURL(vitestRequire.resolve('vite')).href);
+    const args = JSON.parse(process.argv[1]);
+    const index = args.indexOf('--configLoader');
+    const loader = index < 0 ? undefined : args[index + 1];
+    const loaded = await loadConfigFromFile({ command: 'serve', mode: 'test' },
+      path.resolve('vitest.integration.config.ts'), process.cwd(), 'silent', undefined, loader);
+    const { test, resolve } = loaded.config;
+    console.log(JSON.stringify({ loader, include: test.include, environment: test.environment,
+      globalSetup: test.globalSetup, fileParallelism: test.fileParallelism, maxWorkers: test.maxWorkers,
+      hookTimeout: test.hookTimeout, testTimeout: test.testTimeout, includeTaskLocation: test.includeTaskLocation,
+      serverOnlyAlias: resolve.alias['server-only'] }));
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(args)], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
+  });
+  expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [READER_PERFORMANCE_MODULE], environment: 'node',
     globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
     hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
     serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });

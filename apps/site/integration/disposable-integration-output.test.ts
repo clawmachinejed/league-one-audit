@@ -5,7 +5,7 @@ import { DISPOSABLE_AUTHORIZATION, runDisposableIntegration, type IntegrationRun
 import { FRESH_INSTALL_PROFILE } from './qualification-profile';
 
 const mocks = vi.hoisted(() => ({
-  pool: vi.fn(), query: vi.fn(), spawn: vi.fn(), context: vi.fn(), evidence: vi.fn(), closure: vi.fn(),
+  pool: vi.fn(), query: vi.fn(), spawn: vi.fn(), stop: vi.fn(), context: vi.fn(), evidence: vi.fn(), closure: vi.fn(),
   safe: vi.fn(), owner: vi.fn(), clean: vi.fn(), release: vi.fn(), end: vi.fn(),
   freshInitial: vi.fn(), freshEvidence: vi.fn(),
   api: { validateTarget: vi.fn(), createBranch: vi.fn(), rotateOwnerCredentials: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock('./integration-artifacts', () => ({
   INTEGRATION_ARTIFACT_DIRECTORY_ENV: 'PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY',
 }));
 vi.mock('./integration-child-process', () => ({
-  spawnIntegrationChild: mocks.spawn, stopIntegrationChildTree: vi.fn(),
+  spawnIntegrationChild: mocks.spawn, stopIntegrationChildTree: mocks.stop,
   verifyIntegrationChildTreeClosed: mocks.closure,
 }));
 
@@ -217,6 +217,107 @@ describe('disposable runner owner credential redaction', () => {
     expect(output).not.toHaveBeenCalled();
     expect(JSON.stringify(result.receipt)).not.toContain(password);
     expect(JSON.stringify(result.receipt)).not.toContain(uri);
+  });
+});
+
+describe('actual supervisor owner-loss event wiring', () => {
+  function ownerConnection() {
+    const client = Object.assign(new EventEmitter(), { query: mocks.query, release: mocks.release });
+    const connect = vi.fn(async () => client);
+    const pool = Object.assign(new EventEmitter(), { connect, end: mocks.end });
+    mocks.pool.mockImplementation(function () { return pool; });
+    mocks.api.getOwnerConnectionUri.mockResolvedValue(ownerUri('fictional-owner-secret'));
+    // Exercise the supervisor's real guarded query wrapper inside each owner check.
+    mocks.owner.mockImplementation(async query => { await query('SELECT synthetic_owner_check'); });
+    mocks.release.mockImplementation(() => client.emit('end'));
+    return { client, pool, connect };
+  }
+  it.each([
+    ['pool-error', 'transport', 'ECONNRESET'], ['client-error', 'postgresql', '57P01'],
+    ['client-error', 'unexpected-termination', 'unknown'], ['client-end', 'unknown', 'unknown'],
+    ['hostile-code', 'unknown', 'unknown'], ['hostile-descriptor', 'unknown', 'unknown'],
+    ['diagnostic-write-failure', 'unknown', 'unknown'],
+  ] as const)('retains first %s evidence with immediate sticky cancellation and unchanged teardown', async (origin, category, code) => {
+    const { client, pool, connect } = ownerConnection();
+    const snapshots: IntegrationRunReceipt[] = [];
+    let current: IntegrationRunReceipt, queryCountAtLoss = 0, abortedSynchronously = false;
+    const descriptorInspectedAfterAbort: boolean[] = [];
+    const originalAbort = AbortController.prototype.abort;
+    const abort = vi.spyOn(AbortController.prototype, 'abort');
+    // A synchronous listener may itself observe the connection ending during cancellation.
+    abort.mockImplementation(function (this: AbortController, reason?: unknown) {
+      if (reason === 'ownership-lost' && !this.signal.aborted) this.signal.addEventListener('abort', () => client.emit('end'), { once: true });
+      return originalAbort.call(this, reason);
+    });
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { pid: 12345 });
+      mocks.stop.mockImplementation(async () => { child.emit('close', null, 'SIGTERM'); });
+      setImmediate(() => {
+        queryCountAtLoss = mocks.query.mock.calls.length;
+        if (origin === 'diagnostic-write-failure') Object.defineProperty(current, 'ownerLoss', {
+          configurable: true, get: () => undefined, set: () => { throw new Error('private diagnostic write'); },
+        });
+        const error = origin === 'hostile-descriptor' ? new Proxy({}, {
+          getOwnPropertyDescriptor: () => {
+            descriptorInspectedAfterAbort.push(abort.mock.contexts.some((controller, index) =>
+              abort.mock.calls[index][0] === 'ownership-lost' && (controller as AbortController).signal.aborted));
+            client.emit('end');
+            throw new Error('private descriptor trap');
+          },
+        }) : origin === 'hostile-code'
+          ? Object.defineProperty(new Error('private connection text'), 'code', { get: () => { throw new Error('private accessor'); } })
+          : code === 'unknown' ? new Error('Connection terminated unexpectedly')
+            : Object.assign(new Error('private connection text'), { code });
+        if (origin === 'client-end') client.emit('end');
+        else (origin === 'pool-error' ? pool : client).emit('error', error);
+        abortedSynchronously = abort.mock.calls.some(([reason]) => reason === 'ownership-lost');
+        // The installed driver may emit error followed by end. The latter is not the first cause.
+        client.emit('end'); pool.emit('error', { code: 'EPIPE', message: 'private later event' });
+      });
+      return child;
+    });
+    try {
+      const result = await run(vi.fn(), async receipt => { current = receipt; snapshots.push(structuredClone(receipt)); });
+      expect(abortedSynchronously).toBe(true);
+      if (origin === 'hostile-descriptor') expect(descriptorInspectedAfterAbort).toEqual([true, true]);
+      expect(result.passed).toBe(false);
+      expect(result.receipt).toMatchObject({ cancellationReason: 'ownership-lost', tests: 'failed',
+        childClosed: true, schemaCleanupVerified: false, credentialsRevoked: false, branchDeletionVerified: true,
+        failures: ['tests', 'schema-cleanup', 'credential-revocation'] });
+      if (origin === 'diagnostic-write-failure') expect(result.receipt.ownerLoss).toBeUndefined();
+      else {
+        const retained = result.receipt.ownerLoss!;
+        expect(retained).toMatchObject({ kind: 'integration-owner-loss-v1', event: origin.startsWith('hostile-') ? 'client-error' : origin,
+          category, code, stage: 'tests' });
+        expect(retained.elapsedMs).toBeGreaterThanOrEqual(retained.lastSuccessfulQueryElapsedMs!);
+        expect(retained.lastSuccessfulQueryElapsedMs).not.toBeNull();
+        expect(retained.lastSuccessfulQueryAgeMs).toBe(retained.elapsedMs! - retained.lastSuccessfulQueryElapsedMs!);
+        expect(Object.isFrozen(retained)).toBe(true);
+        expect(snapshots.at(-1)?.ownerLoss).toEqual(retained);
+        expect(snapshots.filter(snapshot => snapshot.ownerLoss).every(snapshot => JSON.stringify(snapshot.ownerLoss) === JSON.stringify(retained))).toBe(true);
+      }
+      expect(JSON.stringify(snapshots)).not.toMatch(/private|fictional-owner-secret|postgresql:\/\//u);
+      expect(mocks.query).toHaveBeenCalledTimes(queryCountAtLoss);
+      expect(mocks.clean).not.toHaveBeenCalled();
+      expect(connect).toHaveBeenCalledOnce(); expect(mocks.stop).toHaveBeenCalledOnce();
+      expect(mocks.release).toHaveBeenCalledExactlyOnceWith(true); expect(mocks.end).toHaveBeenCalledOnce();
+      expect(mocks.api.deleteBranch).toHaveBeenCalledOnce();
+      expect([pool.listenerCount('error'), client.listenerCount('error'), client.listenerCount('end')]).toEqual([0, 0, 0]);
+      expect(mocks.pool).toHaveBeenCalledWith({ connectionString: ownerUri('fictional-owner-secret'), max: 1,
+        connectionTimeoutMillis: 10_000, statement_timeout: 15_000, query_timeout: 20_000 });
+    } finally { abort.mockRestore(); }
+  });
+  it('removes the diagnostic listeners before normal explicit connection closure', async () => {
+    const { client, pool, connect } = ownerConnection();
+    mocks.spawn.mockImplementation(() => {
+      const child = Object.assign(new EventEmitter(), { pid: 12345 });
+      setImmediate(() => child.emit('close', 0, null)); return child;
+    });
+    const result = await run();
+    expect(result.passed).toBe(true); expect(result.receipt.ownerLoss).toBeUndefined();
+    expect(result.receipt.cancellationReason).toBeUndefined();
+    expect(connect).toHaveBeenCalledOnce(); expect(mocks.stop).not.toHaveBeenCalled();
+    expect([pool.listenerCount('error'), client.listenerCount('error'), client.listenerCount('end')]).toEqual([0, 0, 0]);
   });
 });
 
