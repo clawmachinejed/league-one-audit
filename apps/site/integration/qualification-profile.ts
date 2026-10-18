@@ -202,6 +202,9 @@ export const READER_PERFORMANCE_TESTS = [
 export const READER_PERFORMANCE_FULL_NAMES = READER_PERFORMANCE_TESTS.map(name => READER_PERFORMANCE_SUITE + ' > ' + name);
 export const READER_PERFORMANCE_PATTERN = closedPattern(READER_PERFORMANCE_FULL_NAMES);
 export const READER_PERFORMANCE_SUPPORT_SOURCES = [
+  // CP27 diagnostics are newly bound; historical supervisor pins remain unchanged.
+  { path: 'integration/disposable-integration.ts', sourceDigest: '7f6b9d24c79ee4f6fbd5aa86490475596efaaf219b08b9c4362b60076703749b' },
+  { path: 'integration/integration-owner-loss-diagnostics.ts', sourceDigest: '9d37cd5993e3fd324c1472ba6a81ac93d7e253ba81116a5503fd7c73e41747c9' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'lib/league-administration/public-intake.ts', sourceDigest: '46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd' },

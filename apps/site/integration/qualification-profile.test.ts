@@ -4245,15 +4245,20 @@ it('CP26 calibration preserves historical source pins and rejects current schedu
 
 async function fleetReportFixture(profile:'data-freshness-capacity-healthy-v1'|'data-freshness-capacity-recovery-v1'|'data-freshness-capacity-daily-v1'|'data-live-public-batch-v1'|'data-freshness-capacity-ownership-v1'){
  const previous=await officialResultsEvidenceFixture(),fleet=await import('./freshness-capacity-profile');
- const context=await createQualificationContext(fileURLToPath(new URL('..',import.meta.url)),'a'.repeat(40),randomUUID(),profile);
+ const pins=await import('./qualification-profile');
  const inventory={
-  [fleet.FLEET_HEALTHY_PROFILE]:{names:fleet.FLEET_HEALTHY_FULL_NAMES,suite:fleet.FLEET_HEALTHY_SUITE},
-  [fleet.FLEET_RECOVERY_PROFILE]:{names:fleet.FLEET_RECOVERY_FULL_NAMES,suite:fleet.FLEET_RECOVERY_SUITE},
-  [fleet.FLEET_DAILY_PROFILE]:{names:fleet.FLEET_DAILY_FULL_NAMES,suite:fleet.FLEET_DAILY_SUITE},
-  [fleet.FLEET_LIVE_PROFILE]:{names:fleet.FLEET_LIVE_FULL_NAMES,suite:fleet.FLEET_LIVE_SUITE},
-  [fleet.FLEET_OWNERSHIP_PROFILE]:{names:fleet.FLEET_OWNERSHIP_FULL_NAMES,suite:fleet.FLEET_OWNERSHIP_SUITE},
+  [fleet.FLEET_HEALTHY_PROFILE]:{names:fleet.FLEET_HEALTHY_FULL_NAMES,suite:fleet.FLEET_HEALTHY_SUITE,module:fleet.FLEET_HEALTHY_MODULE,sourceDigest:pins.FLEET_HEALTHY_SOURCE_DIGEST},
+  [fleet.FLEET_RECOVERY_PROFILE]:{names:fleet.FLEET_RECOVERY_FULL_NAMES,suite:fleet.FLEET_RECOVERY_SUITE,module:fleet.FLEET_RECOVERY_MODULE,sourceDigest:pins.FLEET_RECOVERY_SOURCE_DIGEST},
+  [fleet.FLEET_DAILY_PROFILE]:{names:fleet.FLEET_DAILY_FULL_NAMES,suite:fleet.FLEET_DAILY_SUITE,module:fleet.FLEET_DAILY_MODULE,sourceDigest:pins.FLEET_DAILY_SOURCE_DIGEST},
+  [fleet.FLEET_LIVE_PROFILE]:{names:fleet.FLEET_LIVE_FULL_NAMES,suite:fleet.FLEET_LIVE_SUITE,module:fleet.FLEET_LIVE_MODULE,sourceDigest:pins.FLEET_LIVE_SOURCE_DIGEST},
+  [fleet.FLEET_OWNERSHIP_PROFILE]:{names:fleet.FLEET_OWNERSHIP_FULL_NAMES,suite:fleet.FLEET_OWNERSHIP_SUITE,module:fleet.FLEET_OWNERSHIP_MODULE,sourceDigest:pins.FLEET_OWNERSHIP_SOURCE_DIGEST},
  };
- const {names,suite}=inventory[profile],modulePath=context.modules[0].path,pattern=qualificationArguments(profile,'reporter').at(-1)!;
+ const {names,suite,module:modulePath,sourceDigest}=inventory[profile],pattern=qualificationArguments(profile,'reporter').at(-1)!;
+ // Historical report-oracle fixture only (DATA-CP27-2026-10-18-OWNER-LOSS-PIN-ISOLATION-SCOPE).
+ // The source-binding test below independently restores and verifies the exact CP26 bytes.
+ const context:QualificationBinding['context']={...previous.binding.context,nonce:randomUUID(),profile,
+  modules:[{path:modulePath,sourceDigest}],profileDigest:qualificationDigest({version:1,profile,module:modulePath,
+   pattern,sourceDigest,inventory:names,supportSources:pins.FLEET_SUPPORT_SOURCES})};
  const evidence=structuredClone(previous.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:modulePath,pattern,otherFilters:false}];evidence.collected=[modulePath];evidence.modules=[{...evidence.modules[0],path:modulePath,suites:[{id:'suite',name:suite,mode:'run',errors:0}],cases:names.map((name,index)=>({...previous.evidence.modules[0].cases[0],id:'case-'+index,name,diagnostic:{retryCount:0,repeatCount:0,flaky:false,duration:1,startTime:1234+index*2}}))}];return{binding:{context,directory:previous.binding.directory},evidence,modulePath,names,pattern};
 }
 for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capacity-recovery-v1','data-freshness-capacity-daily-v1','data-live-public-batch-v1','data-freshness-capacity-ownership-v1'] as const){
@@ -4261,11 +4266,44 @@ for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capac
  it('CP26 fleet rejects incomplete reordered retried filtered or unhooked cases '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);for(const mutate of [(row:QualificationReport)=>{row.modules[0].cases.pop();},(row:QualificationReport)=>{row.modules[0].cases.reverse();},(row:QualificationReport)=>{row.modules[0].cases[1].diagnostic!.startTime=0;},(row:QualificationReport)=>{row.modules[0].cases[0].diagnostic!.retryCount=1;},(row:QualificationReport)=>{row.modules[0].cases[0].state='skipped';},(row:QualificationReport)=>{row.hooks.pop();}]){const changed=structuredClone(evidence);mutate(changed);expect(()=>validateQualificationReport(binding.context,changed)).toThrow();}});
  it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
 }
-it('CP26 fleet binds all new support bytes before provisioning and preserves LF portability',async()=>{
- const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile'),sourceRoot=fileURLToPath(new URL('..',import.meta.url));await expect(assertFleetSupportSources(sourceRoot)).resolves.toBeUndefined();expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
- const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});await writeFile(join(siteRoot,path),await readFile(join(sourceRoot,path)));}
+it('CP26 fleet binds its frozen support bytes rejects current supervisor drift and preserves LF portability',async()=>{
+ const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile');
+ const sourceRoot=fileURLToPath(new URL('..',import.meta.url)),supervisorPath='integration/disposable-integration.ts';
+ expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);
+ for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);
+ expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
+ // Source-only historical fixture: local immutable Git objects, never a network fallback.
+ // Independently confirmed in DATA-CP27-2026-10-18-OWNER-LOSS-PIN-ISOLATION-SCOPE.
+ const historicalSha='82c2ebf4e16ae707b8bb8f738b917cec441c5c11',git=promisify(execFile);
+ const historicalSource=async(path:string)=>{
+  try{return(await git('git',['show',historicalSha+':apps/site/'+path],{cwd:sourceRoot,encoding:'utf8',maxBuffer:2*1024*1024})).stdout;}
+  catch{throw new Error('Historical CP26 source object required locally: '+historicalSha+':apps/site/'+path);}
+ };
+ const [historicalSupervisor,historicalProfiles,currentProfiles]=await Promise.all([historicalSource(supervisorPath),
+  historicalSource('integration/qualification-profile.ts'),readFile(join(sourceRoot,'integration/qualification-profile.ts'),'utf8')]);
+ const supportPattern=/export const FLEET_SUPPORT_SOURCES = \[[\s\S]*?\] as const;/u;
+ const frozenSupport=historicalProfiles.match(supportPattern)?.[0],currentSupport=currentProfiles.match(supportPattern)?.[0];
+ expect(frozenSupport).toBeDefined();expect(currentSupport).toBeDefined();
+ expect(qualificationSourceDigest(currentSupport!)).toBe(qualificationSourceDigest(frozenSupport!));
+ for(const name of ['HEALTHY','RECOVERY','DAILY','LIVE','OWNERSHIP']){
+  const pattern=new RegExp("export const FLEET_"+name+"_SOURCE_DIGEST = '[a-f0-9]{64}';",'u');
+  const frozen=historicalProfiles.match(pattern)?.[0];expect(frozen).toBeDefined();expect(currentProfiles.match(pattern)?.[0]).toBe(frozen);
+ }
+ expect(qualificationSourceDigest(historicalSupervisor)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===supervisorPath)!.sourceDigest);
+ const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
+  if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
+ }
+ expect(changed).toEqual([supervisorPath]);
+ await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+supervisorPath);
+ await expect(createQualificationContext(sourceRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE))
+  .rejects.toThrow('reviewed LF digest: '+supervisorPath);
+ const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');
+ const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];
+ for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});
+  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:await readFile(join(sourceRoot,path)));}
+ await expect(assertFleetSupportSources(siteRoot)).resolves.toBeUndefined();
  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
- for(const path of [fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
+ for(const path of [supervisorPath,fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
  for(const [profile,modulePath]of [[fleet.FLEET_LIVE_PROFILE,fleet.FLEET_LIVE_MODULE],[fleet.FLEET_OWNERSHIP_PROFILE,fleet.FLEET_OWNERSHIP_MODULE]] as const){
   const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile),file=join(siteRoot,modulePath),original=await readFile(file,'utf8');
   await writeFile(file,original+'\n// altered short profile\n');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile)).rejects.toThrow('reviewed LF digest');
@@ -4442,6 +4480,8 @@ it.each(['missing', 'forged', 'oversized'] as const)('CP27 rejects a %s semantic
 it('CP27 source pins bind its module helper and existing reader dependencies without changing old pins', async () => {
   const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
   await expect(assertReaderPerformanceSupportSources(sourceRoot)).resolves.toBeUndefined();
+  expect(READER_PERFORMANCE_SUPPORT_SOURCES).toHaveLength(24);
+  expect(new Set(READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)).size).toBe(24);
   const source = await readFile(join(sourceRoot, READER_PERFORMANCE_MODULE), 'utf8');
   expect(qualificationSourceDigest(source)).toBe(READER_PERFORMANCE_SOURCE_DIGEST);
   const companion = await import('./reader-performance');
@@ -4464,6 +4504,7 @@ it('CP27 fails closed on module or helper drift while normalizing only checkout 
   }
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE);
   for (const path of [READER_PERFORMANCE_MODULE, 'integration/reader-performance.ts',
+    'integration/disposable-integration.ts', 'integration/integration-owner-loss-diagnostics.ts',
     'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-transaction-reader.ts']) {
     const target = join(directory, path), original = await readFile(target, 'utf8');
     await writeFile(target, original + '\n ');

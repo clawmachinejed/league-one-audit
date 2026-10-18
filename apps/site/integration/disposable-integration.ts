@@ -6,6 +6,7 @@ import { Pool, type PoolClient } from '@neondatabase/serverless';
 import { DisposableNeonApi, NeonApiError, type DisposableNeonConfig } from './disposable-neon-api';
 import { assertSafeIntegrationDatabase, cleanIntegrationDatabase, integrationEnvironment } from './neon-integration-harness';
 import { INTEGRATION_MUTEX, INTEGRATION_OWNER_ENV, assertIntegrationOwner } from './integration-database-ownership';
+import { createIntegrationOwnerLossDiagnostics, type IntegrationOwnerLossDiagnostic, type IntegrationOwnerLossEvent } from './integration-owner-loss-diagnostics';
 import { superviseCapacityChild } from './collection-capacity-supervision';
 import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV } from './integration-artifacts';
@@ -100,6 +101,7 @@ export type IntegrationRunReceipt = {
   stage: string; tests: 'not-run' | 'passed' | 'failed'; childClosed: boolean; schemaCleanupVerified: boolean;
   credentialsRevoked: boolean; branchDeletionVerified: boolean; failures: string[]; productionWrites: false;
   diagnostics?: { stage: string; status?: number; code: string; requestId?: string }[];
+  ownerLoss?: IntegrationOwnerLossDiagnostic;
   childClosureEvidence?: string;
   artifactDirectory?: string;
   qualification?: 'unverified' | 'passed' | 'failed';
@@ -354,12 +356,22 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
   const savedEnvironment = { ...process.env };
   const secrets = [options.environment.NEON_TEST_API_KEY!];
   const safeOutput = (value: string) => options.output(redactIntegrationOutput(value, secrets));
-  const onLoss = () => { ownerLost = true; controller.abort('ownership-lost'); };
   let ownerLost = false;
+  const ownerDiagnostics = createIntegrationOwnerLossDiagnostics(() => budget.elapsed(), () => receipt.stage);
+  const onLoss = (event: IntegrationOwnerLossEvent, error?: unknown) => {
+    if (ownerLost) return;
+    ownerLost = true; controller.abort('ownership-lost');
+    try { receipt.ownerLoss ??= ownerDiagnostics.capture(event, error); }
+    catch { /* Cancellation already happened; diagnostics must not interrupt teardown. */ }
+  };
+  const onPoolError = (error: unknown) => onLoss('pool-error', error);
+  const onClientError = (error: unknown) => onLoss('client-error', error);
+  const onClientEnd = () => onLoss('client-end');
   const query = async (sql: string, parameters: unknown[] = [], signal: AbortSignal = controller.signal) => {
     if (!client || ownerLost) throw new Error('Disposable owner connection unavailable.');
     signal.throwIfAborted();
     const result = await client.query(sql, parameters);
+    ownerDiagnostics.queryCompleted();
     signal.throwIfAborted();
     return result;
   };
@@ -411,10 +423,10 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       pool = new Pool({ connectionString: ownerUrl, max: 1, connectionTimeoutMillis: 10_000,
         statement_timeout: 15_000, query_timeout: 20_000 });
       receipt.provisionStep = 'owner-connect';
-      pool.on('error', onLoss);
+      pool.on('error', onPoolError);
       const connected = await pool.connect();
       if (signal.aborted) { connected.release(true); signal.throwIfAborted(); }
-      client = connected; client.on('error', onLoss); client.on('end', onLoss);
+      client = connected; client.on('error', onClientError); client.on('end', onClientEnd);
       controller.signal.throwIfAborted();
       receipt.provisionStep = 'empty-database-verification';
       const originalEmpty = await assertEmptyDisposableDatabase(query, { database: config.databaseName, branch: branch.branchId, owner: config.ownerRoleName });
@@ -570,7 +582,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       assert.equal(result.rows[0].count, 0);
     },
     async close(signal) {
-      client?.off('error', onLoss); client?.off('end', onLoss); pool?.off('error', onLoss);
+      client?.off('error', onClientError); client?.off('end', onClientEnd); pool?.off('error', onPoolError);
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         signal.throwIfAborted(); client?.release(true); client = undefined;
