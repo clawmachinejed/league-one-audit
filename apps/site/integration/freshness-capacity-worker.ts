@@ -123,6 +123,7 @@ async function main() {
   const config = parseFleetConfig(JSON.parse(process.env[FLEET_CONFIG] ?? 'null')), url = process.env.DATABASE_URL;
   assert(url && process.send && !process.env.NODE_OPTIONS, 'closed fleet child launch required');
   const rawDirectory = await lstat(config.evidenceDirectory); assert(rawDirectory.isDirectory() && !rawDirectory.isSymbolicLink());
+  if(config.profile==='data-freshness-capacity-ownership-v1'||config.profile==='data-live-public-batch-v1')return shortFleetMain(config,url);
   const buildOptions = { fixtureId: config.fixtureId, gitSha: config.gitSha, plannedPostgresqlVersion: config.plannedPostgresqlVersion };
   const dailyBuilt = config.profile === FLEET_DAILY_PROFILE ? await buildFleetDailyManifest(buildOptions) : null;
   const recoveryBuilt = config.profile === FLEET_RECOVERY_PROFILE ? await buildFleetRecoveryManifest(buildOptions) : null;
@@ -692,4 +693,180 @@ async function main() {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   // Raw database errors, URLs, SQL parameters and provider credentials never enter IPC.
   main().then(() => process.disconnect?.(), () => { process.exitCode = 1; process.disconnect?.(); });
+}
+
+/** Short CP26 cases retain real operations incrementally; this is the existing worker's closed test branch. */
+async function shortFleetMain(config: import('./freshness-capacity-protocol').FleetConfig, url: string) {
+  const protocol = await import('./freshness-capacity-protocol');
+  const profile = await import('./freshness-capacity-profile');
+  const live = config.profile === profile.FLEET_LIVE_PROFILE;
+  const options = {fixtureId:config.fixtureId,gitSha:config.gitSha,plannedPostgresqlVersion:config.plannedPostgresqlVersion};
+  const ownershipBuilt=live?null:await profile.buildFleetOwnershipPlan(options);
+  const built=ownershipBuilt??await profile.buildFleetLivePlan(options);
+  assert.equal(built.plan.digest,config.manifestDigest); assert.equal(built.plan.fixtureDigest,config.fixtureDigest);
+  const [{getDatabase},harness,stores,{createProjectionStore},runtime,coordinator,contracts,refreshContracts,reader,queries,sleeper] = await Promise.all([
+    import('../lib/database'),import('./neon-integration-harness'),import('../lib/league-administration/store'),import('../lib/projection-store'),
+    import('../lib/league-administration/public-intake-runtime'),import('../lib/league-administration/public-intake'),
+    import('../lib/league-administration/public-intake-contracts'),import('../lib/league-administration/public-refresh-contracts'),
+    import('../lib/league-administration/public-intake-reader'),import('./freshness-capacity-observer'),import('../lib/sleeper')]);
+  const connection=await harness.createIndependentPinnedDatabase(url), configured=getDatabase();assert(configured.enabled);
+  const identitySql=`SELECT current_user,session_user,current_database() AS database,current_setting('neon.branch_id',true) AS branch,
+    current_setting('server_version') AS version,pg_backend_pid() AS pid,(SELECT backend_start::text FROM pg_stat_activity WHERE pid=pg_backend_pid()) AS backend_start,
+    (SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolinherit OR rolbypassrls FROM pg_roles WHERE rolname=current_user) AS elevated`;
+  const originalFetch=globalThis.fetch;
+  const {createBackendControlsDatabaseFetchGuard}=await import('./backend-controls-fetch');const isDatabase=createBackendControlsDatabaseFetchGuard(url);
+  const originalHttp={...configured};
+  // The pinned session identifies the child. Live acquisition SQL retains its separate actual HTTP transport.
+  const pinnedIdentityStart=protocol.fleetStart(),[session]=await connection.database.query(identitySql),pinnedIdentitySpan=protocol.fleetEnd(pinnedIdentityStart);
+  const httpIdentityStart=protocol.fleetStart(),[httpIdentity]=await originalHttp.query(identitySql),httpIdentitySpan=protocol.fleetEnd(httpIdentityStart);
+  for(const row of [session,httpIdentity]){assert.equal(row.current_user,'league_one_runtime');assert.equal(row.session_user,'league_one_runtime');assert.equal(row.database,config.expectedDatabase);assert.equal(row.branch,config.expectedBranch);assert.equal(row.elevated,false);assert.equal(String(row.version).split(' ')[0],config.plannedPostgresqlVersion);}
+  const identity={profile:config.profile,version:protocol.FLEET_VERSION as typeof protocol.FLEET_VERSION,nonce:config.nonce,contextNonce:config.contextNonce,gitSha:config.gitSha,profileDigest:config.profileDigest,
+    fixtureDigest:config.fixtureDigest,manifestDigest:config.manifestDigest,workDeadlineAt:config.workDeadlineAt,plannedPostgresqlVersion:config.plannedPostgresqlVersion,pid:process.pid,
+    backendPid:Number(session.pid),backendStart:String(session.backend_start),database:String(session.database),branch:String(session.branch),sessionUser:String(session.session_user),currentUser:String(session.current_user),
+    httpSessionUser:String(httpIdentity.session_user),httpCurrentUser:String(httpIdentity.current_user)};
+  const events:import('./freshness-capacity-protocol').FleetShortEvent[]=[],commands:import('./freshness-capacity-protocol').FleetCommand[]=[];
+  let received=0,commandSequence=0,invalid=false,disconnected=false,bytes=0,eventSequence=0,httpCount=0,bodyBytes=0,reading=false;
+  let requestId:string|null=null,discovered:string[]|null=null,inventory:unknown=null;
+  let active:import('./freshness-capacity-protocol').FleetOwnershipCommand|null=null,barrierUsed=false,warmupHeld=false;
+  const send=async(value:unknown)=>new Promise<void>((resolve,reject)=>process.send!(value,error=>error?reject(new Error('Short worker IPC failed.')):resolve()));
+  const emit=async(event:import('./freshness-capacity-protocol').FleetShortEventValue,start=protocol.fleetStart())=>{
+    const value={...identity,type:'short-event' as const,eventSequence:++eventSequence,commandSequence,span:protocol.fleetEnd(start),event};
+    protocol.parseFleetShortEvent(value,config,process.pid,eventSequence);bytes+=Buffer.byteLength(JSON.stringify(value),'utf8');assert(bytes<=512*1024*1024,'short evidence byte limit');events.push(value);await send(value);return value;
+  };
+  const code=(error:unknown)=>error&&typeof error==='object'&&'code'in error&&typeof error.code==='string'&&/^[A-Z0-9]{5}$/u.test(error.code)?error.code:null;
+  const observeDatabase=(database:DatabaseClient,transport:'pinned'|'http'):DatabaseClient=>({enabled:true,
+    async query<Row extends import('../lib/database').DatabaseRow>(statement:string,parameters:readonly unknown[]=[],queryOptions?:import('../lib/database').DatabaseQueryOptions){const start=protocol.fleetStart();try{const rows=await database.query<Row>(statement,parameters,queryOptions);await emit({kind:'sql',transport,query:statement,querySha256:hash(statement),params:asJson(parameters) as unknown[],lock:null,rows:asJson(rows) as unknown[],outcome:'success',errorCode:null},start);return rows;}
+      catch(error){await emit({kind:'sql',transport,query:statement,querySha256:hash(statement),params:asJson(parameters) as unknown[],lock:null,rows:null,outcome:'failed',errorCode:code(error)},start);throw error;}},
+    ...(database.queryAfterLock?{async queryAfterLock<Row extends import('../lib/database').DatabaseRow>(statement:string,parameters:readonly unknown[],lock:import('../lib/database').DatabaseStatement,queryOptions?:import('../lib/database').DatabaseQueryOptions){const start=protocol.fleetStart();const locked={sql:lock.statement,params:asJson(lock.parameters) as unknown[],verifyAfter:lock.verifyAfter?{sql:lock.verifyAfter.statement,params:asJson(lock.verifyAfter.parameters) as unknown[]}:null};
+      try{const rows=await database.queryAfterLock!<Row>(statement,parameters,lock,queryOptions);await emit({kind:'sql',transport,query:statement,querySha256:hash(statement),params:asJson(parameters) as unknown[],lock:locked,rows:asJson(rows) as unknown[],outcome:'success',errorCode:null},start);return rows;}
+      catch(error){await emit({kind:'sql',transport,query:statement,querySha256:hash(statement),params:asJson(parameters) as unknown[],lock:locked,rows:null,outcome:'failed',errorCode:code(error)},start);throw error;}}}:{})});
+  const database=observeDatabase(connection.database,'pinned'),http=observeDatabase(originalHttp,'http');Object.assign(configured,http);
+  const fixture=ownershipBuilt?.fixture??null;
+  const ownershipPolicy=ownershipBuilt?.plan.policy;assert(!ownershipPolicy||ownershipPolicy.kind==='cp26-ownership-policy-v1');
+  const warmup=ownershipPolicy?.kind==='cp26-ownership-policy-v1'?ownershipPolicy.warmup:null;
+  const fixtureTransport=fixture?(await import('./freshness-capacity-transport')).createCapacityFixtureTransport(fixture,{owner:'data-refresh',purpose:'refresh',anchors:()=>new Map()}):null;
+  globalThis.fetch=async(input,init)=>{
+    if(isDatabase(input,init)){assert(live,'ownership SQL must use its actual pinned session');return originalFetch(input,init);}
+    assert(!reading,'stored reader attempted provider HTTP');const start=protocol.fleetStart(),value=input instanceof Request?input:null;
+    const address=typeof input==='string'?input:input instanceof URL?input.href:input.url,parsed=new URL(address);let status:number|null=null,rawUtf8:string|null=null,errorCode:'aborted'|'request'|'body'|'policy'|null='policy';
+    const ordinal=++httpCount;
+    try{
+      assert.equal(init?.method??value?.method??'GET','GET');assert(init?.body===undefined||init.body===null,'native GET body forbidden');assert(!value?.body,'native Request GET body forbidden');assert.equal(parsed.origin,'https://api.sleeper.app');assert(!parsed.search&&!parsed.hash&&!parsed.username&&!parsed.password);
+      if(live){assert(ordinal<=18);const identityPath='/v1/user/ClawMachineJedi',discoveryPath='/v1/user/862823517857697792/leagues/nfl/2026';
+        if(parsed.pathname!==identityPath&&parsed.pathname!==discoveryPath){assert(discovered,'complete original discovery required before fanout');const match=/^\/v1\/league\/([1-9][0-9]{0,31})(?:\/(rosters|users))?$/u.exec(parsed.pathname);assert(match&&discovered.includes(match[1]));}
+      }
+      errorCode='request';const warmupBytes=warmup&&parsed.pathname==='/v1/user/'+warmup.username?warmup.identityUtf8:warmup&&parsed.pathname==='/v1/user/'+warmup.nativeManagerId+'/leagues/nfl/2026'?warmup.discoveryUtf8:null;
+      const response=live?await originalFetch(input,{...init,redirect:'error'}):warmupBytes!==null?new Response(warmupBytes,{status:200,headers:{'content-type':'application/json'}}):await fixtureTransport!.fetch(input,init);status=response.status;assert(!response.redirected&&response.ok,'native HTTP failed');
+      errorCode='body';assert(response.body);const stream=response.body.getReader(),parts:Uint8Array[]=[];let length=0;
+      try{for(;;){const part=await stream.read();if(part.done)break;length+=part.value.byteLength;bodyBytes+=part.value.byteLength;assert(length<=1024*1024&&bodyBytes<=18*1024*1024,'native response byte limit');parts.push(part.value);}}catch(error){await stream.cancel().catch(()=>undefined);throw error;}finally{stream.releaseLock();}
+      const rawBytes=Buffer.concat(parts);rawUtf8=new TextDecoder('utf-8',{fatal:true}).decode(rawBytes);assert(Buffer.from(rawUtf8,'utf8').equals(rawBytes),'native UTF-8 byte identity changed');const payload:unknown=JSON.parse(rawUtf8);
+      if(live&&parsed.pathname==='/v1/user/ClawMachineJedi')assert.equal(sleeper.normalizeSleeperUserIdentity(payload,'ClawMachineJedi').userId,'862823517857697792');
+      if(live&&parsed.pathname==='/v1/user/862823517857697792/leagues/nfl/2026'){
+        assert(Array.isArray(payload)&&payload.length>=1&&payload.length<=4);const ids=payload.map(row=>{assert(row&&typeof row==='object'&&typeof row.league_id==='string'&&/^[1-9][0-9]{0,31}$/u.test(row.league_id));return row.league_id as string;});assert.equal(new Set(ids).size,ids.length);
+        const normalized=sleeper.normalizeSleeperUserLeagues(payload,'2026',new Date().toISOString());assert.deepEqual(normalized.map(row=>row.id).sort(),[...ids].sort());assert(discovered===null,'repeated live discovery');discovered=ids.sort();
+      }
+      errorCode=null;return new Response(rawUtf8,{status:response.status,headers:{'content-type':'application/json'}});
+    }finally{await emit({kind:'http',ordinal,method:'GET',url:address,status,rawUtf8,rawSha256:rawUtf8===null?null:hash(rawUtf8),errorCode},start);}
+  };
+  process.on('message',value=>{try{commands.push(protocol.parseFleetCommand(value,config,++received));}catch{invalid=true;}});process.once('disconnect',()=>{disconnected=true;});
+  const remaining=()=>{assert(!invalid&&!disconnected&&Date.now()<config.workDeadlineAt,'short supervisor authority expired');};
+  const verifySession=async()=>{const [row]=await database.query(identitySql);assert.equal(row.pid,session.pid);assert.equal(row.backend_start,session.backend_start);return row;};
+  const barrier=async(name:typeof protocol.FLEET_SHORT_BOUNDARIES[number],work:unknown,fence:unknown,result:unknown,hold=true)=>{
+    assert(active&&active.role==='owner');assert(!barrierUsed,'duplicate death boundary');barrierUsed=true;await verifySession();
+    await emit({kind:'boundary',name,scenario:active.scenario,role:active.role,slot:active.slot,invocationStartedAt:active.invocationStartedAt,work:asJson(work),fence:asJson(fence),value:asJson(result)});
+    if(hold)await new Promise<never>(()=>{setInterval(()=>undefined,1000);});
+  };
+  const intake=stores.createPublicIntakeStore(database),administration=stores.createLeagueAdministrationStore(database),jobs=createProjectionStore(database),refresh=stores.createPublicDataRefreshStore(database);
+  const managerEvidenceCaptures=new Map<string,{receiptId:string;externalLeagueId:string}>();
+  const dependencies:import('../lib/league-administration/public-intake').PublicIntakeDependencies&{refresh:ReturnType<typeof stores.createPublicDataRefreshStore>}={
+    intake:{...intake,
+      admitBatch:async(work,fence)=>{const value=await intake.admitBatch!(work,fence);
+        if(active?.role==='warmup'&&value.status==='admitted'&&!warmupHeld){warmupHeld=true;await delay(Math.max(0,active.invocationStartedAt+4_000-Date.now()));}
+        if(active?.role==='owner'&&active.scenario==='admitted-before-fetch-death'&&value.status==='admitted')await barrier('admitted',work,fence,value);
+        if(active?.role==='owner'&&active.scenario==='backoff-authority-and-acl'&&value.status==='budget-backoff'&&!barrierUsed)await barrier('budget-backoff',work,fence,value,false);
+        return value;},
+      completeCore:async(work,mapping,captured,fence)=>{if(active?.role==='owner'&&active.scenario==='accepted-before-checkpoint-death'&&work.kind==='core'){
+        assert(captured.observations.league&&captured.observations.rosters&&captured.receipts?.settings&&captured.receipts.players&&captured.receipts.managers);
+        const managerEvidence=managerEvidenceCaptures.get(fence.workerId+':'+fence.generation);assert(managerEvidence&&managerEvidence.externalLeagueId===work.externalLeagueId);
+        await barrier('core-all-accepted',work,fence,{mapping,captured,managerEvidenceReceiptId:managerEvidence.receiptId});}
+        return intake.completeCore(work,mapping,captured,fence);},
+      advanceBatch:async(fence,nextWorkerId)=>{const result=await intake.advanceBatch!(fence,nextWorkerId);if(active?.role==='owner'&&active.scenario==='advance-unknown-ack-death'&&result.kind==='acquired')await barrier('advance-committed',null,fence,result);return result;}},
+    administration:{...administration,recordObservation:async(...args)=>{const result=await administration.recordObservation(...args);const accepted=result.teamManagerEvidenceAcceptance,fence=args[1];if(accepted?.status==='accepted'&&fence)managerEvidenceCaptures.set(fence.workerId+':'+fence.generation,{receiptId:accepted.receiptId,externalLeagueId:args[0].envelope.scope.externalLeagueId});return result;}},jobs,refresh:{...refresh,selectResourceWork:async(fence)=>{const selected=await refresh.selectResourceWork!(fence);if(active?.role==='owner'&&active.scenario==='selection-competition-death'&&selected.status==='selected')await barrier('selected',null,fence,selected);return selected;}},managerEvidenceVersion:'v2'};
+  const readback=async(id:string)=>{const start=protocol.fleetStart(),before=events.length;reading=true;try{
+    const options={managerEvidenceVersion:'v2' as const};const store=stores.createLeagueAdministrationStore(live?http:database);
+    const value=await reader.readPublicSleeperIntake(live?http:database,store,id,options);
+    const selected=live?http:database,requestRows=await selected.query(queries.CAPACITY_INTAKE_REQUEST_SQL,[id]),candidates=await selected.query(queries.CAPACITY_INTAKE_CANDIDATES_SQL,[id]),receiptRows=await selected.query(queries.CAPACITY_ENDPOINT_RECEIPTS_SQL,[id]),directoryRows=await selected.query(queries.CAPACITY_ENDPOINT_DIRECTORIES_SQL,[id]),dispatchRows=await selected.query(profile.FLEET_SHORT_DISPATCH_SQL,[id]);
+    const retainedRosters=[];for(const row of candidates){const candidate=row.candidate as Record<string,unknown>;if(typeof candidate.players_receipt_id==='string'&&typeof candidate.league_season_id==='string')retainedRosters.push({nativeLeagueId:String(candidate.external_league_id),value:await store.readRosterPlayerLinks({rosterReceiptId:candidate.players_receipt_id,leagueSeasonId:candidate.league_season_id})});}
+    const queryEventSequences=events.slice(before).filter(row=>row.event.kind==='sql').map(row=>row.eventSequence);await emit({kind:'record',name:'reader',value:{requestId:id,options,value,requestRows,candidates,receiptRows,directoryRows,dispatchRows,retainedRosters,queryEventSequences}},start);return value;
+  }finally{reading=false;}};
+  const runOwnership=async(command:import('./freshness-capacity-protocol').FleetOwnershipCommand)=>{remaining();active=command;barrierUsed=false;warmupHeld=false;await delay(Math.max(0,command.invocationStartedAt-Date.now()));assert(Date.now()-command.invocationStartedAt<=(command.role==='competitor'?5000:1000),'fixed ownership slot missed');await verifySession();
+    let targetRequest:string|undefined;
+    if(command.role==='warmup'){assert(warmup);const id=randomUUID();const input={id,username:warmup.username,seasons:[2026]};const result=await intake.submitWithReceipt(input);await emit({kind:'record',name:'submission',value:{input,result}});targetRequest=id;}
+    const start=protocol.fleetStart();await emit({kind:'invocation',phase:'started',scenario:command.scenario,role:command.role,slot:command.slot,invocationStartedAt:command.invocationStartedAt,result:null},start);
+    const signal=AbortSignal.timeout(Math.max(1,command.invocationStartedAt+20_000-Date.now()));
+    const result=await coordinator.runPublicDataBatch(targetRequest,{...dependencies,...(targetRequest?{}:{schedulingPolicy:refreshContracts.PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY})},signal,command.invocationStartedAt);
+    await emit({kind:'invocation',phase:'completed',scenario:command.scenario,role:command.role,slot:command.slot,invocationStartedAt:command.invocationStartedAt,result},start);active=null;return result;
+  };
+  const prepareOwnership=async()=>{assert(fixture);const user=fixture.users.find(row=>row.cohort==='intake-a')!,id=randomUUID();const input={id,username:user.username,seasons:[2026]};
+    const submitted=await intake.submitWithReceipt(input);await emit({kind:'record',name:'submission',value:{input,result:submitted}});const first=Date.now(),turns=[];
+    for(let slot=0;slot<2;slot++){const at=first+slot*61_000;await delay(Math.max(0,at-Date.now()));assert(Date.now()-at<=1000);const start=protocol.fleetStart();const result=await coordinator.runPublicDataBatch(id,dependencies,AbortSignal.timeout(Math.max(1,at+20_000-Date.now())),at);turns.push({at,result,span:protocol.fleetEnd(start)});assert(result.status!=='unavailable');}
+    assert.equal(await intake.nextBatch!(id),'complete');const targetId=randomUUID();const inputConfig={id:targetId,expectedRevision:0,identityRequestId:id,seasons:[2026],cadenceSeconds:86400,expiresAt:new Date(config.workDeadlineAt).toISOString(),paused:false,
+      exactPeriods:[{season:2026 as const,nativeWeek:7}],transactionHistory:contracts.PUBLIC_TRANSACTION_HISTORY,playoffBrackets:contracts.PUBLIC_PLAYOFF_BRACKETS};
+    const configured=await refresh.configure(inputConfig),resourceInput={targetId,expectedRevision:configured.configurationRevision,activePeriods:fixture.sourceLeagues.filter(row=>user.leagueKeys.includes(row.key)).map(row=>({season:2026 as const,externalLeagueId:row.nativeLeagueId,nativeWeek:7}))};
+    const resourceResult=await refresh.configureResourceSchedule!(resourceInput);await emit({kind:'record',name:'configuration',value:{input:inputConfig,result:configured,resourceInput,resourceResult}});await readback(id);requestId=id;
+    return{requestId:id,targetId,configurationRevision:configured.configurationRevision,turns,sourcePlanDigest:built.plan.digest};
+  };
+  const runLive=async()=>{assert(requestId&&live);const startedAt=Date.now(),turns=[];for(let slot=0;slot<3;slot++){remaining();const at=startedAt+slot*61_000;await delay(Math.max(0,at-Date.now()));assert(Date.now()-at<=1000,'fixed live slot missed');const start=protocol.fleetStart();
+    await emit({kind:'invocation',phase:'started',scenario:null,role:null,slot,invocationStartedAt:at,result:null},start);const outcome=await runtime.runSelectedPublicIntakeBatch({enabled:true,requestId,managerEvidenceVersion:'v2',batchPolicy:contracts.PUBLIC_DATA_BATCH_POLICY},at);
+    await emit({kind:'invocation',phase:'completed',scenario:null,role:null,slot,invocationStartedAt:at,result:outcome},start);assert(outcome.status!=='unavailable'&&outcome.status!=='disabled'&&outcome.status!=='busy');turns.push({slot,at,outcome});}
+    assert(discovered&&httpCount===2+4*discovered.length,'complete live source inventory required');const read=await readback(requestId);assert.equal(read.status,'available');
+    inventory=await profile.writeFleetShortEvidence(config.evidenceDirectory,config.manifestDigest,events);return{requestId,startedAt,turns,discovered,httpCount,bodyBytes,evidenceInventory:inventory};
+  };
+  try{
+    await emit({kind:'record',name:'session',value:{sql:identitySql,pinned:{row:session,span:pinnedIdentitySpan},http:{row:httpIdentity,span:httpIdentitySpan}}},pinnedIdentityStart);
+    await send({...identity,type:'ready',sequence:0,action:null,span:protocol.fleetEnd(protocol.fleetStart()),inventory:null,result:null,error:false});
+    for(;;){remaining();while(!commands.length){remaining();await delay(25);}const command=commands.shift()!;commandSequence=command.sequence;const start=protocol.fleetStart();if(command.action==='stop')break;
+      let result:Record<string,unknown>|null=null,error=false;
+      try{if(command.action==='prepare-live'){assert(live&&!requestId);requestId=randomUUID();const input={id:requestId,username:'ClawMachineJedi',seasons:[2026]};const submitted=await runtime.submitPublicSleeperIntake(input,{enabled:true,requestId,managerEvidenceVersion:'v2'});await emit({kind:'record',name:'submission',value:{input,result:submitted}});result={requestId,sourcePlanDigest:built.plan.digest};}
+        else if(command.action==='run-live')result=await runLive();else if(command.action==='prepare-ownership')result=await prepareOwnership();
+        else if(command.action==='ownership-turn')result=await runOwnership(command);else if(command.action==='ownership-acl')result=await shortOwnershipAcl(database,emit);
+        else{assert.equal(command.action,'snapshot');result={eventCount:events.length,httpCount,bodyBytes,evidenceInventory:inventory};}}
+      catch(cause){error=true;await emit({kind:'failure',stage:command.action,failureKind:failureKind(cause)},start);result={failure:{stage:command.action,kind:failureKind(cause)}};}
+      await send({...identity,type:'result',sequence:command.sequence,action:command.action,span:protocol.fleetEnd(start),inventory:null,result,error});
+    }
+  }finally{globalThis.fetch=originalFetch;Object.assign(configured,originalHttp);await connection.close();}
+}
+async function shortOwnershipAcl(database:DatabaseClient,emit:(event:import('./freshness-capacity-protocol').FleetShortEventValue,start?:ReturnType<typeof fleetStart>)=>Promise<unknown>){
+  const publicFunctions=[
+    'public.public_data_batch_capability()','public.begin_public_data_batch(text,timestamptz,uuid)','public.advance_public_data_batch_owner(jsonb,text)','public.next_public_data_batch_intake(uuid)','public.admit_public_data_batch_dispatch(jsonb,jsonb)',
+    'public.public_data_resource_schedule_capability()','public.begin_public_data_resource_batch(text,timestamptz)','public.configure_public_data_resource_schedule(jsonb)','public.select_public_data_resource_work(jsonb)','public.fail_public_data_resource_selection(jsonb,text,jsonb)',
+    'public.next_public_data_intake(uuid)','public.checkpoint_public_data_intake(jsonb,jsonb,jsonb)','public.recover_public_data_dispatch(uuid,jsonb)','public.configure_public_data_refresh(jsonb)','public.guard_public_data_intake(jsonb,jsonb)',
+    'public.public_data_settled_request_budget_capability()','public.admit_public_data_batch_dispatch_status(jsonb,jsonb)'];
+  const privateFunctions=[
+    'public.public_data_batch_claim_result(public.projection_jobs)','public.assert_public_data_batch_owner(jsonb)','public.public_data_batch_budget_available(integer)','public.admit_public_data_dispatch_v57(jsonb,jsonb)','public.begin_player_directory_attempt_v57(uuid,jsonb)',
+    'public.public_data_resource_selection_json(public.public_data_resource_selections)','public.assert_public_data_resource_owner(jsonb)','public.public_data_resource_authority_valid(uuid,uuid,bigint)','public.validate_public_data_resource_occurrence()',
+    'public.next_public_data_intake_v58(uuid)','public.seed_public_data_resource_occurrence(uuid,uuid,bigint,jsonb)','public.reconcile_public_data_resource_request(uuid)','public.checkpoint_public_data_intake_v58(jsonb,jsonb,jsonb)',
+    'public.recover_public_data_dispatch_v58(uuid,jsonb)','public.public_data_history_authority_valid(uuid)','public.record_public_data_resource_target_failure(uuid,bigint,bigint,jsonb)','public.admit_public_data_batch_dispatch_v58(jsonb,jsonb)',
+    'public.configure_public_data_refresh_v58(jsonb)','public.begin_public_data_batch_v58(text,timestamptz,uuid)','public.guard_public_data_intake_v58(jsonb,jsonb)','public.select_public_data_refresh_mode(jsonb,boolean)',
+    'public.public_data_settled_capture_upper_bound(public.public_data_dispatches,public.public_data_dispatch_outcomes)','public.record_public_data_settled_request_bound()','public.public_data_settled_request_budget(integer)','public.admit_public_data_settled_direct_status(jsonb,jsonb)'];
+  const tables=['public_data_resource_configurations','public_data_resources','public_data_resource_authorities','public_data_resource_occurrences','public_data_resource_selections','public_data_resource_selection_failures','public_data_history_service','public_data_resource_service','public_data_resource_target_failures','public_data_dispatches','public_data_dispatch_outcomes'];
+  assert.equal(publicFunctions.length,17);assert.equal(privateFunctions.length,25);assert.equal(tables.length,11);
+  const functionRows=await database.query(`SELECT name,to_regprocedure(name)::text AS resolved,has_function_privilege(current_user,to_regprocedure(name),'EXECUTE') AS runtime_execute,
+    EXISTS(SELECT 1 FROM pg_proc p,LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=to_regprocedure(name) AND a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute,
+    (SELECT p.prorettype='trigger'::regtype FROM pg_proc p WHERE p.oid=to_regprocedure(name)) AS trigger_function,
+    (SELECT jsonb_object_agg(r.rolname,has_function_privilege(r.oid,to_regprocedure(name),'EXECUTE')) FROM pg_roles r WHERE r.rolname IN('league_one_account','league_one_auth')) AS other_roles
+    FROM unnest($1::text[]) AS name ORDER BY name`,[[...publicFunctions,...privateFunctions]]);
+  assert.equal(functionRows.length,42);for(const row of functionRows){assert(row.resolved);assert.equal(row.runtime_execute,publicFunctions.includes(String(row.name)));assert.equal(row.public_execute,false);}
+  const attempts:{kind:string;name:string;code:string|null}[]=[];
+  for(const name of privateFunctions){const item=functionRows.find(row=>row.name===name)!;if(item.trigger_function)continue;const match=/^(public\.[a-z0-9_]+)\((.*)\)$/u.exec(name);assert(match);const args=match[2]?match[2].split(',').map(type=>'NULL::'+type).join(','):'';
+    let code:string|null=null;try{await database.query('SELECT '+match[1]+'('+args+')');}catch(error){code=error&&typeof error==='object'&&'code'in error?String(error.code):null;}assert.equal(code,'42501');attempts.push({kind:'private-function',name,code});}
+  const tableRows=await database.query(`SELECT name,has_table_privilege(current_user,'public.'||name,'SELECT') AS can_select,
+    has_table_privilege(current_user,'public.'||name,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS can_write,
+    has_any_column_privilege(current_user,'public.'||name,'INSERT,UPDATE,REFERENCES') AS column_write,
+    (SELECT attname FROM pg_attribute WHERE attrelid=('public.'||name)::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum LIMIT 1) AS first_column
+    FROM unnest($1::text[]) AS name ORDER BY name`,[tables]);
+  assert.equal(tableRows.length,11);for(const row of tableRows){assert.equal(row.can_select,true);assert.equal(row.can_write,false);assert.equal(row.column_write,false);const name=String(row.name),column=String(row.first_column);assert(tables.includes(name)&&/^[a-z_][a-z0-9_]*$/u.test(column));
+    for(const [kind,sql]of [['insert','INSERT INTO public.'+name+' ("'+column+'") SELECT "'+column+'" FROM public.'+name+' WHERE false'],['update','UPDATE public.'+name+' SET "'+column+'"="'+column+'" WHERE false'],['delete','DELETE FROM public.'+name+' WHERE false']]){
+      let code:string|null=null;try{await database.query(sql);}catch(error){code=error&&typeof error==='object'&&'code'in error?String(error.code):null;}assert.equal(code,'42501');attempts.push({kind,name,code});}}
+  const value={publicFunctions,privateFunctions,tables,functionRows,tableRows,attempts,accountAuthScope:'catalog ACL only; actual negative calls use the runtime LOGIN'};await emit({kind:'record',name:'acl',value});return value;
 }

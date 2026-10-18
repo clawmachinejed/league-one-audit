@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { FLEET_HEALTHY_PROFILE, FLEET_HEALTHY_MODULE, FLEET_HEALTHY_SUITE, FLEET_HEALTHY_FULL_NAMES, FLEET_RECOVERY_PROFILE, FLEET_RECOVERY_MODULE, FLEET_RECOVERY_SUITE, FLEET_RECOVERY_FULL_NAMES, FLEET_DAILY_PROFILE, FLEET_DAILY_MODULE, FLEET_DAILY_SUITE, FLEET_DAILY_FULL_NAMES } from './freshness-capacity-profile';
+import { FLEET_HEALTHY_PROFILE, FLEET_HEALTHY_MODULE, FLEET_HEALTHY_SUITE, FLEET_HEALTHY_FULL_NAMES, FLEET_RECOVERY_PROFILE, FLEET_RECOVERY_MODULE, FLEET_RECOVERY_SUITE, FLEET_RECOVERY_FULL_NAMES, FLEET_DAILY_PROFILE, FLEET_DAILY_MODULE, FLEET_DAILY_SUITE, FLEET_DAILY_FULL_NAMES, FLEET_LIVE_PROFILE, FLEET_LIVE_MODULE, FLEET_LIVE_SUITE, FLEET_LIVE_FULL_NAMES, FLEET_OWNERSHIP_PROFILE, FLEET_OWNERSHIP_MODULE, FLEET_OWNERSHIP_SUITE, FLEET_OWNERSHIP_FULL_NAMES } from './freshness-capacity-profile';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -9,12 +9,14 @@ import { isAbsolute, join, relative } from 'node:path';
 export const FLEET_HEALTHY_SOURCE_DIGEST = 'ec3fbb027bfabf4727aa3dd462b7d7517adfaa56b9b14a49b66c0de45eb039f9';
 export const FLEET_RECOVERY_SOURCE_DIGEST = '9aded11360b6099c5539251a03d272288ae61873618c571c73d6b55bab5d0200';
 export const FLEET_DAILY_SOURCE_DIGEST = 'a3fb6878844c6b2a3a50331d6404215fd6034baaf87e9f054627fb7551afb897';
+export const FLEET_LIVE_SOURCE_DIGEST = 'db8c865b1dacfdec942379ae990bfebcf886e483b302542fc0f4c23afae5190f';
+export const FLEET_OWNERSHIP_SOURCE_DIGEST = '12c486536ef75d28e48d70fcadeafe395f98a1de253779268a8f3490bfcc6d63';
 export const FLEET_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/neon/player-directory.ts', sourceDigest: '36dd59796c3ce056af531a43cf3672baa2d80a1b6efad73c4c5a2425693666e1' },
   { path: 'integration/freshness-capacity-daily.ts', sourceDigest: '3f83dd9a7814d1f42058fb4403747e271bf9aaa8c4f0cf290d8b531d98202c73' },
-  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '8cce5a3d757786dd28d95039c9e424add6cb9c234783d73a4421a244efdea56c' },
-  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: '87730e9fdeaf390b9455de2a973dcb79bad80afa6dd81ebaf59dbbf79ab2b8e0' },
-  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: '8d816ff52526316443b46b39f470678b50d239cc7ce7e7acd1dd9f7e8a9a500c' },
+  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '01a7ff4d2745f7d3eb41485c82ac09439a5ac2d52d4e521c884c3a60a943dbb6' },
+  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: '0236b0929e8efb366910099404123e412cd50df60a6ce62faf4c35ceaa84e769' },
+  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: 'e8f3f16c9bd3ff9530abe5e2581dfbdca7fb41e4eda370f87c28d81a48295bed' },
   { path: 'integration/freshness-capacity-observer.ts', sourceDigest: '37a173889e1c43ef2d451e468ebd29dda4013b67ea62c964d9a482546e76341f' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
@@ -131,6 +133,8 @@ export const FLEET_SUPPORT_SOURCES = [
   { path: 'lib/aggregator/official-results.ts', sourceDigest: '3d30e90cd6386b26234991c92778f2b34e089f1b9bfa3e03a2f34faa6648e8a5' },
 ] as const;
 function fleetProfile(profile: string) {
+  if(profile===FLEET_LIVE_PROFILE)return{profile:FLEET_LIVE_PROFILE,module:FLEET_LIVE_MODULE,suite:FLEET_LIVE_SUITE,names:FLEET_LIVE_FULL_NAMES,pattern:closedPattern(FLEET_LIVE_FULL_NAMES),sourceDigest:FLEET_LIVE_SOURCE_DIGEST};
+  if(profile===FLEET_OWNERSHIP_PROFILE)return{profile:FLEET_OWNERSHIP_PROFILE,module:FLEET_OWNERSHIP_MODULE,suite:FLEET_OWNERSHIP_SUITE,names:FLEET_OWNERSHIP_FULL_NAMES,pattern:closedPattern(FLEET_OWNERSHIP_FULL_NAMES),sourceDigest:FLEET_OWNERSHIP_SOURCE_DIGEST};
   if(profile===FLEET_HEALTHY_PROFILE)return{profile:FLEET_HEALTHY_PROFILE,module:FLEET_HEALTHY_MODULE,suite:FLEET_HEALTHY_SUITE,names:FLEET_HEALTHY_FULL_NAMES,pattern:closedPattern(FLEET_HEALTHY_FULL_NAMES),sourceDigest:FLEET_HEALTHY_SOURCE_DIGEST};
   if(profile===FLEET_DAILY_PROFILE)return{profile:FLEET_DAILY_PROFILE,module:FLEET_DAILY_MODULE,suite:FLEET_DAILY_SUITE,names:FLEET_DAILY_FULL_NAMES,pattern:closedPattern(FLEET_DAILY_FULL_NAMES),sourceDigest:FLEET_DAILY_SOURCE_DIGEST};
   if(profile===FLEET_RECOVERY_PROFILE)return{profile:FLEET_RECOVERY_PROFILE,module:FLEET_RECOVERY_MODULE,suite:FLEET_RECOVERY_SUITE,names:FLEET_RECOVERY_FULL_NAMES,pattern:closedPattern(FLEET_RECOVERY_FULL_NAMES),sourceDigest:FLEET_RECOVERY_SOURCE_DIGEST};
@@ -618,7 +622,7 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+export type QualificationProfile = 'full' | 'data-freshness-capacity-ownership-v1' | 'data-live-public-batch-v1' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof RUNNER_CYCLES_PROFILE | typeof BACKEND_CONTROLS_PROFILE | typeof COMPETING_WORKERS_PROFILE | typeof PROCESS_RECOVERY_PROFILE | typeof FRESH_INSTALL_PROFILE | typeof WITHIN_SEASON_HISTORY_PROFILE | typeof DRAFT_INTAKE_PROFILE | typeof DRAFT_REFRESH_PROFILE | typeof DRAFT_INTAKE_RECOVERY_PROFILE | typeof TRADED_PICKS_PROFILE | typeof DRAFT_SELECTIONS_PROFILE | typeof DRAFT_METADATA_PROFILE | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
@@ -1010,7 +1014,7 @@ function profileDigest(profile: QualificationProfile) {
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
-  if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE,FLEET_DAILY_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
+  if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE,FLEET_DAILY_PROFILE,FLEET_LIVE_PROFILE,FLEET_OWNERSHIP_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
   if (args.length === 1 && args[0] === '--profile=' + BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_PROFILE;
@@ -1773,7 +1777,7 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
   assert.deepEqual(ack, { kind: 'integration-qualification-cleanup-v1', contextDigest: qualificationDigest(binding.context),
     reportDigest: qualificationSourceDigest(raw), globalDatabaseCleanup: 'complete' });
   let companionDigest: string | undefined;
-  if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_DAILY_PROFILE?'cp26-fleet-daily-evidence.json':binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const {validateFleetCompanion}=await import('./freshness-capacity-profile');await validateFleetCompanion(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
+  if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_LIVE_PROFILE?'cp26-fleet-live-evidence.json':binding.context.profile===FLEET_OWNERSHIP_PROFILE?'cp26-fleet-ownership-evidence.json':binding.context.profile===FLEET_DAILY_PROFILE?'cp26-fleet-daily-evidence.json':binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const validators=await import('./freshness-capacity-profile');await (binding.context.profile===FLEET_LIVE_PROFILE?validators.validateFleetLiveCompanion:binding.context.profile===FLEET_OWNERSHIP_PROFILE?validators.validateFleetOwnershipCompanion:validators.validateFleetCompanion)(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
   if (binding.context.profile === BATCH_CALIBRATION_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'batch-calibration-evidence.json');
     const companion = await import('./batch-calibration-evidence');

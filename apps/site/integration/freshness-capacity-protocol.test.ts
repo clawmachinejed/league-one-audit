@@ -80,3 +80,42 @@ describe('closed local daily protocol',()=>{
     expect(()=>fleetEnvironment(env,runtimeUrl,daily)).toThrow('local-only');
   });
 });
+
+describe('closed current batch ownership and live protocols',()=>{
+  const ownership={...config,profile:'data-freshness-capacity-ownership-v1' as const};
+  const live={...config,profile:'data-live-public-batch-v1' as const};
+  it('keeps the existing default work envelope and rejects a long-lane deadline',()=>{
+    expect(parseFleetConfig({...ownership,workDeadlineAt:Date.now()+29*60_000}).profile).toBe(ownership.profile);
+    expect(parseFleetConfig({...live,workDeadlineAt:Date.now()+29*60_000}).profile).toBe(live.profile);
+    for(const profile of [ownership.profile,live.profile])expect(()=>parseFleetConfig({...config,profile,workDeadlineAt:Date.now()+31*60_000})).toThrow('deadline');
+  });
+  it('binds original ownership slots and closed role/scenario commands without supplied work',()=>{
+    const command={version:FLEET_VERSION,nonce:config.nonce,sequence:1,action:'ownership-turn' as const,scenario:'selection-competition-death' as const,role:'owner' as const,slot:2,invocationStartedAt:config.workDeadlineAt-25_000};
+    expect(parseFleetCommand(command,ownership,1)).toEqual(command);
+    for(const change of [{slot:15},{slot:-1},{role:'fixture'},{scenario:'unknown'},{work:{}},{invocationStartedAt:config.workDeadlineAt-19_999},{sequence:2}])expect(()=>parseFleetCommand({...command,...change},ownership,1)).toThrow();
+    expect(()=>parseFleetCommand({...command,scenario:'accepted-before-checkpoint-death',role:'competitor'},ownership,1)).toThrow();
+    expect(()=>parseFleetCommand(command,live,1)).toThrow('mismatch');
+    expect(()=>parseFleetCommand({version:FLEET_VERSION,nonce:config.nonce,sequence:1,action:'run-live'},ownership,1)).toThrow();
+    expect(()=>parseFleetCommand({version:FLEET_VERSION,nonce:config.nonce,sequence:1,action:'prepare'},live,1)).toThrow('closed');
+  });
+  it('preserves the exact SQL result and lock assertion while rejecting foreign identities or altered bytes',async()=>{
+    const {createHash}=await import('node:crypto');const {parseFleetShortEvent}=await import('./freshness-capacity-protocol');
+    const {type: _type,sequence: _sequence,action: _action,inventory: _inventory,result: _result,error: _error,...identity}=message();
+    void _type;void _sequence;void _action;void _inventory;void _result;void _error;
+    const query='SELECT 1 AS n';const event={...identity,profile:ownership.profile,type:'short-event',eventSequence:1,commandSequence:1,event:{kind:'sql',transport:'pinned',query,querySha256:createHash('sha256').update(query).digest('hex'),params:[],lock:{sql:'SELECT 1',params:[],verifyAfter:{sql:'SELECT true',params:[]}},rows:[{n:1}],outcome:'success',errorCode:null}};
+    expect(parseFleetShortEvent(event,ownership,10,1)).toEqual(event);
+    for(const change of [{eventSequence:2},{pid:11},{backendPid:0},{currentUser:'neondb_owner'},{manifestDigest:'0'.repeat(64)}])expect(()=>parseFleetShortEvent({...event,...change},ownership,10,1)).toThrow();
+    for(const change of [{query:'SELECT 2'},{rows:null},{lock:{sql:'SELECT 1',params:[]}},{errorCode:'secret error'}])expect(()=>parseFleetShortEvent({...event,event:{...event.event,...change}},ownership,10,1)).toThrow();
+  });
+  it('keeps original HTTP bytes and failed attempts distinct from a synthetic successful response',async()=>{
+    const {createHash}=await import('node:crypto');const {parseFleetShortEvent}=await import('./freshness-capacity-protocol');
+    const {type: _type,sequence: _sequence,action: _action,inventory: _inventory,result: _result,error: _error,...identity}=message();
+    void _type;void _sequence;void _action;void _inventory;void _result;void _error;
+    const rawUtf8='{"user_id":"862823517857697792"}';const event={...identity,profile:live.profile,type:'short-event',eventSequence:1,commandSequence:2,event:{kind:'http',ordinal:1,method:'GET',url:'https://api.sleeper.app/v1/user/ClawMachineJedi',status:200,rawUtf8,rawSha256:createHash('sha256').update(rawUtf8).digest('hex'),errorCode:null}};
+    expect(parseFleetShortEvent(event,live,10,1)).toEqual(event);
+    expect(()=>parseFleetShortEvent({...event,event:{...event.event,rawUtf8:rawUtf8+' '}},live,10,1)).toThrow();
+    expect(()=>parseFleetShortEvent({...event,event:{...event.event,url:'https://example.com/v1/user/ClawMachineJedi'}},live,10,1)).toThrow();
+    const failed={...event,event:{...event.event,status:null,rawUtf8:null,rawSha256:null,errorCode:'request'}};expect(parseFleetShortEvent(failed,live,10,1).event).toEqual(failed.event);
+    expect(()=>parseFleetShortEvent({...event,event:{...event.event,headers:{authorization:'forbidden'}}},live,10,1)).toThrow();
+  });
+});
