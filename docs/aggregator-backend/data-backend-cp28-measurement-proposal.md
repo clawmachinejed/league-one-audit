@@ -272,3 +272,7 @@ Actual path review is limited to nine integration TypeScript files, the integrat
 | Merge / production deployment | Not performed. |
 | SQL / provisioning / credentials / paid attempt / scheduling / DATA activation | Not performed or authorized; approved allowance remains $0. |
 | Storage, capacity and later-checkpoint qualification | No measured storage bytes or SQL qualification; CP26/CP27 and CP29–34 remain unchanged. |
+
+### Immutable executable source
+
+The locally validated executable candidate is commit **`e40b0479fcb694ba2519f12cdc493b33ea208855`**, tree **`489bab9effd4cdef795cde53db8800b407e683bd`**, on `codex/data-cp28-measurement-proposal`. It contains the 13 reviewed files and was clean immediately after committing. The source-review acceptance above binds this implementation and its frozen fixture, not the earlier planning/proposal commits. This identity paragraph is a subsequent documentation-only closeout; it does not change executable sources or their 106 support pins. A future approval must name an exact executable checkout and fixture and revalidate that identity before any provisioning or SQL; the presence of this record does not authorize a run.
