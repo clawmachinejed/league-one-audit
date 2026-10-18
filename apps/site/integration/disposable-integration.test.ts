@@ -1,10 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
+import { fleetSupervisedWorkDeadline } from './freshness-capacity-protocol';
 import { describe, expect, it, vi } from 'vitest';
 import { resolve } from 'node:path';
 import { DisposableNeonApi } from './disposable-neon-api';
 import { assertEmptyDisposableDatabase, disposableConfiguration, DISPOSABLE_AUTHORIZATION,
   assertIntegrationPostgresqlVersionEvidence, captureIntegrationPostgresqlVersion,
   integrationCancellationReason, integrationChildEnvironment, redactIntegrationOutput, runDisposableIntegration, runIntegrationLifecycle, type IntegrationRunReceipt } from './disposable-integration';
-import { IntegrationLifecycleBudget, HEALTHY_FLEET_LIFECYCLE_PROFILE } from './integration-lifecycle-budget';
+import { IntegrationLifecycleBudget, HEALTHY_FLEET_LIFECYCLE_PROFILE, integrationLifecycleForQualification, INTEGRATION_WORK_DEADLINE_ENV } from './integration-lifecycle-budget';
 import { qualificationDigest, type QualificationContext } from './qualification-profile';
 
 const valid = {
@@ -298,4 +302,46 @@ it.each(['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VE
 it('rejects a daily profile with an ordinary lifecycle before any provisioner use',async()=>{
   const denied=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No provisioning permitted'));
   try{await expect(runDisposableIntegration({environment:{NODE_ENV:'test'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:'data-freshness-capacity-daily-v1',budget:new IntegrationLifecycleBudget()})).rejects.toThrow('Lifecycle');expect(denied).not.toHaveBeenCalled();}finally{denied.mockRestore();}
+});
+
+
+describe('original supervisor deadline in the actual child environment', () => {
+  const source = readFileSync(new URL('./disposable-integration.ts', import.meta.url), 'utf8');
+  const tree = ts.createSourceFile('disposable-integration.ts', source, ts.ScriptTarget.Latest, true);
+  const assignments: ts.BinaryExpression[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && ts.isIdentifier(node.left) && node.left.text === 'childEnvironment') assignments.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  const environment = (profile: string, elapsedMs: number, wallNow: number) => {
+    expect(assignments).toHaveLength(1);
+    const lifecycleProfile = integrationLifecycleForQualification(profile), budget = new IntegrationLifecycleBudget(lifecycleProfile);
+    const code = ts.transpileModule(assignments[0].getText(tree), {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText;
+    return runInNewContext('let childEnvironment; ' + code + '; childEnvironment;', {
+      options: { profile, environment: { [INTEGRATION_WORK_DEADLINE_ENV]: '9999999999999' } },
+      receipt: { artifactDirectory: resolve('test-results/integration/artifacts/owned-run') }, generated: {},
+      integrationChildEnvironment, INTEGRATION_WORK_DEADLINE_ENV, lifecycleProfile, budget,
+      INTEGRATION_OWNER_ENV: 'owner', proof: 'owned', QUALIFICATION_CONTEXT_ENV: 'context', qualification: { context: {} },
+      Date: { now: () => wallNow }, performance: { now: () => budget.started + elapsedMs }, Math,
+    }) as Record<string, string | undefined>;
+  };
+  it.each(['data-live-public-batch-v1', 'data-freshness-capacity-ownership-v1'] as const)(
+    'passes only the original remaining work deadline to %s', profile => {
+      const now = Date.now(), remainingDeadline = now + 23 * 60_000;
+      const child = environment(profile, 7 * 60_000, now);
+      expect(fleetSupervisedWorkDeadline(child, profile)).toBe(remainingDeadline);
+      expect(environment(profile, 8 * 60_000, now + 60_000)[INTEGRATION_WORK_DEADLINE_ENV]).toBe(String(remainingDeadline));
+      expect(environment(profile, 30 * 60_000 + 1, now)[INTEGRATION_WORK_DEADLINE_ENV]).toBe(String(now));
+    });
+  it('preserves ordinary omission and the existing extended-profile budget', () => {
+    const now = Date.now();
+    expect(environment('full', 7 * 60_000, now)[INTEGRATION_WORK_DEADLINE_ENV]).toBeUndefined();
+    expect(environment('data-core-ingestion-v1', 7 * 60_000, now)[INTEGRATION_WORK_DEADLINE_ENV]).toBeUndefined();
+    expect(fleetSupervisedWorkDeadline(environment(HEALTHY_FLEET_LIFECYCLE_PROFILE, 7 * 60_000, now),
+      HEALTHY_FLEET_LIFECYCLE_PROFILE)).toBe(now + 233 * 60_000);
+  });
 });

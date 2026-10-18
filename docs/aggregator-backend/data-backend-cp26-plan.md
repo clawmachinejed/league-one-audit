@@ -1,5 +1,12 @@
 # CP26 freshness, capacity, budgets and backlog candidate
 
+## Short-test deadline handoff
+
+DATA-CP26-2026-10-18-SHORT-DEADLINE-HANDOFF: the corrected loader reached test setup in run 39093778057 at f9e1bbf, which then stopped because the supervisor did not forward its work deadline to profiles using the default 30-minute lifecycle. No import case ran. Terminal receipt SHA-256 `7d825963c7ba6e2ee6ab08839500e864f4906bbaf4ec63cecf728b30351d3354` confirms child closure, schema cleanup, credential revocation and branch deletion, with no unresolved resources.
+
+Root and /root/measurement_implementation independently reproduced the omission. The minimal repair includes the two exact short profiles in the existing deadline-export condition, preserving the original remaining-budget calculation and every deadline guard. Scope: `disposable-integration.ts`, its existing test file, and the mechanical new-CP26 supervisor source pin in `qualification-profile.ts`; historical pins remain unchanged. This continues the user-authorized real-import task without adding a qualification campaign. Focused supervisor verification passed 93/93 tests, scoped lint and whole-site TypeScript; root reviewed the exact condition and unchanged remaining-budget calculation.
+
+
 ## Minimal live-test startup repair
 
 DATA-CP26-2026-10-18-LIVE-STARTUP-REPAIR records the user's renewed instruction to finish accurately with only the work needed for the real import measurement. The previous live attempt on 909a569 failed before any import because Vite's bundled config loader eagerly loaded server-only code; all generated credentials and the disposable branch were cleaned up. Its independent closeout is `909a569-live-run-39092320279-closeout.json`, SHA-256 `490c8fe450bdc22f95267cd8c5528d9a7446b3605ab11e3c9bed26a0a17eb824`.

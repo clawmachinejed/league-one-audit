@@ -486,7 +486,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       await save(); // Acknowledged immutable evidence is required before child launch.
       childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
         [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context),
-        ...(lifecycleProfile !== 'default' ? { [INTEGRATION_WORK_DEADLINE_ENV]: String(Date.now() + Math.max(0, Math.floor(budget.workDeadline - performance.now()))) } : {}) };
+        ...(lifecycleProfile !== 'default' || options.profile === 'data-live-public-batch-v1' || options.profile === 'data-freshness-capacity-ownership-v1' ? { [INTEGRATION_WORK_DEADLINE_ENV]: String(Date.now() + Math.max(0, Math.floor(budget.workDeadline - performance.now()))) } : {}) };
       receipt.provisionStep = 'complete';
     },
     async execute(signal) {

@@ -28,7 +28,7 @@ export const FLEET_SUPPORT_SOURCES = [
   { path: 'integration/integration-child-process.ts', sourceDigest: 'c53e2e61042e031df57b0c99ddbc019adbbc29ea78a43ff96ca92b964953ab9a' },
   { path: 'integration/integration-database-ownership.ts', sourceDigest: 'cd7bd531f4dd0a649fb8cf8031ec87c09e1a7f63b1169f752758b6a6b57fbd19' },
   { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: 'eb50d2f1ca091c8d0eaa547cb38338951a6501f9cb6f138d6b5641413f4bedc3' },
-  { path: 'integration/disposable-integration.ts', sourceDigest: '61aaa1b7f0ea26ace855470f6b8ae1ee9be03b4d39506ed0ffebca69c99b761d' },
+  { path: 'integration/disposable-integration.ts', sourceDigest: '57dfd8b2d7c8ab05addb5ba76a50ef7b15eb75ccdb1f1f8baa2d94c671572376' },
   { path: 'integration/disposable-neon-api.ts', sourceDigest: '6ef0d211273b0df9f08234c9676b8fe9949df67c127feacce356d86b91a15a1c' },
   { path: 'scripts/run-disposable-integration.ts', sourceDigest: '8eb64772c886d175b7e5150b9f7c474168b0a94312cb526e374cca11d52d77e5' },
   { path: 'scripts/provision-runtime-role.sql', sourceDigest: 'c013508197c09bb1b43b91ea530dd4b640da5233c4109af33f9530f7d878e279' },
