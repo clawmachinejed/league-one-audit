@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { measuredReaderDatabase, readerPercentiles, runReaderSchedule, READER_PERFORMANCE_SCHEDULE,
   assertCompleteReaderPerformanceEvidence, createReaderSourceDataset, readerDigest, READER_SOURCE_DIGEST,
@@ -22,6 +22,29 @@ const sample = (index: number, elapsedMs: number, status: ReaderSample['status']
   decodedBytes: 2, statementMs: 1, resultDigest: 'a'.repeat(64),
 });
 describe('CP27 bounded reader measurement without SQL qualification', () => {
+  const binding: QualificationBinding = { directory: '/not-executed', context: { kind: 'integration-qualification-context-v1',
+    runId: '11111111-1111-4111-8111-111111111111', nonce: '22222222-2222-4222-8222-222222222222', gitSha: 'a'.repeat(40),
+    profile: READER_PERFORMANCE_PROFILE, profileDigest: 'b'.repeat(64), modules: [{ path: READER_PERFORMANCE_MODULE, sourceDigest: 'c'.repeat(64) }] } };
+  let dataset: ReturnType<typeof createReaderSourceDataset>, specimen: ReaderPerformanceEvidence;
+  beforeAll(() => {
+    // Build the source once for both normalization and evidence checks; each adverse
+    // case receives its own specimen clone and never rebuilds the entire fleet.
+    dataset = createReaderSourceDataset();
+    const sql = 'SELECT 1 AS value', digest = readerDigest(sql);
+    specimen = { kind: 'data-reader-performance-evidence-v1', contextDigest: readerDigest(binding.context), gitSha: binding.context.gitSha,
+      runId: binding.context.runId, profile: READER_PERFORMANCE_PROFILE, setupResponseCount: 865, operationalResets: 16,
+      serverVersion: '18.6', serverVersionNum: '180006', runtimeLogin: 'league_one_runtime', transport: 'production-neon-http', sourceDigest: READER_SOURCE_DIGEST,
+      dataset: { leagues: 16, rosters: 320, weeks: 288, players: 160, requestIds: Array.from({ length: 16 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`),
+        receiptCount: 700, sourceBindings: dataset.leagues.map(readerDigest) },
+      cases: READER_PERFORMANCE_TESTS.map((name, i) => ({ name, state: 'passed', startedAt: new Date(1_000_000 + i * 1_000).toISOString(), endedAt: new Date(1_000_500 + i * 1_000).toISOString() })),
+      samples: READER_PERFORMANCE_SCHEDULE.map((_, i) => sample(i, 100)), maximumActive: 10, elapsedMs: 10_000,
+      lists: Array.from({ length: 32 }, (_, i) => ({ kind: i % 2 ? 'player-directory' : 'period-task-list', elapsedMs: 100, rows: i % 2 ? 160 : 18,
+        bound: i % 2 ? 200 : 360, digest: 'd'.repeat(64), statements: 1, statementRows: 1, decodedBytes: 2 })),
+      queries: [{ digest, sql, calls: 1032, failures: 0, rows: 1032, decodedBytes: 2064, elapsedMs: 1032 }],
+      plans: [{ digest, sql, parameterDigest: readerDigest([]), explainedRows: 1, plan: [{ 'QUERY PLAN': [{ Plan: { 'Actual Rows': 1 } }] }] }],
+      tableCounts: [{ table: 'league_roster_capture_receipts', rows: 700, totalBytes: 8192 }], beforeDigest: 'e'.repeat(64), afterDigest: 'e'.repeat(64),
+      providerRequests: 0, blockedFetches: 0, cleanupComplete: true };
+  }, 30_000);
   it('freezes all slots both500-read classes and sixteen single-league identities', () => {
     expect(READER_PERFORMANCE_SCHEDULE).toHaveLength(1_000);
     expect(READER_PERFORMANCE_SCHEDULE.filter(row => row.kind === 'current')).toHaveLength(500);
@@ -71,7 +94,6 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
     await expect(database.query(PUBLIC_OFFICIAL_STANDINGS_SQL)).resolves.toEqual([]);
   });
   it('normalizes every source family and all288 exact periods with the maintained projections offline', () => {
-    const dataset = createReaderSourceDataset();
     expect(dataset.leagues).toHaveLength(16); expect(Object.keys(dataset.players)).toHaveLength(160);
     for (const [id, row] of Object.entries(dataset.players)) expect(normalizePlayerDirectoryRow(id, row as JsonValue).identityStatus).toBe('valid');
     for (const league of dataset.leagues) {
@@ -104,36 +126,32 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
       for (const kind of ['league', 'draft'] as const) expect(projectTradedPicks(normalize('drafts', { tradedPicksVersion: TRADED_PICKS_VERSION, kind,
         ...(kind === 'draft' ? { externalDraftId: league.draft.draft_id, catalog: league.draft } : {}), tradedPicks: league.trades })).status).toBe('accepted');
     }
+    expect(readerDigest(dataset)).toBe(READER_SOURCE_DIGEST);
   }, 30_000);
-  it('accepts a complete offline evidence specimen and rejects corrupted denominators bindings plans and targets', () => {
-    const binding: QualificationBinding = { directory: '/not-executed', context: { kind: 'integration-qualification-context-v1',
-      runId: '11111111-1111-4111-8111-111111111111', nonce: '22222222-2222-4222-8222-222222222222', gitSha: 'a'.repeat(40),
-      profile: READER_PERFORMANCE_PROFILE, profileDigest: 'b'.repeat(64), modules: [{ path: READER_PERFORMANCE_MODULE, sourceDigest: 'c'.repeat(64) }] } };
-    const sql = 'SELECT 1 AS value', digest = readerDigest(sql), fixtures = createReaderSourceDataset();
-    const specimen: ReaderPerformanceEvidence = { kind: 'data-reader-performance-evidence-v1', contextDigest: readerDigest(binding.context), gitSha: binding.context.gitSha,
-      runId: binding.context.runId, profile: READER_PERFORMANCE_PROFILE, setupResponseCount: 865, operationalResets: 16,
-      serverVersion: '18.6', serverVersionNum: '180006', runtimeLogin: 'league_one_runtime', transport: 'production-neon-http', sourceDigest: READER_SOURCE_DIGEST,
-      dataset: { leagues: 16, rosters: 320, weeks: 288, players: 160, requestIds: Array.from({ length: 16 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`),
-        receiptCount: 700, sourceBindings: fixtures.leagues.map(readerDigest) },
-      cases: READER_PERFORMANCE_TESTS.map((name, i) => ({ name, state: 'passed', startedAt: new Date(1_000_000 + i * 1_000).toISOString(), endedAt: new Date(1_000_500 + i * 1_000).toISOString() })),
-      samples: READER_PERFORMANCE_SCHEDULE.map((_, i) => sample(i, 100)), maximumActive: 10, elapsedMs: 10_000,
-      lists: Array.from({ length: 32 }, (_, i) => ({ kind: i % 2 ? 'player-directory' : 'period-task-list', elapsedMs: 100, rows: i % 2 ? 160 : 18,
-        bound: i % 2 ? 200 : 360, digest: 'd'.repeat(64), statements: 1, statementRows: 1, decodedBytes: 2 })),
-      queries: [{ digest, sql, calls: 1032, failures: 0, rows: 1032, decodedBytes: 2064, elapsedMs: 1032 }],
-      plans: [{ digest, sql, parameterDigest: readerDigest([]), explainedRows: 1, plan: [{ 'QUERY PLAN': [{ Plan: { 'Actual Rows': 1 } }] }] }],
-      tableCounts: [{ table: 'league_roster_capture_receipts', rows: 700, totalBytes: 8192 }], beforeDigest: 'e'.repeat(64), afterDigest: 'e'.repeat(64),
-      providerRequests: 0, blockedFetches: 0, cleanupComplete: true };
+  it('accepts a complete offline evidence specimen', () => {
     expect(() => assertCompleteReaderPerformanceEvidence(specimen, binding)).not.toThrow();
-    const mutations: ((value: ReaderPerformanceEvidence) => void)[] = [
-      value => { value.samples.pop(); }, value => { value.samples[2].index = 1; }, value => { value.samples[0].kind = 'history'; },
-      value => { value.samples[0].league = 15; }, value => { value.dataset.requestIds[1] = value.dataset.requestIds[0]; },
-      value => { value.sourceDigest = 'f'.repeat(64); }, value => { value.dataset.sourceBindings[0] = 'f'.repeat(64); },
-      value => { value.queries = []; value.plans = []; }, value => { value.plans = []; }, value => { value.samples[0].rows++; },
-      value => { value.cases.reverse(); }, value => { value.cases[1].startedAt = value.cases[0].startedAt; },
-      value => { value.samples[0].status = 'failed'; }, value => { value.samples.forEach(row => { row.elapsedMs = 501; }); },
-      value => { value.dataset.rosters = 20; }, value => { value.beforeDigest = 'f'.repeat(64); }, value => { value.providerRequests = 1; },
-    ];
-    for (const mutate of mutations) { const corrupted = structuredClone(specimen); mutate(corrupted);
-      expect(() => assertCompleteReaderPerformanceEvidence(corrupted, binding)).toThrow(); }
+  });
+  const mutations: [string, (value: ReaderPerformanceEvidence) => void][] = [
+    ['missing slot', value => { value.samples.pop(); }],
+    ['duplicate slot', value => { value.samples[2].index = 1; }],
+    ['wrong reader class', value => { value.samples[0].kind = 'history'; }],
+    ['wrong league identity', value => { value.samples[0].league = 15; }],
+    ['duplicate request identity', value => { value.dataset.requestIds[1] = value.dataset.requestIds[0]; }],
+    ['wrong source digest', value => { value.sourceDigest = 'f'.repeat(64); }],
+    ['wrong league source binding', value => { value.dataset.sourceBindings[0] = 'f'.repeat(64); }],
+    ['missing query inventory', value => { value.queries = []; value.plans = []; }],
+    ['missing query plan', value => { value.plans = []; }],
+    ['incorrect row total', value => { value.samples[0].rows++; }],
+    ['reordered cases', value => { value.cases.reverse(); }],
+    ['overlapping cases', value => { value.cases[1].startedAt = value.cases[0].startedAt; }],
+    ['failed read', value => { value.samples[0].status = 'failed'; }],
+    ['failed latency target', value => { value.samples.forEach(row => { row.elapsedMs = 501; }); }],
+    ['incorrect roster count', value => { value.dataset.rosters = 20; }],
+    ['changed stored state', value => { value.beforeDigest = 'f'.repeat(64); }],
+    ['provider request', value => { value.providerRequests = 1; }],
+  ];
+  it.each(mutations)('rejects an offline evidence specimen with %s', (_name, mutate) => {
+    const corrupted = structuredClone(specimen); mutate(corrupted);
+    expect(() => assertCompleteReaderPerformanceEvidence(corrupted, binding)).toThrow();
   });
 });

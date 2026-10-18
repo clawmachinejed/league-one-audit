@@ -12,6 +12,8 @@ import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
 import { BATCH_EVIDENCE_FILE, BATCH_CASE_NAMES, BATCH_CASE_LIMITS } from './batch-calibration-evidence';
+// Load the real validator and its authored source fixture once during test-module setup.
+import { READER_PERFORMANCE_EVIDENCE_FILE } from './reader-performance';
 import { BATCH_CALIBRATION_PROFILE, BATCH_CALIBRATION_MODULE, BATCH_CALIBRATION_SOURCE_DIGEST, BATCH_CALIBRATION_SUITE,
   BATCH_CALIBRATION_FULL_NAMES, BATCH_CALIBRATION_PATTERN, BATCH_CALIBRATION_SUPPORT_SOURCES, assertBatchCalibrationSupportSources } from './qualification-profile';
 import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLES,
@@ -4427,15 +4429,13 @@ it('CP27 rejects missing reordered retried skipped and malformed report executio
   }
 });
 
-it('CP27 requires a bounded valid semantic companion after report and acknowledged cleanup', async () => {
+it.each(['missing', 'forged', 'oversized'] as const)('CP27 rejects a %s semantic companion after report and acknowledged cleanup', async kind => {
   const { binding, evidence } = await readerPerformanceReportFixture();
   await writeQualificationArtifact(binding, 'report', evidence);
   await qualificationCleanup(async () => {}, binding);
-  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
-  const companion = join(binding.directory, 'reader-performance-evidence.json');
-  await writeFile(companion, JSON.stringify({ kind: 'forged', pass: true, cleanup: true }));
-  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
-  await writeFile(companion, ' '.repeat(QUALIFICATION_MAX_BYTES + 1));
+  const companion = join(binding.directory, READER_PERFORMANCE_EVIDENCE_FILE);
+  if (kind === 'forged') await writeFile(companion, JSON.stringify({ kind: 'forged', pass: true, cleanup: true }));
+  if (kind === 'oversized') await writeFile(companion, ' '.repeat(QUALIFICATION_MAX_BYTES + 1));
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
 });
 
