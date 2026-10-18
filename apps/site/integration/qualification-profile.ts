@@ -8,13 +8,13 @@ import { isAbsolute, join, relative } from 'node:path';
 // Closed CP26 fleet candidates. These pins authorize no execution and leave every historical profile unchanged.
 export const FLEET_HEALTHY_SOURCE_DIGEST = 'ec3fbb027bfabf4727aa3dd462b7d7517adfaa56b9b14a49b66c0de45eb039f9';
 export const FLEET_RECOVERY_SOURCE_DIGEST = '9aded11360b6099c5539251a03d272288ae61873618c571c73d6b55bab5d0200';
-export const FLEET_DAILY_SOURCE_DIGEST = 'f774bd97e24c49615856ad68f499080e40b973c9adb7bfd76a839223dd9e3ded';
+export const FLEET_DAILY_SOURCE_DIGEST = 'a3fb6878844c6b2a3a50331d6404215fd6034baaf87e9f054627fb7551afb897';
 export const FLEET_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/neon/player-directory.ts', sourceDigest: '36dd59796c3ce056af531a43cf3672baa2d80a1b6efad73c4c5a2425693666e1' },
   { path: 'integration/freshness-capacity-daily.ts', sourceDigest: '3f83dd9a7814d1f42058fb4403747e271bf9aaa8c4f0cf290d8b531d98202c73' },
-  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '440082c40bbc5892aad9e71bff46f72d8eeee646155fb9eeac5d280b9890a43d' },
+  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '8cce5a3d757786dd28d95039c9e424add6cb9c234783d73a4421a244efdea56c' },
   { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: '87730e9fdeaf390b9455de2a973dcb79bad80afa6dd81ebaf59dbbf79ab2b8e0' },
-  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: 'fa85da604de41cf5dfb313e545b6655ad453403c0a10597b063877b6379f7a3d' },
+  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: '8d816ff52526316443b46b39f470678b50d239cc7ce7e7acd1dd9f7e8a9a500c' },
   { path: 'integration/freshness-capacity-observer.ts', sourceDigest: '37a173889e1c43ef2d451e468ebd29dda4013b67ea62c964d9a482546e76341f' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },

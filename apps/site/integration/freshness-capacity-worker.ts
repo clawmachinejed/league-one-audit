@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { FLEET_CONFIG, FLEET_VERSION, parseFleetConfig, parseFleetCommand, fleetStart, fleetEnd, fleetFetch,
   type FleetCommand, type FleetMessage, type FleetSqlAttempt } from './freshness-capacity-protocol';
-import { FLEET_REQUEST_OWNERS, FLEET_HEALTHY_CLOCK, FLEET_RECOVERY_PROFILE, FLEET_DAILY_PROFILE, buildFleetHealthyManifest, buildFleetRecoveryManifest, buildFleetDailyManifest, fleetDocumentRows, writeFleetEvidenceChunks, packFleetDailySqlAttempts, packFleetDailyRequestLedger, packFleetDailyManifestReference } from './freshness-capacity-profile';
+import { FLEET_REQUEST_OWNERS, FLEET_HEALTHY_CLOCK, FLEET_RECOVERY_PROFILE, FLEET_DAILY_PROFILE, buildFleetHealthyManifest, buildFleetRecoveryManifest, buildFleetDailyManifest, fleetDocumentRows, writeFleetEvidenceChunks, packFleetDailySqlAttempts, packFleetDailyRequestLedger, packFleetDailyManifestReference, packFleetDailyQueue } from './freshness-capacity-profile';
 import { loadCapacityNamedSourceFixture } from './freshness-capacity-fixtures';
 import { capacityDigest, freezeCapacityValue, type JsonValue } from './freshness-capacity-manifest';
 import { evaluateCapacityEvidence, type HttpAttempt } from './freshness-capacity-evidence';
@@ -539,7 +539,7 @@ async function main() {
         openInvocations: final.openInvocations, dispatchJournalReadAt: final.dispatchJournalReadAt },
       'capacity-evidence': { manifest: packFleetDailyManifestReference('daily-manifest', dailyManifest),
         observerManifest: packFleetDailyManifestReference('observer-manifest', built.manifest),
-        evidence: evidence ? { ...evidence, requests: packFleetDailyRequestLedger(evidence.requests) } : null,
+        evidence: evidence ? { ...evidence, requests: packFleetDailyRequestLedger(evidence.requests), queue: packFleetDailyQueue(evidence.queue) } : null,
         analysis, journalValidation: final.journalValidation, evidenceFailures },
       'named-regressions': named, 'primary-coexistence': primary,
     } as const;

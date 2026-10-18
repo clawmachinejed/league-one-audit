@@ -298,7 +298,7 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
   if(daily)capacity={...capacity,manifest:resolveFleetDailyManifestReference(capacity.manifest,'daily-manifest',laneManifest),observerManifest:resolveFleetDailyManifestReference(capacity.observerManifest,'observer-manifest',manifest)};
   if(!healthy)assert.equal(capacityDigest(capacity.observerManifest),capacityDigest(manifest),'recovery observer binding drift');
   assert.equal(capacityDigest(capacity.manifest),capacityDigest(laneManifest));
-  if(daily)capacity={...capacity,evidence:{...object(capacity.evidence),requests:resolveFleetDailyRequestLedger(object(capacity.evidence).requests,documents['transport-attempts'])}};
+  if(daily)capacity={...capacity,evidence:{...object(capacity.evidence),requests:resolveFleetDailyRequestLedger(object(capacity.evidence).requests,documents['transport-attempts']),queue:unpackFleetDailyQueue(object(capacity.evidence).queue)}};
   const evidence=object(capacity.evidence);assert.equal(evidence.manifestDigest,config.manifestDigest);
   assert.equal(capacityDigest(documents['transport-attempts']),capacityDigest(evidence.requests));
   const {evaluateCapacityEvidence,assertCapacityHttpEndpoint}=await import('./freshness-capacity-evidence');
@@ -1085,4 +1085,57 @@ export function packFleetDailyManifestReference(role:FleetDailyManifestRole,mani
 export function resolveFleetDailyManifestReference<T extends {digest:string}>(reference:unknown,expectedRole:FleetDailyManifestRole,rebuilt:T):T{
  const row=object(reference);keys(row,['kind','role','digest','sha256']);assert.equal(row.kind,'cp26-daily-manifest-reference-v1');assert(expectedRole==='daily-manifest'||expectedRole==='observer-manifest');assert.equal(row.role,expectedRole);
  for(const key of ['digest','sha256'])assert(typeof row[key]==='string'&&/^[a-f0-9]{64}$/u.test(row[key] as string));assert.equal(row.digest,rebuilt.digest,'deterministic manifest identity differs');assert.equal(row.sha256,capacityDigest(rebuilt),'deterministic manifest body differs');return rebuilt;
+}
+
+
+const FLEET_DAILY_QUEUE_POOLS=['requests','cycles','targets','configurations','outcomes'] as const;
+type FleetDailyQueuePool=typeof FLEET_DAILY_QUEUE_POOLS[number];
+type FleetDailyQueueRow={sha256:string;value:Record<string,unknown>};
+type FleetDailyQueueRefs={at:number;requests:number[];cycles:number[];configurations:[number,number,0|1][];outcomes:number[]};
+export type FleetDailyQueueLedger={kind:'cp26-daily-queue-ledger-v1';snapshotCount:number;sha256:string;pools:Record<FleetDailyQueuePool,FleetDailyQueueRow[]>;snapshots:FleetDailyQueueRefs[]};
+const fleetDailyQueueKeys=['at','requests','cycles','configurations','outcomes'];
+/** Daily-only complete row interning. Exact JSON row/property order and every snapshot are retained. */
+export function packFleetDailyQueue(snapshots:readonly import('./freshness-capacity-daily').DailyQueueSnapshot[]):FleetDailyQueueLedger{
+ assert(Array.isArray(snapshots)&&snapshots.length<=FLEET_EVIDENCE_LIMITS.maxRows);
+ const pools:FleetDailyQueueLedger['pools']={requests:[],cycles:[],targets:[],configurations:[],outcomes:[]};
+ const indices=Object.fromEntries(FLEET_DAILY_QUEUE_POOLS.map(key=>[key,new Map<string,number>()])) as Record<FleetDailyQueuePool,Map<string,number>>;
+ let rowBytes=0,rowCount=0;const digest=createHash('sha256');digest.update('[');
+ const put=(key:FleetDailyQueuePool,value:unknown)=>{object(value);assertJsonValue(value);const raw=JSON.stringify(value),sha256=hash(raw),prior=indices[key].get(sha256);
+  if(prior!==undefined){assert.equal(JSON.stringify(pools[key][prior].value),raw,'queue hash collision');return prior;}
+  rowBytes+=Buffer.byteLength(raw);assert(rowBytes<=FLEET_EVIDENCE_LIMITS.totalBytes&&++rowCount<=FLEET_EVIDENCE_LIMITS.maxRows,'daily queue pool exceeds bound');
+  const index=pools[key].length;pools[key].push({sha256,value:value as Record<string,unknown>});indices[key].set(sha256,index);return index;};
+ const refs=snapshots.map((row:import('./freshness-capacity-daily').DailyQueueSnapshot,index:number)=>{assert.deepEqual(Object.keys(row),fleetDailyQueueKeys,'queue snapshot property order changed');assertJsonValue(row);if(index)digest.update(',');digest.update(JSON.stringify(row));
+  return{at:row.at,requests:row.requests.map(value=>put('requests',value)),cycles:row.cycles.map(value=>put('cycles',value)),configurations:row.configurations.map(value=>{const pair=object(value);keys(pair,['target','configuration']);return[put('targets',pair.target),put('configurations',pair.configuration),Object.keys(pair)[0]==='target'?0:1]as[number,number,0|1];}),outcomes:row.outcomes.map(value=>put('outcomes',value))};});
+ digest.update(']');const ledger:FleetDailyQueueLedger={kind:'cp26-daily-queue-ledger-v1',snapshotCount:snapshots.length,sha256:digest.digest('hex'),pools,snapshots:refs};validateFleetDailyQueue(ledger);return ledger;
+}
+function validateFleetDailyQueue(value:unknown):{ledger:FleetDailyQueueLedger;raw:Record<FleetDailyQueuePool,string[]>}{
+ const envelope=object(value);keys(envelope,['kind','snapshotCount','sha256','pools','snapshots']);assert.equal(envelope.kind,'cp26-daily-queue-ledger-v1');
+ assert(typeof envelope.snapshotCount==='number');safeInteger(envelope.snapshotCount);assert(envelope.snapshotCount<=FLEET_EVIDENCE_LIMITS.maxRows);assert(typeof envelope.sha256==='string'&&/^[a-f0-9]{64}$/u.test(envelope.sha256));
+ assert(Array.isArray(envelope.snapshots)&&envelope.snapshots.length===envelope.snapshotCount);const poolObject=object(envelope.pools);keys(poolObject,[...FLEET_DAILY_QUEUE_POOLS]);
+ const raw:Record<FleetDailyQueuePool,string[]>={requests:[],cycles:[],targets:[],configurations:[],outcomes:[]},widths:Record<FleetDailyQueuePool,number[]>={requests:[],cycles:[],targets:[],configurations:[],outcomes:[]};
+ const used=Object.fromEntries(FLEET_DAILY_QUEUE_POOLS.map(key=>[key,new Set<number>()]))as Record<FleetDailyQueuePool,Set<number>>;let poolCount=0,poolBytes=0,refCount=0,expandedBytes=2;
+ for(const key of FLEET_DAILY_QUEUE_POOLS){const rows=poolObject[key];assert(Array.isArray(rows)&&rows.length<=FLEET_EVIDENCE_LIMITS.maxRows);const seen=new Set<string>();poolCount+=rows.length;assert(poolCount<=FLEET_EVIDENCE_LIMITS.maxRows);
+  for(const value of rows){const row=object(value);keys(row,['sha256','value']);assert(typeof row.sha256==='string'&&/^[a-f0-9]{64}$/u.test(row.sha256));object(row.value);assertJsonValue(row.value);const encoded=JSON.stringify(row.value),bytes=Buffer.byteLength(encoded);poolBytes+=bytes;assert(poolBytes<=FLEET_EVIDENCE_LIMITS.totalBytes,'daily queue pool exceeds decoded bound');assert.equal(hash(encoded),row.sha256,'daily queue row hash mismatch');assert(!seen.has(row.sha256),'duplicate daily queue pool row');seen.add(row.sha256);raw[key].push(encoded);widths[key].push(bytes);}
+ }
+ const ref=(key:FleetDailyQueuePool,index:unknown)=>{assert(typeof index==='number'&&Number.isSafeInteger(index)&&index>=0&&index<raw[key].length,'invalid daily queue reference');assert(++refCount<=FLEET_EVIDENCE_LIMITS.maxRows,'daily queue reference count exceeded');if(!used[key].has(index)){assert.equal(index,used[key].size,'daily queue pool first-use order');used[key].add(index);}return widths[key][index];};
+ for(let ordinal=0;ordinal<envelope.snapshots.length;ordinal++){const row=object(envelope.snapshots[ordinal]);assert.deepEqual(Object.keys(row),fleetDailyQueueKeys,'queue snapshot property order changed');assert(typeof row.at==='number'&&Number.isFinite(row.at)&&row.at>=0&&!Object.is(row.at,-0),'invalid original daily queue time');
+  let bytes=Buffer.byteLength(JSON.stringify({at:row.at,requests:[],cycles:[],configurations:[],outcomes:[]}));
+  for(const key of ['requests','cycles','outcomes']as const){const values=row[key];assert(Array.isArray(values)&&values.length<=FLEET_EVIDENCE_LIMITS.maxRows);bytes+=Math.max(0,values.length-1);for(const index of values)bytes+=ref(key,index);}
+  assert(Array.isArray(row.configurations)&&row.configurations.length<=FLEET_EVIDENCE_LIMITS.maxRows);bytes+=Math.max(0,row.configurations.length-1);
+  for(const pair of row.configurations){assert(Array.isArray(pair)&&pair.length===3,'daily queue configuration tuple must retain references and order');assert(pair[2]===0||pair[2]===1,'invalid daily queue configuration order');bytes+=Buffer.byteLength('{"target":,"configuration":}')+ref('targets',pair[0])+ref('configurations',pair[1]);}
+  expandedBytes+=bytes+(ordinal?1:0);assert(Number.isSafeInteger(expandedBytes)&&expandedBytes<=FLEET_EVIDENCE_LIMITS.totalBytes,'expanded daily queue exceeds decoded bound');
+ }
+ for(const key of FLEET_DAILY_QUEUE_POOLS)assert.equal(used[key].size,raw[key].length,'unused daily queue pool row');
+ // Only after complete reference/expansion validation hash the original queue; no giant expanded JSON allocation.
+ const ledger=envelope as unknown as FleetDailyQueueLedger,digest=createHash('sha256');digest.update('[');
+ const array=(key:FleetDailyQueuePool,refs:number[])=>{digest.update('[');refs.forEach((index,ordinal)=>{if(ordinal)digest.update(',');digest.update(raw[key][index]);});digest.update(']');};
+ ledger.snapshots.forEach((row,ordinal)=>{if(ordinal)digest.update(',');digest.update('{"at":'+JSON.stringify(row.at)+',"requests":');array('requests',row.requests);digest.update(',"cycles":');array('cycles',row.cycles);digest.update(',"configurations":[');row.configurations.forEach(([target,configuration,order],index)=>{if(index)digest.update(',');digest.update(order===0?'{"target":'+raw.targets[target]+',"configuration":'+raw.configurations[configuration]+'}':'{"configuration":'+raw.configurations[configuration]+',"target":'+raw.targets[target]+'}');});digest.update('],"outcomes":');array('outcomes',row.outcomes);digest.update('}');});
+ digest.update(']');assert.equal(digest.digest('hex'),ledger.sha256,'daily queue complete digest mismatch');return{ledger,raw};
+}
+export function unpackFleetDailyQueue(value:unknown):import('./freshness-capacity-daily').DailyQueueSnapshot[]{
+ const{ledger,raw}=validateFleetDailyQueue(value);
+ const freeze=(value:unknown):unknown=>{if(value&&typeof value==='object'){for(const nested of Object.values(value))freeze(nested);Object.freeze(value);}return value;};
+ // Clone each distinct row once; shared reconstructed rows are immutable and never modify verified raw documents.
+ const rows=Object.fromEntries(FLEET_DAILY_QUEUE_POOLS.map(key=>[key,raw[key].map(body=>freeze(JSON.parse(body)))]))as Record<FleetDailyQueuePool,import('./freshness-capacity-manifest').JsonValue[]>;
+ return ledger.snapshots.map(row=>({at:row.at,requests:row.requests.map(index=>rows.requests[index]),cycles:row.cycles.map(index=>rows.cycles[index]),configurations:row.configurations.map(([target,configuration,order])=>order===0?{target:rows.targets[target],configuration:rows.configurations[configuration]}:{configuration:rows.configurations[configuration],target:rows.targets[target]}),outcomes:row.outcomes.map(index=>rows.outcomes[index])}));
 }

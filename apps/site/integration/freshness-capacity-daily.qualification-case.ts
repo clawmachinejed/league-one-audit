@@ -12,7 +12,7 @@ import { qualificationBinding, qualificationDigest, type QualificationBinding } 
 import { runnerSnapshotQuery } from './runner-cycles-protocol';
 import { FLEET_DAILY_PROFILE, FLEET_DAILY_SUITE, FLEET_DAILY_TESTS, buildFleetDailyManifest,
   readFleetRawEvidenceDocuments, readFleetEvidenceDocuments, fleetDocumentRows, writeFleetEvidenceChunks,
-  resolveFleetDailyManifestReference, resolveFleetDailyRequestLedger, type FleetEvidenceInventory,
+  resolveFleetDailyManifestReference, resolveFleetDailyRequestLedger, unpackFleetDailyQueue, type FleetEvidenceInventory,
   type FleetEvidenceStream } from './freshness-capacity-profile';
 import { FLEET_VERSION, fleetEnvironment, fleetSupervisedWorkDeadline, parseFleetMessage, fleetStart, fleetEnd,
   type FleetAction, type FleetConfig, type FleetMessage } from './freshness-capacity-protocol';
@@ -170,12 +170,13 @@ describe.sequential(FLEET_DAILY_SUITE, () => {
   it(FLEET_DAILY_TESTS[1], () => guarded(1, async () => {
     assert(rawInventory); const raw = await readFleetRawEvidenceDocuments(rawDirectory, rawInventory);
     const capacity = raw['capacity-evidence'] as { manifest: unknown; observerManifest: unknown;
-      evidence: Omit<CapacityDailyEvidence, 'requests'> & { requests: unknown }; analysis: unknown };
+      evidence: Omit<CapacityDailyEvidence, 'requests' | 'queue'> & { requests: unknown; queue: unknown }; analysis: unknown };
     expect(rebuilt.fixture.digest).toBe(config.fixtureDigest); expect(rebuilt.dailyManifest.digest).toBe(config.manifestDigest);
     const manifest = resolveFleetDailyManifestReference(capacity.manifest, 'daily-manifest', rebuilt.dailyManifest);
     resolveFleetDailyManifestReference(capacity.observerManifest, 'observer-manifest', rebuilt.observerManifest);
     const evidence: CapacityDailyEvidence = { ...capacity.evidence,
-      requests: resolveFleetDailyRequestLedger(capacity.evidence.requests, raw['transport-attempts']) };
+      requests: resolveFleetDailyRequestLedger(capacity.evidence.requests, raw['transport-attempts']),
+      queue: unpackFleetDailyQueue(capacity.evidence.queue) };
     const analysis = evaluateCapacityDaily(manifest, evidence); expect(analysis.pass).toBe(true);
     expect(capacityDigest(capacity.analysis)).toBe(capacityDigest(analysis));
     const primary = raw['primary-coexistence'] as { calls: { action: string; failed: boolean; outcome: Record<string, unknown>; span: ReturnType<typeof fleetEnd> }[]; tankAttempts: unknown[]; jobs: Record<string, unknown>[] };

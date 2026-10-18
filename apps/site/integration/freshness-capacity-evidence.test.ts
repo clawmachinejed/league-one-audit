@@ -392,13 +392,18 @@ describe('declared outage and complete backlog recovery', () => {
     const { manifest, evidence } = outageFixture(); evidence.outage!.runnerRestoredAt += 600_000;
     expect(evaluateCapacityEvidence(manifest, evidence).outage?.recoveryMs).toBe('infinity');
   });
-  it('rejects a fake provider outage with successful GETs and an undeclared healthy exclusion', () => {
+  it('rejects a fake provider outage with successful GETs', () => {
     const { manifest, evidence } = outageFixture();
     const provider = manifest; // The prebound lane already declares this exact provider outage.
     evidence.manifestDigest = provider.digest;
     const successful = structuredClone(base.evidence.requests.attempts.find(row => row.endedAt >= start + 1_800_000 && row.endedAt < start + 3_600_000)!);
     successful.sequence = evidence.requests.attempts.length + 1; evidence.requests.attempts.push(successful); evidence.requests.ownerTotals[0].attempts++;
     expect(() => evaluateCapacityEvidence(provider, evidence)).toThrow(/successful provider HTTP attempt/);
+  });
+  it('rejects an undeclared healthy exclusion with successful GETs', () => {
+    const { evidence } = outageFixture();
+    const successful = structuredClone(base.evidence.requests.attempts.find(row => row.endedAt >= start + 1_800_000 && row.endedAt < start + 3_600_000)!);
+    successful.sequence = evidence.requests.attempts.length + 1; evidence.requests.attempts.push(successful); evidence.requests.ownerTotals[0].attempts++;
     evidence.manifestDigest = base.manifest.digest;
     expect(() => evaluateCapacityEvidence(base.manifest, evidence)).toThrow(/undeclared outage/);
   });
