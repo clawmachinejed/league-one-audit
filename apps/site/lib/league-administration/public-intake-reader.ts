@@ -127,6 +127,7 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
   if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(requestId)) throw new Error('Invalid public intake identity.');
   const requests = await client.query(`/* public-data-intake:read-request */
     SELECT request.id,request.username AS requested_username,request.seasons,request.revision,request.terminal,
+      to_jsonb(request)->>'resource_occurrence_id' AS selected_resource_occurrence_id,
       to_jsonb(request)->'exact_periods' AS selected_exact_periods,
       to_jsonb(request)->'period_inventory' AS selected_period_inventory,
       to_jsonb(request)->'playoff_brackets' AS selected_playoff_brackets,
@@ -142,7 +143,9 @@ export async function readPublicSleeperIntake(client: DatabaseClient, administra
     LEFT JOIN public.league_source_manager_accounts account ON account.id=identity.source_manager_account_id AND account.provider='sleeper'
     WHERE request.id=$1::uuid`, [requestId]);
   if (requests.length !== 1) return { status: 'missing' } as const;
-  const { selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, selected_draft_picks: selectedDraftPicks, selected_submission_capacity: submissionCapacity, ...storedHeader } = requests[0];
+  const { selected_resource_occurrence_id: resourceOccurrence, selected_exact_periods: selectedPeriods, selected_period_inventory: selectedInventory, selected_playoff_brackets: selectedBrackets, selected_weekly_reports: selectedReports, selected_transaction_period: selectedTransaction, selected_transaction_history: selectedTransactionHistory, selected_draft_picks: selectedDraftPicks, selected_submission_capacity: submissionCapacity, ...storedHeader } = requests[0];
+  // A scoped recurrence is not an ordinary username import, even when it inherits discovery provenance.
+  if (resourceOccurrence != null) return { status: 'missing' } as const;
   if (submissionCapacity !== null && submissionCapacity !== undefined
     && (submissionCapacity !== 'pending-request-limit' || storedHeader.terminal !== true
       || storedHeader.revision !== 0 || storedHeader.failure_count !== 0)) {

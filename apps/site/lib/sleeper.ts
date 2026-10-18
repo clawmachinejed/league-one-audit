@@ -1,6 +1,6 @@
 import 'server-only';
 import { readPublicCaptureJson } from './sleeper-public-response';
-import { publicCaptureForRequest, publicDraftCaptureForPayload, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
+import { publicCaptureBeforeRequest, publicDraftCaptureForPayload, sealPublicCapture, type PublicCaptureWitness } from './league-administration/public-capture-witness';
 
 import { cache } from 'react';
 import { PLAYER_CACHE_SECONDS } from './sleeper-player-cache-policy';
@@ -305,7 +305,7 @@ export function normalizeSleeperUserLeagues(rows: unknown, season: string, asses
  * redirects or implicit retry. Each invocation makes at most one upstream GET. */
 export async function capturePublicSleeperIdentity(username: string, signal: AbortSignal, witness?: PublicCaptureWitness) {
   if (!/^[a-zA-Z0-9_]{1,100}$/u.test(username)) throw new Error('Invalid Sleeper username.');
-  const acquisition = publicCaptureForRequest(witness, 'identity', username);
+  const acquisition = publicCaptureBeforeRequest(witness, 'identity', username);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(`/user/${encodeURIComponent(username)}`, 0, signal, { redirect: 'error', boundedPublicCapture: true });
   const requestCompletedAt = new Date().toISOString();
@@ -319,7 +319,7 @@ export async function capturePublicSleeperLeagueList(userId: string, season: num
   if (!/^[1-9]\d{0,31}$/u.test(userId) || !Number.isInteger(season) || season < 1920 || season > 2200) {
     throw new Error('Invalid discovery source.');
   }
-  const acquisition = publicCaptureForRequest(witness, 'leagues', userId, season);
+  const acquisition = publicCaptureBeforeRequest(witness, 'leagues', userId, season);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(`/user/${userId}/leagues/nfl/${season}`, 0, signal, { redirect: 'error', boundedPublicCapture: true });
   const requestCompletedAt = new Date().toISOString();
@@ -339,7 +339,7 @@ export async function capturePublicSleeperCore(leagueId: string, family: 'league
   if (family === 'matchups' || family === 'transactions' ? !Number.isInteger(nativeWeek) || Number(nativeWeek) < (family === 'transactions' ? 0 : 1) || Number(nativeWeek) > 18
     : !['league', 'rosters', 'users', 'winners_bracket', 'losers_bracket'].includes(family) || nativeWeek !== undefined) throw new Error('Invalid public capture period.');
   signal.throwIfAborted();
-  const acquisition = publicCaptureForRequest(witness, family, leagueId, nativeWeek ?? null);
+  const acquisition = publicCaptureBeforeRequest(witness, family, leagueId, nativeWeek ?? null);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson(administrationPath(leagueId, family, nativeWeek ?? null), 0, signal, { redirect: 'error', boundedPublicCapture: true });
   const requestCompletedAt = new Date().toISOString();
@@ -355,7 +355,7 @@ export async function capturePublicSleeperWeeklyReport(leagueId: string, nativeW
     throw new Error('Invalid Sleeper report identity.');
   }
   signal.throwIfAborted();
-  const acquisition = publicCaptureForRequest(witness, 'weekly_report', leagueId, nativeWeek);
+  const acquisition = publicCaptureBeforeRequest(witness, 'weekly_report', leagueId, nativeWeek);
   const requestStartedAt = new Date().toISOString();
   const payload = await fetchJson('/graphql', 0, signal, { redirect: 'error', boundedPublicCapture: true,
     weeklyReportKey: `${leagueId}_${nativeWeek}` });
@@ -1239,7 +1239,7 @@ function metadataDocument(family: AdministrationFamily, payload: unknown, starte
 
 async function collectPublicDraftEndpoint(leagueId: string, season: number,
   options: AdministrationMetadataOptions): Promise<AdministrationMetadataCollection> {
-  const witness = publicCaptureForRequest(options.publicDraft?.witness, 'drafts', leagueId);
+  const witness = publicCaptureBeforeRequest(options.publicDraft?.witness, 'drafts', leagueId);
   if (!witness || witness.work.kind !== 'drafts' || season !== 2026 || options.maxRequests !== 1
     || options.maxDrafts !== undefined || options.beforeDetail !== undefined) throw new Error('Invalid ordinary draft endpoint.');
   const work = witness.work;

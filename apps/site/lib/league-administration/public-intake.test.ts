@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep, type PublicIntakeDependencies } from './public-intake';
-import type { PublicDataRefreshStore } from './public-refresh-contracts';
-import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork } from './public-intake-contracts';
+import { runPublicDataBatch, runPublicDataRefreshStep, runPublicIntakeStep, runPublicPlayerDirectoryStep, type PublicIntakeDependencies } from './public-intake';
+import type { PublicDataRefreshStore, PublicDataResourceSelected, PublicDataResourceSelectionResult } from './public-refresh-contracts';
+import { validatePublicIntake, type PublicIntakeStore, type PublicIntakeWork, type PublicDataBatchOwner } from './public-intake-contracts';
 import { createLeagueAdministrationStore } from './store';
 import { readPublicSleeperIntake } from './public-intake-reader';
 import { capturePublicSleeperIdentity, capturePublicSleeperLeagueList, capturePublicSleeperCore } from '../sleeper';
@@ -32,7 +32,7 @@ function document(family: 'league' | 'rosters' | 'users'): CapturedAdministratio
       : [{ user_id: '55', display_name: 'Manager' }] };
 }
 function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' = 'core') {
-  let work: PublicIntakeWork | 'complete' = kind === 'identity' ? { requestId: id, revision: 0, kind, username: 'public_manager' }
+  let work: PublicIntakeWork | 'complete' | 'unavailable' = kind === 'identity' ? { requestId: id, revision: 0, kind, username: 'public_manager' }
     : kind === 'leagues' ? { requestId: id, revision: 1, kind, userId: '55', season: 2026 }
       : { requestId: id, revision: 2, kind, externalLeagueId: native, season: 2026 };
   const intake: PublicIntakeStore = { submit: vi.fn(), recover: vi.fn(async () => undefined), next: vi.fn(async () => work), admit: vi.fn(async () => true),
@@ -61,6 +61,317 @@ function fixture(kind: 'identity' | 'leagues' | 'bootstrap' | 'core' | 'users' =
       completeJob: vi.fn(async () => true), failJob: vi.fn(async () => true) } };
   return { dependencies, intake, administration, source, setWork: (value: typeof work) => { work = value; } };
 }
+
+describe('selected bounded DATA batches through the existing step path', () => {
+  const origin = Date.parse(time);
+  function batchFixture() {
+    const f = fixture('identity');
+    let elapsed = 0;
+    const owner = (workerId: string, generation: number): PublicDataBatchOwner => ({ kind: 'acquired',
+      fence: { jobKey: 'league-administration-public-intake', workerId, generation, deadlineAt: new Date(origin + 20_000).toISOString() },
+      leaseUntil: new Date(origin + 25_000).toISOString(), admissionDeadlineAt: new Date(origin + 10_000).toISOString(),
+      cleanupDeadlineAt: new Date(origin + 22_000).toISOString() });
+    const beginBatch = vi.fn<NonNullable<PublicIntakeStore['beginBatch']>>(async workerId => owner(workerId, 10));
+    const advanceBatch = vi.fn<NonNullable<PublicIntakeStore['advanceBatch']>>(async (fence, workerId) => owner(workerId, fence.generation + 1));
+    const intake = { ...f.intake, requireBatchCapability: vi.fn(async () => undefined), beginBatch, advanceBatch,
+      nextBatch: vi.fn(f.intake.next), admitBatch: vi.fn<NonNullable<PublicIntakeStore['admitBatch']>>(async () => ({ status: 'admitted' })),
+      recordLeagues: vi.fn(async () => { f.setWork('complete'); }) };
+    const dependencies = { ...f.dependencies, intake, now: () => new Date(origin + elapsed) };
+    return { ...f, intake, dependencies, setElapsed: (value: number) => { elapsed = value; },
+      run: () => runPublicDataBatch(id, dependencies, new AbortController().signal, origin) };
+  }
+  function scheduledFixture() {
+    const f = batchFixture();
+    const active: PublicDataResourceSelected = { status: 'selected', selectionId: mapping.connectionId, requestId: id,
+      lane: 'active', resourceId: mapping.leagueSeasonId, configurationRevision: 3 };
+    const history: PublicDataResourceSelected = { ...active, selectionId: mapping.revisionId, lane: 'history', resourceId: null, configurationRevision: null };
+    const selections: PublicDataResourceSelectionResult[] = [active, history, { status: 'idle' }];
+    let index = 0;
+    const refresh = { configure: vi.fn(), select: vi.fn(), recordSelectionFailure: vi.fn(),
+      selectResourceWork: vi.fn(async () => {
+        const selection = selections[index++];
+        f.setWork(index === 1 ? { requestId: id, revision: 2, kind: 'core', externalLeagueId: native, season: 2026 }
+          : { requestId: id, revision: 0, kind: 'identity', username: 'public_manager' });
+        return selection;
+      }), recordResourceSelectionFailure: vi.fn(async () => ({ status: 'recorded' as const })) };
+    const intake = { ...f.intake, requireResourceScheduleCapability: vi.fn(async () => undefined), beginResourceBatch: vi.fn(f.intake.beginBatch.getMockImplementation()!) };
+    const dependencies = { ...f.dependencies, intake, refresh, schedulingPolicy: 'public-data-resource-schedule-v1' as const };
+    return { ...f, intake, refresh, dependencies, active, history,
+      run: () => runPublicDataBatch(undefined, dependencies, new AbortController().signal, origin) };
+  }
+  it('uses SQL-selected active then history work through the same typed capture and checkpoint path', async () => {
+    const f = scheduledFixture();
+    expect(await f.run()).toEqual({ status: 'idle', providerRequests: 3, completedSteps: 2, stopReason: 'work-status' });
+    expect(f.intake.beginResourceBatch).toHaveBeenCalledExactlyOnceWith(expect.any(String), time);
+    expect(f.refresh.select).not.toHaveBeenCalled(); expect(f.intake.beginBatch).not.toHaveBeenCalled();
+    expect(f.intake.admit).not.toHaveBeenCalled();
+    expect(f.source.core.mock.calls.map(([, family]) => family)).toEqual(['league', 'rosters']);
+    expect(f.source.identity).toHaveBeenCalledOnce();
+    expect(f.intake.completeCore).toHaveBeenCalledWith(expect.objectContaining({ kind: 'core' }), mapping,
+      { observations: { league: 'observation-league', rosters: 'observation-rosters' },
+        receipts: { settings: 'settings-receipt', players: 'players-receipt', managers: 'managers-receipt' } }, expect.anything());
+    const fences = f.refresh.selectResourceWork.mock.calls.map(call => (call as unknown as [AdministrationWriteFence])[0]);
+    expect(fences.map(value => value.generation)).toEqual([10, 11, 12]);
+    expect(new Set(fences.map(value => value.workerId)).size).toBe(3);
+    expect(new Set(fences.map(value => value.deadlineAt))).toEqual(new Set([new Date(origin + 20000).toISOString()]));
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce();
+    // Source observation time comes from each capture; an occurrence itself supplies no new source timestamp.
+    const observation = f.administration.recordObservation.mock.calls[0][0];
+    expect(JSON.stringify(observation)).toContain(time);
+  });
+  it.each(['unsupported', 'missing-capability', 'missing-selection', 'fixed-request'] as const)(
+    'does no owner or source work for %s resource policy', async mode => {
+      const f = scheduledFixture();
+      const dependencies = { ...f.dependencies,
+        ...(mode === 'unsupported' ? { schedulingPolicy: 'future' as never } : {}),
+        ...(mode === 'missing-capability' ? { intake: { ...f.intake, requireResourceScheduleCapability: undefined } } : {}),
+        ...(mode === 'missing-selection' ? { refresh: { ...f.refresh, selectResourceWork: undefined } } : {}) };
+      expect(await runPublicDataBatch(mode === 'fixed-request' ? id : undefined, dependencies, new AbortController().signal, origin))
+        .toMatchObject({ status: 'unavailable', providerRequests: 0 });
+      expect(f.intake.beginResourceBatch).not.toHaveBeenCalled(); expect(f.intake.beginBatch).not.toHaveBeenCalled();
+      expect(f.source.core).not.toHaveBeenCalled(); expect(f.refresh.select).not.toHaveBeenCalled();
+    });
+  it.each(['intake', 'refresh', 'player-directory'] as const)('rejects an explicit resource policy on the legacy %s entrypoint', async mode => {
+    const f = scheduledFixture(); const signal = new AbortController().signal;
+    const result = await (mode === 'intake' ? runPublicIntakeStep(id, f.dependencies, signal)
+      : mode === 'refresh' ? runPublicDataRefreshStep(f.dependencies, signal) : runPublicPlayerDirectoryStep(f.dependencies, signal));
+    expect(result).toEqual({ status: 'unavailable', providerRequests: 0 });
+    expect(f.dependencies.jobs.acquireJob).not.toHaveBeenCalled(); expect(f.refresh.select).not.toHaveBeenCalled();
+    expect(f.source.core).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+  });
+  it('requires installed resource capability after the batch capability and before ownership', async () => {
+    const f = scheduledFixture(); f.intake.requireResourceScheduleCapability.mockRejectedValue(new Error('not installed'));
+    expect(await f.run()).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+    expect(f.intake.requireBatchCapability).toHaveBeenCalledOnce();
+    expect(f.intake.beginResourceBatch).not.toHaveBeenCalled(); expect(f.dependencies.jobs.failJob).not.toHaveBeenCalled();
+  });
+  it.each(['select', 'recover', 'admit'] as const)('reconciles %s failure using only the exact selected owner binding', async stage => {
+    const f = scheduledFixture();
+    if (stage === 'select') f.refresh.selectResourceWork.mockRejectedValue(new Error('ack lost'));
+    if (stage === 'recover') vi.mocked(f.intake.recover).mockRejectedValue(new Error('state unavailable'));
+    if (stage === 'admit') f.intake.admitBatch.mockRejectedValue(new Error('admission ack lost'));
+    expect(await f.run()).toMatchObject({ status: 'unavailable', providerRequests: 0, completedSteps: 0 });
+    expect(f.refresh.recordResourceSelectionFailure).toHaveBeenCalledExactlyOnceWith(stage === 'select' ? null : f.active,
+      expect.objectContaining({ generation: 10 }), stage === 'select' ? 'selection-failed' : stage === 'recover' ? 'request-state-failed' : 'admission-unconfirmed');
+    expect(f.refresh.recordSelectionFailure).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
+  });
+  it('stops a denied admission without fabricating source failure or completion', async () => {
+    const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValue({ status: 'denied' });
+    expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0, completedSteps: 0 });
+    expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled(); expect(f.intake.fail).not.toHaveBeenCalled();
+    expect(f.intake.completeCore).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce();
+  });
+  it('records an admitted source failure through the original task cleanup without a second selection failure', async () => {
+    const f = scheduledFixture(); f.source.core.mockRejectedValue(new Error('provider outage'));
+    expect(await f.run()).toMatchObject({ status: 'unavailable', providerRequests: 2, completedSteps: 0 });
+    expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled(); expect(f.intake.fail).toHaveBeenCalledOnce();
+    expect(f.intake.completeCore).not.toHaveBeenCalled(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
+  });
+  it.each(['complete', 'unavailable'] as const)('settles an already terminal %s occurrence without a new capture', async status => {
+    const f = scheduledFixture(); f.intake.nextBatch.mockResolvedValue(status);
+    expect(await f.run()).toMatchObject({ status, providerRequests: 0, completedSteps: 0, stopReason: 'work-status' });
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce(); expect(f.source.core).not.toHaveBeenCalled();
+    expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled();
+  });
+  it.each(['idle', 'backoff', 'capacity'] as const)('settles selection %s without task or source work', async status => {
+    const f = scheduledFixture(); f.refresh.selectResourceWork.mockResolvedValue({ status });
+    expect(await f.run()).toMatchObject({ status, providerRequests: 0, completedSteps: 0 });
+    expect(f.intake.recover).not.toHaveBeenCalled(); expect(f.intake.admitBatch).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledOnce();
+  });
+  it('fully drains paired captures before rotation and never selects history past the original admission fence', async () => {
+    const f = scheduledFixture(); const core = f.source.core.getMockImplementation()!;
+    let finish!: () => void; const pending = new Promise<void>(resolve => { finish = resolve; });
+    f.source.core.mockImplementation(async (leagueId, family) => { if (family === 'rosters') await pending; return core(leagueId, family); });
+    const running = f.run(); await vi.waitFor(() => expect(f.source.core).toHaveBeenCalledTimes(2));
+    expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.refresh.selectResourceWork).toHaveBeenCalledOnce();
+    f.setElapsed(10001); finish();
+    expect(await running).toMatchObject({ status: 'progress', completedSteps: 1, stopReason: 'admission-deadline' });
+    expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+    expect(f.intake.completeCore).toHaveBeenCalledOnce();
+  });
+  it('commits successive existing steps under distinct owners and one unchanged deadline, then releases once', async () => {
+    const f = batchFixture();
+    expect(await f.run()).toEqual({ status: 'complete', providerRequests: 2, completedSteps: 2, stopReason: 'work-status' });
+    expect(f.dependencies.jobs.acquireJob).not.toHaveBeenCalled();
+    expect(f.intake.beginBatch).toHaveBeenCalledExactlyOnceWith(expect.any(String), time, id);
+    expect(f.intake.advanceBatch).toHaveBeenCalledTimes(2);
+    const first = f.intake.advanceBatch.mock.calls[0][0];
+    const second = f.intake.advanceBatch.mock.calls[1][0];
+    expect(second.generation).toBe(first.generation + 1);
+    expect(second.workerId).not.toBe(first.workerId);
+    expect(second.deadlineAt).toBe(first.deadlineAt);
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledTimes(1);
+    expect(f.intake.admit).not.toHaveBeenCalled();
+    expect(f.intake.admitBatch).toHaveBeenCalledTimes(2);
+  });
+  it.each(['busy', 'deadline'] as const)('does no source work when the first owner is %s', async kind => {
+    const f = batchFixture(); f.intake.beginBatch.mockResolvedValue({ kind });
+    expect(await f.run()).toMatchObject({ status: kind, providerRequests: 0, completedSteps: 0 });
+    expect(f.intake.nextBatch).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.completeJob).not.toHaveBeenCalled();
+  });
+  it('fails closed before ownership when the versioned SQL capability is unavailable', async () => {
+    const f = batchFixture(); f.intake.requireBatchCapability.mockRejectedValue(new Error('R058 absent'));
+    expect(await f.run()).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+    expect(f.intake.beginBatch).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+  });
+  it('does not replace a missing batch method with a legacy admission', async () => {
+    const f = batchFixture();
+    expect(await runPublicDataBatch(id, { ...f.dependencies, intake: { ...f.intake, admitBatch: undefined } },
+      new AbortController().signal, origin)).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+    expect(f.intake.beginBatch).not.toHaveBeenCalled(); expect(f.intake.admit).not.toHaveBeenCalled();
+  });
+  it('finishes the already admitted step but starts no successor after the original admission deadline', async () => {
+    const f = batchFixture();
+    const identity = f.source.identity.getMockImplementation()!;
+    f.source.identity.mockImplementation(async () => { f.setElapsed(10_001); return identity(); });
+    expect(await f.run()).toEqual({ status: 'progress', providerRequests: 1, completedSteps: 1, stopReason: 'admission-deadline' });
+    expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.source.leagues).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledTimes(1);
+  });
+  it('stops without any HTTP when atomic request admission is denied', async () => {
+    const f = batchFixture(); f.intake.admitBatch.mockResolvedValue({ status: 'denied' });
+    expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0, completedSteps: 0 });
+    expect(f.source.identity).not.toHaveBeenCalled(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
+  });
+  const budgetBackoff = (retryAfterMs: number) => ({ status: 'budget-backoff' as const,
+    // Deliberate server/client skew: only the SQL relative delay controls waiting.
+    serverNow: '2099-01-01T00:00:00.000Z', retryAt: new Date(Date.parse('2099-01-01T00:00:00.000Z') + retryAfterMs).toISOString(), retryAfterMs });
+  it('waits once and rechecks the exact selected work/fence without renewing the original bounds', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(500));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.source.identity).not.toHaveBeenCalled();
+      f.setElapsed(499); await vi.advanceTimersByTimeAsync(499);
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce();
+      f.setElapsed(500); await vi.advanceTimersByTimeAsync(1);
+      expect(await running).toMatchObject({ status: 'complete', providerRequests: 2, completedSteps: 2 });
+      expect(f.intake.admitBatch.mock.calls[1]).toEqual(f.intake.admitBatch.mock.calls[0]);
+      expect(f.intake.nextBatch).toHaveBeenCalledTimes(3); expect(f.intake.recover).toHaveBeenCalledTimes(3);
+      expect(f.intake.admitBatch.mock.calls.every(([, bound]) => bound.deadlineAt === new Date(origin + 20_000).toISOString())).toBe(true);
+      expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('permits a separate single wait for a later selected work item within the same original window', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(100))
+        .mockResolvedValueOnce({ status: 'admitted' }).mockResolvedValueOnce(budgetBackoff(200));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(100); await vi.advanceTimersByTimeAsync(100);
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(3);
+      f.setElapsed(300); await vi.advanceTimersByTimeAsync(200);
+      expect(await running).toMatchObject({ status: 'complete', completedSteps: 2 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(4);
+      expect(f.intake.admitBatch.mock.calls[3]).toEqual(f.intake.admitBatch.mock.calls[2]);
+      expect(f.intake.admitBatch.mock.calls[2][1].generation).toBe(11);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['budget-backoff', 'denied', 'deadline'] as const)('does not repeat a wait after a %s recheck or fabricate task failure', async status => {
+    vi.useFakeTimers();
+    try {
+      const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(200))
+        .mockResolvedValueOnce(status === 'budget-backoff' ? budgetBackoff(200) : { status });
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(200); await vi.advanceTimersByTimeAsync(200);
+      expect(await running).toMatchObject({ status: status === 'deadline' ? 'deadline' : 'backoff', providerRequests: 0, completedSteps: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+      expect(f.refresh.selectResourceWork).toHaveBeenCalledOnce(); expect(f.intake.nextBatch).toHaveBeenCalledOnce();
+      expect(f.intake.fail).not.toHaveBeenCalled(); expect(f.refresh.recordResourceSelectionFailure).not.toHaveBeenCalled();
+      expect(f.intake.advanceBatch).not.toHaveBeenCalled(); expect(f.source.core).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it.each([10_000, 3_620_000])('does not start a wait of %ims that cannot fit the original admission window', async milliseconds => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValue(budgetBackoff(milliseconds));
+      expect(await f.run()).toMatchObject({ status: 'backoff', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
+      expect(f.source.identity).not.toHaveBeenCalled(); expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it('checks the original deadline again after a late timer without rechecking admission', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(100));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(10_000); await vi.advanceTimersByTimeAsync(100);
+      expect(await running).toMatchObject({ status: 'deadline', stopReason: 'admission-deadline', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.intake.fail).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(['phase', 'work'] as const)('cancels a budget wait on %s abort without a second SQL admission or task failure', async aborted => {
+    vi.useFakeTimers();
+    try {
+      const f = batchFixture(), phase = new AbortController(), workSignal = new AbortController();
+      f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(500));
+      const running = runPublicDataBatch(id, { ...f.dependencies, preAdmission: { signal: phase.signal,
+        intake: f.intake, jobs: f.dependencies.jobs, refresh: {} as PublicDataRefreshStore,
+        cleanup: () => ({ intake: f.intake, jobs: f.dependencies.jobs }) } }, workSignal.signal, origin);
+      await vi.advanceTimersByTimeAsync(0); (aborted === 'phase' ? phase : workSignal).abort();
+      expect(await running).toMatchObject({ status: aborted === 'phase' ? 'deadline' : 'unavailable', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledOnce(); expect(f.source.identity).not.toHaveBeenCalled();
+      expect(f.intake.fail).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it('does not retry an unknown acknowledgment from the one permitted recheck', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = scheduledFixture(); f.intake.admitBatch.mockResolvedValueOnce(budgetBackoff(50)).mockRejectedValueOnce(new Error('acknowledgment lost'));
+      const running = f.run(); await vi.advanceTimersByTimeAsync(0);
+      f.setElapsed(50); await vi.advanceTimersByTimeAsync(50);
+      expect(await running).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+      expect(f.intake.admitBatch).toHaveBeenCalledTimes(2); expect(f.source.core).not.toHaveBeenCalled();
+      expect(f.refresh.recordResourceSelectionFailure).toHaveBeenCalledExactlyOnceWith(f.active,
+        expect.objectContaining({ generation: 10 }), 'admission-unconfirmed');
+    } finally { vi.useRealTimers(); }
+  });
+  it('preserves completed-step accounting and stops on a later provider failure', async () => {
+    const f = batchFixture(); f.source.leagues.mockRejectedValue(new Error('provider unavailable'));
+    expect(await f.run()).toEqual({ status: 'unavailable', providerRequests: 2, completedSteps: 1, stopReason: 'failed' });
+    expect(f.intake.advanceBatch).toHaveBeenCalledTimes(1);
+    expect(f.intake.fail).toHaveBeenCalledTimes(1);
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledTimes(1);
+    expect(f.dependencies.jobs.completeJob).not.toHaveBeenCalled();
+  });
+  it('never continues after an unknown advancement acknowledgment and cleans up only the known old owner', async () => {
+    const f = batchFixture(); f.intake.advanceBatch.mockRejectedValue(new Error('unknown acknowledgment'));
+    expect(await f.run()).toMatchObject({ status: 'unavailable', providerRequests: 1, completedSteps: 1 });
+    expect(f.source.leagues).not.toHaveBeenCalled();
+    const [oldFence, successor] = f.intake.advanceBatch.mock.calls[0];
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledExactlyOnceWith('league-administration-public-intake', oldFence.workerId,
+      'public-data-batch-failed');
+    expect(successor).not.toBe(oldFence.workerId);
+  });
+  it('releases a claimed owner when the intake was already terminal and unavailable', async () => {
+    const f = batchFixture(); f.setWork('unavailable');
+    expect(await f.run()).toEqual({ status: 'unavailable', providerRequests: 0, completedSteps: 0, stopReason: 'work-status' });
+    expect(f.dependencies.jobs.completeJob).toHaveBeenCalledTimes(1);
+    expect(f.dependencies.jobs.failJob).not.toHaveBeenCalled();
+    expect(f.source.identity).not.toHaveBeenCalled(); expect(f.intake.advanceBatch).not.toHaveBeenCalled();
+  });
+  it('stops before capability work if setup consumed the original entry window', async () => {
+    const f = batchFixture(); f.setElapsed(5_001);
+    expect(await f.run()).toMatchObject({ status: 'deadline', providerRequests: 0 });
+    expect(f.intake.requireBatchCapability).not.toHaveBeenCalled();
+  });
+  it('keeps direct selection on the admission client and never falls back after that phase aborts', async () => {
+    const f = batchFixture(), phase = new AbortController();
+    const nextBatch = vi.fn(async () => { phase.abort(); phase.signal.throwIfAborted(); return 'complete' as const; });
+    const phaseIntake = { ...f.intake, nextBatch };
+    expect(await runPublicDataBatch(id, { ...f.dependencies, preAdmission: { signal: phase.signal,
+      intake: phaseIntake, jobs: f.dependencies.jobs, refresh: {} as PublicDataRefreshStore,
+      cleanup: () => ({ intake: f.intake, jobs: f.dependencies.jobs }) } },
+    new AbortController().signal, origin)).toMatchObject({ status: 'unavailable', providerRequests: 0 });
+    expect(nextBatch).toHaveBeenCalledOnce(); expect(f.intake.nextBatch).not.toHaveBeenCalled();
+    expect(f.intake.admitBatch).not.toHaveBeenCalled(); expect(f.source.identity).not.toHaveBeenCalled();
+    expect(f.dependencies.jobs.failJob).toHaveBeenCalledOnce();
+  });
+});
 
 describe('public official data intake through the existing worker/writer', () => {
   it('waits for every reservation and the exact DB witness before starting either core HTTP request', async () => {

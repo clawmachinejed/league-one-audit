@@ -2,6 +2,21 @@ import type { AdministrationWriteFence } from './store-contracts';
 import { normalizePublicTransactionHistory, type PublicTransactionHistory, normalizePublicDraftPicks, type PublicDraftPicks } from './public-intake-contracts';
 import { normalizePublicWeeklyReports, normalizePublicExactPeriods, normalizePublicPeriodInventory, normalizePublicPlayoffBrackets, type PublicPlayoffBrackets, type PublicPeriodInventory, type PublicExactPeriod, type PublicIntakeOutcome } from './public-intake-contracts';
 
+export const PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY = 'public-data-resource-schedule-v1' as const;
+export type PublicDataResourceSchedulingPolicy = typeof PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY;
+/** Declaration under an existing approval revision; it grants no separate collection authority. */
+export type PublicDataResourceScheduleConfiguration = Readonly<{
+  targetId: string; expectedRevision: number;
+  activePeriods: readonly Readonly<{ season: 2026; externalLeagueId: string; nativeWeek: number }>[];
+}>;
+export type PublicDataResourceScheduleConfigured = Readonly<{ targetId: string; configurationRevision: number }>;
+export type PublicDataResourceSelected = Readonly<{
+  status: 'selected'; selectionId: string; requestId: string; lane: 'active' | 'history';
+  resourceId: string | null; configurationRevision: number | null;
+}>;
+export type PublicDataResourceSelectionResult = PublicDataResourceSelected
+  | Exclude<PublicDataRefreshSelectionResult, PublicDataRefreshSelected>;
+
 export type PublicDataRefreshConfiguration = Readonly<{
   id: string; expectedRevision: number; identityRequestId: string; seasons: readonly number[];
   cadenceSeconds: number; expiresAt: string; paused: boolean; exactPeriods?: readonly PublicExactPeriod[]; periodInventory?: PublicPeriodInventory; playoffBrackets?: PublicPlayoffBrackets; weeklyReports?: readonly PublicExactPeriod[]; transactionHistory?: PublicTransactionHistory;
@@ -21,6 +36,10 @@ export type PublicDataRefreshFailureResult = Readonly<{
   status: 'recorded' | 'already-recorded' | 'admitted' | 'unbound' | 'superseded'; retryAt?: string | null;
 }>;
 export type PublicDataRefreshStore = Readonly<{
+  configureResourceSchedule?: (input: PublicDataResourceScheduleConfiguration) => Promise<PublicDataResourceScheduleConfigured>;
+  selectResourceWork?: (fence: AdministrationWriteFence) => Promise<PublicDataResourceSelectionResult>;
+  recordResourceSelectionFailure?: (selection: PublicDataResourceSelected | null, fence: AdministrationWriteFence,
+    reason: PublicDataRefreshSelectionFailure) => Promise<PublicDataRefreshFailureResult>;
   configure: (input: PublicDataRefreshConfiguration) => Promise<PublicDataRefreshConfigured>;
   select: (fence: AdministrationWriteFence) => Promise<PublicDataRefreshSelectionResult>;
   /** Null reconciles only this worker/generation's persisted selection after an unknown acknowledgment. */
@@ -36,6 +55,30 @@ export function refreshUuid(value: unknown): value is string {
 export function refreshOrdinal(value: unknown, minimum = 1): value is number {
   return Number.isSafeInteger(value) && Number(value) >= minimum;
 }
+export function validatePublicDataResourceSchedule(input: PublicDataResourceScheduleConfiguration): PublicDataResourceScheduleConfiguration {
+  if (!input || typeof input !== 'object' || Array.isArray(input)
+    || Object.keys(input).sort().join('|') !== 'activePeriods|expectedRevision|targetId'
+    || !refreshUuid(input.targetId) || !refreshOrdinal(input.expectedRevision)
+    || !Array.isArray(input.activePeriods) || input.activePeriods.length > 20) {
+    throw new Error('Invalid public DATA resource schedule.');
+  }
+  const periods = input.activePeriods.map(period => {
+    if (!period || typeof period !== 'object' || Array.isArray(period)
+      || Object.keys(period).sort().join('|') !== 'externalLeagueId|nativeWeek|season'
+      || period.season !== 2026 || typeof period.externalLeagueId !== 'string'
+      || !/^[1-9][0-9]{0,31}$/u.test(period.externalLeagueId)
+      || !Number.isInteger(period.nativeWeek) || period.nativeWeek < 1 || period.nativeWeek > 18) {
+      throw new Error('Invalid public DATA active period.');
+    }
+    return { season: 2026 as const, externalLeagueId: period.externalLeagueId, nativeWeek: period.nativeWeek };
+  });
+  if (new Set(periods.map(period => period.season + ':' + period.externalLeagueId)).size !== periods.length) {
+    throw new Error('Duplicate public DATA active league.');
+  }
+  return { targetId: input.targetId.toLowerCase(), expectedRevision: input.expectedRevision,
+    activePeriods: periods.sort((left, right) => left.externalLeagueId.localeCompare(right.externalLeagueId)) };
+}
+
 export function validatePublicDataRefresh(input: PublicDataRefreshConfiguration, now = new Date()): PublicDataRefreshConfiguration {
   if (!input || typeof input !== 'object') throw new Error('Invalid public DATA refresh configuration.');
   const expiry = typeof input.expiresAt === 'string' ? Date.parse(input.expiresAt) : NaN;

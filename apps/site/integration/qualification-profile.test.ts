@@ -2,16 +2,21 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import { afterEach, expect, it } from 'vitest';
+import { BATCH_EVIDENCE_FILE, BATCH_CASE_NAMES, BATCH_CASE_LIMITS } from './batch-calibration-evidence';
+import { BATCH_CALIBRATION_PROFILE, BATCH_CALIBRATION_MODULE, BATCH_CALIBRATION_SOURCE_DIGEST, BATCH_CALIBRATION_SUITE,
+  BATCH_CALIBRATION_FULL_NAMES, BATCH_CALIBRATION_PATTERN, BATCH_CALIBRATION_SUPPORT_SOURCES, assertBatchCalibrationSupportSources } from './qualification-profile';
 import { RUNNER_CYCLES_EVIDENCE_FILE, RUNNER_CYCLES_LIMITS, RUNNER_CYCLES_ORACLES,
   writeRunnerCyclesEvidence, type RunnerCyclesEvidence, type RunnerInvocation } from './runner-cycles-evidence';
 import { createQualificationContext, markQualificationFailure, parseQualificationArguments, qualificationArguments,
   qualificationBinding, qualificationCleanup, qualificationDigest, qualificationSourceDigest, QUALIFICATION_CONTEXT_ENV,
   QUALIFICATION_FILES, INGESTION_PROFILE, INGESTION_FULL_NAME, INGESTION_PATTERN, SELECTED_SOURCE_DIGEST, SELECTED_FULL_NAME, SELECTED_INVENTORY, SELECTED_MODULE, SELECTED_PATTERN, SELECTED_PROFILE,
-  validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact,
+  validateQualificationArtifacts, validateQualificationReport, writeQualificationArtifact, assertBatchCalibrationCaseOrder,
   LIVE_PROFILE, LIVE_MODULE, LIVE_FULL_NAME, LIVE_PATTERN, LIVE_SOURCE_DIGEST, qualificationIncludes, requireLiveQualification,
   JOURNEY_PROFILE, JOURNEY_MODULE, JOURNEY_FULL_NAME, JOURNEY_PATTERN, JOURNEY_SOURCE_DIGEST, requireJourneyQualification,
   OFFICIAL_PROFILE, OFFICIAL_FULL_NAMES, OFFICIAL_PATTERN, GUARDS_PROFILE, GUARDS_FULL_NAMES, GUARDS_PATTERN,
@@ -2528,7 +2533,7 @@ it('independently inventories draft metadata source hooks budgets and manual wor
   expect(8 * 60_000 + 2 * 120_000).toBe(720_000);
   expect(30 * 60_000 - 720_000).toBe(1_080_000);
   const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   expect(workflow.match(/^\s+- data-draft-metadata-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-draft-metadata-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-draft-metadata-v1$/gmu)).toHaveLength(1);
@@ -2641,7 +2646,7 @@ it('independently inventories draft selections source hooks budgets and manual w
   expect(8 * 60_000 + 2 * 120_000).toBe(720_000);
   expect(720_000 + 8 * 60_000 + 3 * 60_000 + 7 * 60_000).toBe(30 * 60_000);
   const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   expect(workflow.match(/^\s+- data-draft-selections-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-draft-selections-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-draft-selections-v1$/gmu)).toHaveLength(1);
@@ -2758,7 +2763,7 @@ it('independently inventories traded picks source hooks budgets and manual workf
   expect(7 * 60_000 + 2 * 120_000).toBe(660_000);
   expect(660_000 + 8 * 60_000 + 3 * 60_000 + 8 * 60_000).toBe(30 * 60_000);
   const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   expect(workflow.match(/^\s+- data-traded-picks-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-traded-picks-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-traded-picks-v1$/gmu)).toHaveLength(1);
@@ -2991,7 +2996,7 @@ it('independently inventories CP20 source names hooks allowance and fixed manual
   expect(workflow.match(/^\s+- data-within-season-history-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-within-season-history-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-within-season-history-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   for (const selection of [...historyProfiles, ...draftIntakeProfiles])
     expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
@@ -3097,7 +3102,7 @@ it('independently inventories CP21 source names hooks allowance and fixed manual
   expect(workflow.match(/^\s+- data-fresh-install-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-fresh-install-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-fresh-install-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   for (const selection of [...historyProfiles, ...draftIntakeProfiles])
     expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
@@ -3206,7 +3211,7 @@ it('independently inventories CP22 source names hooks allowance and fixed manual
   expect(workflow.match(/^\s+- data-process-recovery-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-process-recovery-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-process-recovery-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   for (const selection of [...historyProfiles, ...draftIntakeProfiles])
     expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
@@ -3403,7 +3408,7 @@ it('independently inventories CP23 source names hooks allowance and fixed manual
   expect(workflow.match(/^\s+- data-competing-workers-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-competing-workers-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-competing-workers-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   for (const selection of [...historyProfiles, ...draftIntakeProfiles])
     expect(qualificationSourceDigest(await readFile(new URL('../' + selection.module, import.meta.url), 'utf8'))).toBe(selection.digest);
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
@@ -3692,7 +3697,7 @@ it('independently inventories CP24 frozen source order hooks budget and manual w
   expect(workflow.match(/^\s+- data-backend-controls-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-backend-controls-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-backend-controls-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
   expect(full.modules).toHaveLength(70);
   expect(full.modules.some(module => module.path === BACKEND_CONTROLS_MODULE)).toBe(false);
@@ -3797,8 +3802,13 @@ async function runnerCyclesFixture(): Promise<{
   binding: QualificationBinding; evidence: QualificationReport; companion: RunnerCyclesEvidence;
 }> {
   const previous = await officialResultsEvidenceFixture();
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)),
-    'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
+  // Historical report-oracle fixture only: current runtime deliberately differs
+  // from CP25's immutable source pins. This never validates the current checkout.
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: RUNNER_CYCLES_PROFILE, modules: [{ path: RUNNER_CYCLES_MODULE, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: RUNNER_CYCLES_PROFILE,
+      module: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST,
+      inventory: RUNNER_CYCLES_FULL_NAMES, supportSources: RUNNER_CYCLES_SUPPORT_SOURCES }) };
   const evidence = structuredClone(previous.evidence);
   evidence.contextDigest = qualificationDigest(context);
   evidence.specifications = [{ path: RUNNER_CYCLES_MODULE, pattern: RUNNER_CYCLES_PATTERN, otherFilters: false }];
@@ -4059,7 +4069,7 @@ it('independently inventories CP25 exact source names hooks budgets and manual w
   expect(workflow.match(/^\s+- data-runner-cycles-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-runner-cycles-v1\)$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+pnpm test:integration --profile=data-runner-cycles-v1$/gmu)).toHaveLength(1);
-  expect(workflow).toContain('timeout-minutes: 50');
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
   expect(full.modules).toHaveLength(70); expect(full.modules.some(module => module.path === RUNNER_CYCLES_MODULE)).toBe(false);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
@@ -4078,28 +4088,263 @@ it('binds every CP25 support source independently without changing historical so
     'lib/projections/adapters/neon/jobs.ts',
     'lib/league-administration/registry.ts', 'lib/league-administration/neon/enrollment.ts',
   ]);
-  await expect(assertRunnerCyclesSupportSources(siteRoot)).resolves.toBeUndefined();
-  const directory = await mkdtemp(join(tmpdir(), 'runner-cycles-support-')); directories.push(directory);
-  await mkdir(join(directory, 'integration'));
-  await writeFile(join(directory, RUNNER_CYCLES_MODULE), await readFile(new URL('../' + RUNNER_CYCLES_MODULE, import.meta.url), 'utf8'));
-  await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow();
+  // CP26 changes the runtime; historical success remains bound to historical bytes.
+  await expect(assertRunnerCyclesSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const changed = [];
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
-    await mkdir(dirname(join(directory, entry.path)), { recursive: true });
-    await writeFile(join(directory, entry.path), await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+    if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE);
-  expect(context.modules).toEqual([{ path: RUNNER_CYCLES_MODULE, sourceDigest: RUNNER_CYCLES_SOURCE_DIGEST }]);
-  for (const path of [RUNNER_CYCLES_MODULE, ...RUNNER_CYCLES_SUPPORT_SOURCES.map(entry => entry.path)]) {
-    const original = await readFile(join(directory, path), 'utf8');
-    await writeFile(join(directory, path), original + '\n// unreviewed CP25 source drift\n');
-    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
-    if (path !== RUNNER_CYCLES_MODULE) await expect(assertRunnerCyclesSupportSources(directory)).rejects.toThrow('reviewed LF digest');
-    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
-    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE))
-      .resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
-    await writeFile(join(directory, path), original);
-  }
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'lib/projections/runtime/projection-dispatch.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
+});
+
+async function batchCalibrationReportFixture() {
+  const previous = await officialResultsEvidenceFixture();
+  // Historical report-oracle fixture only. The resource scheduler intentionally
+  // changes pinned runtime bytes; this is never a current-source qualification.
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: BATCH_CALIBRATION_PROFILE, modules: [{ path: BATCH_CALIBRATION_MODULE, sourceDigest: BATCH_CALIBRATION_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: BATCH_CALIBRATION_PROFILE,
+      module: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, sourceDigest: BATCH_CALIBRATION_SOURCE_DIGEST,
+      inventory: BATCH_CALIBRATION_FULL_NAMES, supportSources: BATCH_CALIBRATION_SUPPORT_SOURCES }) };
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: BATCH_CALIBRATION_MODULE, pattern: BATCH_CALIBRATION_PATTERN, otherFilters: false }];
+  evidence.collected = [BATCH_CALIBRATION_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: BATCH_CALIBRATION_MODULE,
+    suites: [{ id: 'suite', name: BATCH_CALIBRATION_SUITE, mode: 'run', errors: 0 }],
+    cases: BATCH_CALIBRATION_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0], id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+it('CP26 calibration selects only its three closed cases and one protected manual workflow arm', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  expect(parseQualificationArguments(['--profile=' + BATCH_CALIBRATION_PROFILE])).toBe(BATCH_CALIBRATION_PROFILE);
+  expect(qualificationArguments(BATCH_CALIBRATION_PROFILE, '/reporter')).toEqual(['--reporter', 'verbose', '--reporter', '/reporter', BATCH_CALIBRATION_MODULE, '--testNamePattern', BATCH_CALIBRATION_PATTERN]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([BATCH_CALIBRATION_MODULE]);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70); expect(full.modules.some(row => row.path === BATCH_CALIBRATION_MODULE)).toBe(false);
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-batch-calibration-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-batch-calibration-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-batch-calibration-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}"); expect(workflow).toContain('cancel-in-progress: false');
+  for (const extra of ['--retry=1', '--repeat=2', '--testNamePattern=one', BATCH_CALIBRATION_MODULE])
+    expect(() => parseQualificationArguments(['--profile=' + BATCH_CALIBRATION_PROFILE, extra])).toThrow();
+});
+it('CP26 calibration rejects missing reordered repeated skipped and errored cases', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  for (const mutate of [
+    (row: QualificationReport) => { row.modules[0].cases.pop(); },
+    (row: QualificationReport) => { row.modules[0].cases.reverse(); },
+    (row: QualificationReport) => { row.modules[0].cases[1].diagnostic!.startTime = row.modules[0].cases[0].diagnostic!.startTime - 1; },
+    (row: QualificationReport) => { row.modules[0].cases[0].diagnostic!.retryCount = 1; },
+    (row: QualificationReport) => { row.modules[0].cases[0].state = 'skipped'; },
+    (row: QualificationReport) => { row.hooks.pop(); },
+  ]) { const changed = structuredClone(evidence); mutate(changed); expect(() => validateQualificationReport(binding.context, changed)).toThrow(); }
+});
+it('CP26 calibration keeps Vitest wall starts separate from fractional monotonic durations', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  // Exact diagnostics from failed hosted run 38971925652; its original status remains failed.
+  const observed = [[1792187437246, 354.35534199999984], [1792187437600, 2095.4420159999995],
+    [1792187439696, 954.8459750000002]];
+  for (const [index, [startTime, duration]] of observed.entries()) {
+    Object.assign(evidence.modules[0].cases[index].diagnostic!, { startTime, duration });
+  }
+  const [first, second] = evidence.modules[0].cases.map(row => row.diagnostic!);
+  expect(second.startTime).toBeLessThan(first.startTime + first.duration);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  // Equal millisecond wall starts do not establish overlap; the companion's precise spans decide it.
+  second.startTime = first.startTime;
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  second.startTime = first.startTime - 1;
+  expect(() => validateQualificationReport(binding.context, evidence)).toThrow('chronological source order');
+});
+it('CP26 calibration requires exact companion monotonic nonoverlap without relaxing any case limit', () => {
+  const cases = BATCH_CASE_NAMES.map((name, index) => ({ name, limitMs: BATCH_CASE_LIMITS[index], state: 'passed' as const,
+    span: { startedAt: '2026-10-16T00:00:00.000Z', endedAt: '2026-10-16T00:00:00.001Z',
+      monotonicStartMs: 100 + index, monotonicEndMs: 101 + index } }));
+  expect(() => assertBatchCalibrationCaseOrder(cases)).not.toThrow();
+  for (const index of [1, 2]) {
+    const overlapping = structuredClone(cases);
+    overlapping[index].span.monotonicStartMs -= 0.000_001;
+    expect(() => assertBatchCalibrationCaseOrder(overlapping)).toThrow('must not overlap');
+  }
+  const missing = structuredClone(cases) as import('./batch-calibration-evidence').BatchCalibrationEvidence['cases'];
+  missing[1].span = null;
+  expect(() => assertBatchCalibrationCaseOrder(missing)).toThrow();
+  expect(BATCH_CASE_LIMITS).toEqual([60_000, 90_000, 60_000]);
+});
+it('CP26 calibration requires a complete companion after ordinary report and cleanup evidence', async () => {
+  const { binding, evidence } = await batchCalibrationReportFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeFile(join(binding.directory, BATCH_EVIDENCE_FILE), JSON.stringify({ kind: 'data-batch-calibration-evidence-v1', cleanupComplete: true }));
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+it('CP26 calibration independently inventories literal ordered cases hooks and bounded allocations without SQL', async () => {
+  const path = fileURLToPath(new URL('../' + BATCH_CALIBRATION_MODULE, import.meta.url)), source = await readFile(path, 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(BATCH_CALIBRATION_SOURCE_DIGEST);
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true), cases: string[] = [], suites: string[] = [], hooks: string[] = [], budgets: string[] = [];
+  const visit = (node: ts.Node) => { if (ts.isCallExpression(node)) { const expression = node.expression.getText(tree);
+    if (['it', 'describe.sequential'].includes(expression)) { expect(ts.isStringLiteral(node.arguments[0])).toBe(true);
+      (expression === 'it' ? cases : suites).push((node.arguments[0] as ts.StringLiteral).text); }
+    if (expression === 'it') budgets.push(node.arguments[2].getText(tree));
+    if (['beforeAll', 'afterAll', 'beforeEach', 'afterEach'].includes(expression)) { hooks.push(expression); budgets.push(node.arguments[1].getText(tree)); }
+    expect(expression.startsWith('it.') || expression === 'describe' || expression.startsWith('describe.') && expression !== 'describe.sequential').toBe(false);
+  } ts.forEachChild(node, visit); }; visit(tree);
+  expect(cases).toEqual([...BATCH_CASE_NAMES]); expect(suites).toEqual([BATCH_CALIBRATION_SUITE]); expect(hooks).toEqual(['beforeAll', 'afterAll']);
+  expect(budgets).toEqual(['60_000', '60_000', ...BATCH_CASE_LIMITS.map(value => value === 90_000 ? '90_000' : '60_000')]);
+  expect(budgets.reduce((sum, value) => sum + Number(value.replaceAll('_', '')), 0)).toBe(330_000);
+  expect(source).toContain("const result=await command('enabled')"); expect(source.match(/command\('enabled'\)/gu)).toHaveLength(1);
+});
+it('CP26 calibration preserves historical source pins and rejects current scheduler drift', async () => {
+  const siteRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertBatchCalibrationSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const changed: string[] = [];
+  for (const entry of BATCH_CALIBRATION_SUPPORT_SOURCES) {
+    if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
+  }
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+    'lib/league-administration/public-intake-contracts.ts', 'lib/league-administration/public-intake-reader.ts',
+    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'scripts/provision-runtime-role.sql']);
+  // Read the actual reviewed historical bytes from local Git objects. The verify
+  // workflow checks out full history; no test-time network or substitute source.
+  const historicalSha = '5baa4498f04b77b436668b7193da69cfec787ae1';
+  const git = promisify(execFile);
+  const directory = await mkdtemp(join(tmpdir(), 'batch-calibration-support-')); directories.push(directory);
+  for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
+    let source: string;
+    try { source = (await git('git', ['show', `${historicalSha}:apps/site/${path}`], { cwd: siteRoot, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 })).stdout; }
+    catch { throw new Error(`Historical CP26 source object required locally: ${historicalSha}:apps/site/${path}`); }
+    await mkdir(dirname(join(directory, path)), { recursive: true }); await writeFile(join(directory, path), source);
+  }
+  await expect(assertBatchCalibrationSupportSources(directory)).resolves.toBeUndefined();
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE);
+  for (const path of [BATCH_CALIBRATION_MODULE, ...BATCH_CALIBRATION_SUPPORT_SOURCES.map(row => row.path)]) {
+    const original = await readFile(join(directory, path), 'utf8'); await writeFile(join(directory, path), original + '\n// source drift\n');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(join(directory, path), original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), BATCH_CALIBRATION_PROFILE)).resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(join(directory, path), original);
+  }
+  await expect(assertRunnerCyclesSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+});
+
+async function fleetReportFixture(profile:'data-freshness-capacity-healthy-v1'|'data-freshness-capacity-recovery-v1'|'data-freshness-capacity-daily-v1'|'data-live-public-batch-v1'|'data-freshness-capacity-ownership-v1'){
+ const previous=await officialResultsEvidenceFixture(),fleet=await import('./freshness-capacity-profile');
+ const context=await createQualificationContext(fileURLToPath(new URL('..',import.meta.url)),'a'.repeat(40),randomUUID(),profile);
+ const inventory={
+  [fleet.FLEET_HEALTHY_PROFILE]:{names:fleet.FLEET_HEALTHY_FULL_NAMES,suite:fleet.FLEET_HEALTHY_SUITE},
+  [fleet.FLEET_RECOVERY_PROFILE]:{names:fleet.FLEET_RECOVERY_FULL_NAMES,suite:fleet.FLEET_RECOVERY_SUITE},
+  [fleet.FLEET_DAILY_PROFILE]:{names:fleet.FLEET_DAILY_FULL_NAMES,suite:fleet.FLEET_DAILY_SUITE},
+  [fleet.FLEET_LIVE_PROFILE]:{names:fleet.FLEET_LIVE_FULL_NAMES,suite:fleet.FLEET_LIVE_SUITE},
+  [fleet.FLEET_OWNERSHIP_PROFILE]:{names:fleet.FLEET_OWNERSHIP_FULL_NAMES,suite:fleet.FLEET_OWNERSHIP_SUITE},
+ };
+ const {names,suite}=inventory[profile],modulePath=context.modules[0].path,pattern=qualificationArguments(profile,'reporter').at(-1)!;
+ const evidence=structuredClone(previous.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:modulePath,pattern,otherFilters:false}];evidence.collected=[modulePath];evidence.modules=[{...evidence.modules[0],path:modulePath,suites:[{id:'suite',name:suite,mode:'run',errors:0}],cases:names.map((name,index)=>({...previous.evidence.modules[0].cases[0],id:'case-'+index,name,diagnostic:{retryCount:0,repeatCount:0,flaky:false,duration:1,startTime:1234+index*2}}))}];return{binding:{context,directory:previous.binding.directory},evidence,modulePath,names,pattern};
+}
+for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capacity-recovery-v1','data-freshness-capacity-daily-v1','data-live-public-batch-v1','data-freshness-capacity-ownership-v1'] as const){
+ it('CP26 fleet registers only the exact source-bound selector '+profile,async()=>{const{binding,evidence,modulePath,pattern}=await fleetReportFixture(profile);expect(parseQualificationArguments(['--profile='+profile])).toBe(profile);expect(qualificationArguments(profile,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter',...(profile==='data-live-public-batch-v1'||profile==='data-freshness-capacity-ownership-v1'?['--configLoader','runner']:[]),modulePath,'--testNamePattern',pattern]);expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([modulePath]);expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();for(const extra of ['--retry=1','--repeat=2','--testNamePattern=one',modulePath])expect(()=>parseQualificationArguments(['--profile='+profile,extra])).toThrow();});
+ it('CP26 fleet rejects incomplete reordered retried filtered or unhooked cases '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);for(const mutate of [(row:QualificationReport)=>{row.modules[0].cases.pop();},(row:QualificationReport)=>{row.modules[0].cases.reverse();},(row:QualificationReport)=>{row.modules[0].cases[1].diagnostic!.startTime=0;},(row:QualificationReport)=>{row.modules[0].cases[0].diagnostic!.retryCount=1;},(row:QualificationReport)=>{row.modules[0].cases[0].state='skipped';},(row:QualificationReport)=>{row.hooks.pop();}]){const changed=structuredClone(evidence);mutate(changed);expect(()=>validateQualificationReport(binding.context,changed)).toThrow();}});
+ it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
+}
+it('CP26 fleet binds all new support bytes before provisioning and preserves LF portability',async()=>{
+ const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile'),sourceRoot=fileURLToPath(new URL('..',import.meta.url));await expect(assertFleetSupportSources(sourceRoot)).resolves.toBeUndefined();expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
+ const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});await writeFile(join(siteRoot,path),await readFile(join(sourceRoot,path)));}
+ const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
+ for(const path of [fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
+ for(const [profile,modulePath]of [[fleet.FLEET_LIVE_PROFILE,fleet.FLEET_LIVE_MODULE],[fleet.FLEET_OWNERSHIP_PROFILE,fleet.FLEET_OWNERSHIP_MODULE]] as const){
+  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile),file=join(siteRoot,modulePath),original=await readFile(file,'utf8');
+  await writeFile(file,original+'\n// altered short profile\n');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile)).rejects.toThrow('reviewed LF digest');
+  await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);
+ }
+
+});
+it('CP26 fleet stays out of default discovery and freezes each explicit case inventory',async()=>{
+ const fleet=await import('./freshness-capacity-profile');
+ const full=await createQualificationContext(fileURLToPath(new URL('..',import.meta.url)),'a'.repeat(40),randomUUID());expect(full.modules).toHaveLength(70);
+ const profiles=[
+  [fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_HEALTHY_TESTS,'FLEET_HEALTHY'],
+  [fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_RECOVERY_TESTS,'FLEET_RECOVERY'],
+  [fleet.FLEET_DAILY_MODULE,fleet.FLEET_DAILY_TESTS,'FLEET_DAILY'],
+  [fleet.FLEET_LIVE_MODULE,fleet.FLEET_LIVE_TESTS,'FLEET_LIVE'],
+  [fleet.FLEET_OWNERSHIP_MODULE,fleet.FLEET_OWNERSHIP_TESTS,'FLEET_OWNERSHIP'],
+ ] as const;
+ for(const [modulePath,names,symbol]of profiles){
+  expect(full.modules.some(row=>row.path===modulePath)).toBe(false);
+  const source=await readFile(new URL('../'+modulePath,import.meta.url),'utf8'),tree=ts.createSourceFile(modulePath,source,ts.ScriptTarget.Latest,true),cases:string[]=[],hooks:string[]=[],suites:string[]=[];
+  const visit=(node:ts.Node)=>{if(ts.isCallExpression(node)){const expression=node.expression.getText(tree);if(expression==='it')cases.push(node.arguments[0].getText(tree));if(expression==='describe.sequential')suites.push(node.arguments[0].getText(tree));if(['beforeAll','afterAll','beforeEach','afterEach'].includes(expression))hooks.push(expression);expect(expression.startsWith('it.')||expression==='describe'||expression.startsWith('describe.')&&expression!=='describe.sequential').toBe(false);}ts.forEachChild(node,visit);};visit(tree);
+  expect(cases).toEqual(names.map((_,index)=>symbol+'_TESTS['+index+']'));expect(suites).toEqual([symbol+'_SUITE']);expect(hooks).toEqual(['beforeAll','afterAll']);
+ }
+});
+
+it('CP26 short CI choices preserve protected execution and retain ownership journals', async () => {
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  for (const profile of ['data-live-public-batch-v1', 'data-freshness-capacity-ownership-v1'] as const) {
+    expect(parseQualificationArguments(['--profile=' + profile])).toBe(profile);
+    expect(workflow.match(new RegExp('^ {10}- ' + profile + '\\r?$', 'gmu'))).toHaveLength(1);
+    expect(workflow.match(new RegExp('^ {12}workflow_dispatch:' + profile + '\\)\\r?$', 'gmu'))).toHaveLength(1);
+    expect(workflow.match(new RegExp('^ {14}pnpm test:integration --profile=' + profile + '\\r?$', 'gmu'))).toHaveLength(1);
+  }
+  const artifactPaths = workflow.split('      - name: Preserve sanitized integration evidence')[1]
+    .split('          path: |')[1].split('          if-no-files-found:')[0]
+    .trim().split(/\r?\n/u).map(value => value.trim());
+  expect(artifactPaths).toEqual([
+    'test-results/integration/*.json',
+    'test-results/integration/artifacts/**/*.json',
+    'test-results/integration/artifacts/**/ownership-journal-*.ndjson',
+  ]);
+  expect(workflow).toContain("    environment: integration-test");
+  expect(workflow).toContain("  group: integration-test");
+  expect(workflow).toContain("  cancel-in-progress: false");
+  expect(workflow).toContain("          ref: ${{ github.sha }}");
+  expect(workflow).toContain("          persist-credentials: false");
+  expect(workflow).toContain("          NEON_TEST_API_KEY: ${{ secrets.NEON_TEST_API_KEY }}");
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
+  expect(workflow).not.toContain('workflow_dispatch:data-freshness-capacity-daily-v1)');
+  expect(workflow).not.toContain('pull_request_target:');
+});
+
+
+it('CP26 short live profile loads the actual integration config with its emitted loader', async () => {
+  const { binding, modulePath } = await fleetReportFixture('data-live-public-batch-v1');
+  const args = qualificationArguments('data-live-public-batch-v1', '/reporter');
+  const script = `
+    import net from 'node:net';
+    import path from 'node:path';
+    import { createRequire } from 'node:module';
+    import { pathToFileURL } from 'node:url';
+    net.Socket.prototype.connect = function () { throw new Error('Config-only regression forbids network'); };
+    const require = createRequire(path.join(process.cwd(), 'package.json'));
+    const vitestRequire = createRequire(require.resolve('vitest/package.json'));
+    const { loadConfigFromFile } = await import(pathToFileURL(vitestRequire.resolve('vite')).href);
+    const args = JSON.parse(process.argv[1]);
+    const index = args.indexOf('--configLoader');
+    const loader = index < 0 ? undefined : args[index + 1];
+    const loaded = await loadConfigFromFile({ command: 'serve', mode: 'test' },
+      path.resolve('vitest.integration.config.ts'), process.cwd(), 'silent', undefined, loader);
+    const { test, resolve } = loaded.config;
+    console.log(JSON.stringify({ loader, include: test.include, environment: test.environment,
+      globalSetup: test.globalSetup, fileParallelism: test.fileParallelism, maxWorkers: test.maxWorkers,
+      hookTimeout: test.hookTimeout, testTimeout: test.testTimeout, includeTaskLocation: test.includeTaskLocation,
+      serverOnlyAlias: resolve.alias['server-only'] }));
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(args)], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
+  });
+  expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [modulePath], environment: 'node',
+    globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
+    hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
+    serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
 });

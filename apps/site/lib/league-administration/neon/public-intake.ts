@@ -1,18 +1,71 @@
 import 'server-only';
-import { validatePublicDataRefresh, refreshUuid, refreshOrdinal, type PublicDataRefreshStore,
+import { validatePublicDataResourceSchedule, PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY,
+  validatePublicDataRefresh, refreshUuid, refreshOrdinal, type PublicDataRefreshStore,
   type PublicDataRefreshSelectionResult, type PublicDataRefreshFailureResult } from '../public-refresh-contracts';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../../database';
 import { createProjectionStore } from '../../projection-store';
 import { normalizeAdministrationObservation } from '../normalize';
 import { ADMINISTRATION_DIALECT, ADMINISTRATION_NORMALIZER_VERSION, ADMINISTRATION_SCHEMA_VERSION, type JsonValue } from '../contracts';
 import { validatePublicIntake, type PublicIntakeInput, type PublicIntakeStore, type PublicIntakeWork,
-  type PublicIntakeSubmissionReceipt } from '../public-intake-contracts';
+  type PublicIntakeSubmissionReceipt, type PublicDataBatchClaim, type PublicDataBatchAdmission,
+  PUBLIC_DATA_BATCH_POLICY, PUBLIC_DATA_SETTLED_REQUEST_BUDGET_POLICY, PUBLIC_INTAKE_JOB } from '../public-intake-contracts';
 import { parsePublicCaptureWitness } from '../public-capture-witness';
 import { compatibleRevision } from '../../projections/shared/revision-compatibility';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid public intake record.');
   return value as Record<string, unknown>;
+}
+
+async function requireResourceScheduleCapability(client: DatabaseClient): Promise<void> {
+  const rows = await client.query(
+    '/* public-data-resource-schedule:capability */ SELECT public.public_data_resource_schedule_capability() AS policy');
+  if (rows.length !== 1 || rows[0].policy !== PUBLIC_DATA_RESOURCE_SCHEDULE_POLICY) {
+    throw new Error('Public DATA resource scheduling requires its installed capability.');
+  }
+}
+
+function batchClaim(value: unknown, workerId: string, origin: number): PublicDataBatchClaim {
+  const claim = record(value);
+  if (claim.kind === 'busy' || claim.kind === 'deadline') {
+    if (Object.keys(claim).length !== 1) throw new Error('Invalid public batch claim.');
+    return { kind: claim.kind };
+  }
+  const fence = record(claim.fence);
+  const timestamp = (input: unknown) => typeof input === 'string' ? Date.parse(input) : NaN;
+  if (claim.kind !== 'acquired'
+    || Object.keys(claim).sort().join('|') !== 'admissionDeadlineAt|cleanupDeadlineAt|fence|kind|leaseUntil'
+    || Object.keys(fence).sort().join('|') !== 'deadlineAt|generation|jobKey|workerId'
+    || fence.jobKey !== PUBLIC_INTAKE_JOB || fence.workerId !== workerId || !refreshUuid(workerId)
+    || !refreshOrdinal(fence.generation) || !Number.isFinite(origin)
+    || timestamp(fence.deadlineAt) !== origin + 20_000 || timestamp(claim.leaseUntil) !== origin + 25_000
+    || timestamp(claim.admissionDeadlineAt) !== origin + 10_000 || timestamp(claim.cleanupDeadlineAt) !== origin + 22_000) {
+    throw new Error('Invalid public batch claim.');
+  }
+  return claim as PublicDataBatchClaim;
+}
+
+/** PostgreSQL can retain microseconds that Date.parse truncates. The relative
+ * delay is checked against that precision without comparing server/client clocks. */
+function batchTimestampMicros(value: unknown): number {
+  if (typeof value !== 'string') return NaN;
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(Z|[+-]\d{2}:\d{2})$/u.exec(value);
+  if (!match) return NaN;
+  const micros = Date.parse(match[1] + match[3]) * 1_000 + Number((match[2] ?? '').padEnd(6, '0'));
+  return Number.isSafeInteger(micros) ? micros : NaN;
+}
+function batchAdmission(value: unknown): PublicDataBatchAdmission {
+  const result = record(value);
+  if (['admitted', 'denied', 'deadline'].includes(String(result.status))
+    && typeof result.status === 'string' && Object.keys(result).join('|') === 'status') return result as PublicDataBatchAdmission;
+  const interval = (batchTimestampMicros(result.retryAt) - batchTimestampMicros(result.serverNow)) / 1_000;
+  if (result.status !== 'budget-backoff'
+    || Object.keys(result).sort().join('|') !== 'retryAfterMs|retryAt|serverNow|status'
+    || !Number.isSafeInteger(result.retryAfterMs) || Number(result.retryAfterMs) < 1 || Number(result.retryAfterMs) > 3_620_000
+    || !Number.isFinite(interval) || interval <= 0 || Math.ceil(interval) !== result.retryAfterMs) {
+    throw new Error('Invalid public batch admission.');
+  }
+  return result as PublicDataBatchAdmission;
 }
 
 async function requireDraftCapability(client: DatabaseClient): Promise<void> {
@@ -110,7 +163,92 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
     else if (validated.exactPeriods?.length) await requireExactPeriodCapability(client);
     return validated;
   }
+  async function nextWork(requestId: string, batch: boolean) {
+    const rows = await client.query(batch
+      ? '/* public-data-intake:next-batch */ SELECT public.next_public_data_batch_intake($1::uuid) AS result'
+      : '/* public-data-intake:next */ SELECT public.next_public_data_intake($1::uuid) AS result', [requestId]);
+    if (batch && rows.length !== 1) throw new Error('Invalid public batch work acknowledgment.');
+    const result = rows[0]?.result;
+    if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
+    const work = record(result);
+    if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
+      || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions', 'drafts'].includes(String(work.kind))) {
+      throw new Error('Invalid public intake work.');
+    }
+    if (work.kind === 'drafts') {
+      const child = ['detail', 'selections', 'draft-trades'].includes(String(work.resource));
+      const expected = ['externalLeagueId', 'kind', 'requestId', 'revision', 'season', 'resource',
+        ...(child ? ['externalDraftId', 'catalogReceiptId'] : [])].sort().join('|');
+      if (Object.keys(work).sort().join('|') !== expected || work.season !== 2026
+        || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
+        || !['catalog', 'detail', 'selections', 'league-trades', 'draft-trades'].includes(String(work.resource))
+        || child && (typeof work.externalDraftId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(work.externalDraftId)
+          || !refreshUuid(work.catalogReceiptId))) throw new Error('Invalid public draft work.');
+    }
+    if (work.kind === 'transactions' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
+      || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
+      || !Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 0 || Number(work.nativeWeek) > 18)) {
+      throw new Error('Invalid public transaction work.');
+    }
+    if (work.kind === 'weekly-report' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
+      || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
+      || !Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) {
+      throw new Error('Invalid public weekly-report work.');
+    }
+    if (work.kind === 'playoff-brackets' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|requestId|revision|season'
+      || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId))) {
+      throw new Error('Invalid public bracket work.');
+    }
+    if (work.kind === 'exact-matchups' && (typeof work.externalLeagueId !== 'string'
+      || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId) || !Number.isInteger(work.season)
+      || Number(work.season) < 1920 || Number(work.season) > 2200 || !Number.isInteger(work.nativeWeek)
+      || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) throw new Error('Invalid public exact-period work.');
+    return work as PublicIntakeWork;
+  }
   return {
+    requireResourceScheduleCapability: () => requireResourceScheduleCapability(client),
+    async beginResourceBatch(workerId, invocationStartedAt) {
+      if (!refreshUuid(workerId) || typeof invocationStartedAt !== 'string'
+        || !Number.isFinite(Date.parse(invocationStartedAt))) throw new Error('Invalid public resource batch request.');
+      const rows = await client.query(
+        '/* public-data-resource-schedule:begin */ SELECT public.begin_public_data_resource_batch($1::text,$2::timestamptz) AS result',
+        [workerId, invocationStartedAt]);
+      if (rows.length !== 1) throw new Error('Missing public resource batch claim.');
+      return batchClaim(rows[0].result, workerId, Date.parse(invocationStartedAt));
+    },
+    async requireBatchCapability() {
+      const rows = await client.query(`/* public-data-intake:batch-capability */
+        SELECT public.public_data_batch_capability() AS policy,
+          public.public_data_settled_request_budget_capability() AS budget_policy`);
+      if (rows.length !== 1 || rows[0].policy !== PUBLIC_DATA_BATCH_POLICY
+        || rows[0].budget_policy !== PUBLIC_DATA_SETTLED_REQUEST_BUDGET_POLICY) {
+        throw new Error('Public batch intake requires installed R058 and R062.');
+      }
+    },
+    async beginBatch(workerId, invocationStartedAt, requestId) {
+      if (!refreshUuid(workerId) || !Number.isFinite(Date.parse(invocationStartedAt))
+        || requestId !== undefined && !refreshUuid(requestId)) throw new Error('Invalid public batch request.');
+      const rows = await client.query(`/* public-data-intake:begin-batch */
+        SELECT public.begin_public_data_batch($1::text,$2::timestamptz,$3::uuid) AS result`,
+      [workerId, invocationStartedAt, requestId ?? null]);
+      if (rows.length !== 1) throw new Error('Missing public batch claim.');
+      return batchClaim(rows[0].result, workerId, Date.parse(invocationStartedAt));
+    },
+    async advanceBatch(fence, nextWorkerId) {
+      if (!refreshUuid(nextWorkerId) || nextWorkerId === fence.workerId) throw new Error('Invalid public batch successor.');
+      const rows = await client.query(`/* public-data-intake:advance-batch */
+        SELECT public.advance_public_data_batch_owner($1::jsonb,$2::text) AS result`, [JSON.stringify(fence), nextWorkerId]);
+      if (rows.length !== 1) throw new Error('Missing public batch successor.');
+      const claim = batchClaim(rows[0].result, nextWorkerId, Date.parse(fence.deadlineAt) - 20_000);
+      if (claim.kind === 'acquired' && claim.fence.generation !== fence.generation + 1) throw new Error('Invalid public batch generation.');
+      return claim;
+    },
+    async admitBatch(work, fence) {
+      const rows = await client.query(`/* public-data-intake:admit-batch */
+        SELECT public.admit_public_data_batch_dispatch_status($1::jsonb,$2::jsonb) AS result`, [JSON.stringify(work), JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Invalid public batch admission.');
+      return batchAdmission(rows[0].result);
+    },
     async submit(input) {
       const validated = await submission(input);
       await client.query(`/* public-data-intake:submit */ SELECT public.submit_public_data_intake($1::jsonb)`,
@@ -133,45 +271,8 @@ export function createPublicIntakeStore(client: DatabaseClient): PublicIntakeSto
       await client.query(`/* public-data-intake:recover */
         SELECT public.recover_public_data_dispatch($1::uuid,$2::jsonb)`, [requestId, JSON.stringify(fence)]);
     },
-    async next(requestId) {
-      const rows = await client.query(`/* public-data-intake:next */ SELECT public.next_public_data_intake($1::uuid) AS result`, [requestId]);
-      const result = rows[0]?.result;
-      if (result === 'complete' || result === 'partial' || result === 'unavailable' || result === 'backoff') return result;
-      const work = record(result);
-      if (work.requestId !== requestId || !Number.isSafeInteger(work.revision) || Number(work.revision) < 0
-        || !['identity', 'leagues', 'bootstrap', 'core', 'users', 'exact-matchups', 'playoff-brackets', 'weekly-report', 'transactions', 'drafts'].includes(String(work.kind))) {
-        throw new Error('Invalid public intake work.');
-      }
-      if (work.kind === 'drafts') {
-        const child = ['detail', 'selections', 'draft-trades'].includes(String(work.resource));
-        const expected = ['externalLeagueId', 'kind', 'requestId', 'revision', 'season', 'resource',
-          ...(child ? ['externalDraftId', 'catalogReceiptId'] : [])].sort().join('|');
-        if (Object.keys(work).sort().join('|') !== expected || work.season !== 2026
-          || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
-          || !['catalog', 'detail', 'selections', 'league-trades', 'draft-trades'].includes(String(work.resource))
-          || child && (typeof work.externalDraftId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/u.test(work.externalDraftId)
-            || !refreshUuid(work.catalogReceiptId))) throw new Error('Invalid public draft work.');
-      }
-      if (work.kind === 'transactions' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
-        || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
-        || !Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 0 || Number(work.nativeWeek) > 18)) {
-        throw new Error('Invalid public transaction work.');
-      }
-      if (work.kind === 'weekly-report' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|nativeWeek|requestId|revision|season'
-        || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId)
-        || !Number.isInteger(work.nativeWeek) || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) {
-        throw new Error('Invalid public weekly-report work.');
-      }
-      if (work.kind === 'playoff-brackets' && (Object.keys(work).sort().join('|') !== 'externalLeagueId|kind|requestId|revision|season'
-        || work.season !== 2026 || typeof work.externalLeagueId !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId))) {
-        throw new Error('Invalid public bracket work.');
-      }
-      if (work.kind === 'exact-matchups' && (typeof work.externalLeagueId !== 'string'
-        || !/^[1-9][0-9]{0,31}$/u.test(work.externalLeagueId) || !Number.isInteger(work.season)
-        || Number(work.season) < 1920 || Number(work.season) > 2200 || !Number.isInteger(work.nativeWeek)
-        || Number(work.nativeWeek) < 1 || Number(work.nativeWeek) > 18)) throw new Error('Invalid public exact-period work.');
-      return work as PublicIntakeWork;
-    },
+    next: requestId => nextWork(requestId, false),
+    nextBatch: requestId => nextWork(requestId, true),
     recordIdentity: checkpoint,
     recordLeagues: checkpoint,
     async admit(work, fence) {
@@ -265,6 +366,53 @@ export function createPublicDataRefreshStore(client: DatabaseClient): PublicData
   const date = (value: unknown) => value === undefined || value === null
     || typeof value === 'string' && Number.isFinite(Date.parse(value));
   return {
+    async configureResourceSchedule(input) {
+      const validated = validatePublicDataResourceSchedule(input);
+      await requireResourceScheduleCapability(client);
+      const rows = await client.query(
+        '/* public-data-resource-schedule:configure */ SELECT public.configure_public_data_resource_schedule($1::jsonb) AS result',
+        [JSON.stringify(validated)]);
+      if (rows.length !== 1) throw new Error('Missing public resource schedule configuration.');
+      const value = record(rows[0].result);
+      if (Object.keys(value).sort().join('|') !== 'configurationRevision|targetId'
+        || value.targetId !== validated.targetId || value.configurationRevision !== validated.expectedRevision) {
+        throw new Error('Invalid public resource schedule configuration.');
+      }
+      return { targetId: validated.targetId, configurationRevision: validated.expectedRevision };
+    },
+    async selectResourceWork(fence) {
+      const rows = await client.query(
+        '/* public-data-resource-schedule:select */ SELECT public.select_public_data_resource_work($1::jsonb) AS result',
+        [JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public resource selection.');
+      const value = record(rows[0].result);
+      if (value.status === 'selected') {
+        if (Object.keys(value).sort().join('|') !== 'configurationRevision|lane|requestId|resourceId|selectionId|status'
+          || !refreshUuid(value.selectionId) || !refreshUuid(value.requestId)
+          || (value.lane !== 'active' && value.lane !== 'history')
+          || (value.lane === 'active' ? !refreshUuid(value.resourceId) || !refreshOrdinal(value.configurationRevision)
+            : value.resourceId !== null || value.configurationRevision !== null && !refreshOrdinal(value.configurationRevision))) {
+          throw new Error('Invalid public resource selection binding.');
+        }
+      } else if (typeof value.status !== 'string' || !['idle', 'backoff', 'capacity'].includes(value.status)
+        || Object.keys(value).some(key => !['status', 'reason', 'nextEligibleAt'].includes(key))
+        || value.reason !== undefined && typeof value.reason !== 'string' || !date(value.nextEligibleAt)) {
+        throw new Error('Invalid public resource selection disposition.');
+      }
+      return value as import('../public-refresh-contracts').PublicDataResourceSelectionResult;
+    },
+    async recordResourceSelectionFailure(selection, fence, reason) {
+      const rows = await client.query(
+        '/* public-data-resource-schedule:selection-failure */ SELECT public.fail_public_data_resource_selection($1::jsonb,$2::text,$3::jsonb) AS result',
+        [selection ? JSON.stringify(selection) : null, reason, JSON.stringify(fence)]);
+      if (rows.length !== 1) throw new Error('Missing public resource selection failure.');
+      const value = record(rows[0].result);
+      if (typeof value.status !== 'string' || !['recorded', 'already-recorded', 'admitted', 'unbound', 'superseded'].includes(value.status)
+        || Object.keys(value).some(key => !['status', 'retryAt'].includes(key)) || !date(value.retryAt)) {
+        throw new Error('Invalid public resource selection failure.');
+      }
+      return value as PublicDataRefreshFailureResult;
+    },
     async configure(input) {
       const validated = validatePublicDataRefresh(input);
       if (validated.draftPicks) await requireDraftCapability(client);

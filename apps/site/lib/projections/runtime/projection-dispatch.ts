@@ -1,4 +1,5 @@
 import 'server-only';
+import { withProviderRequestOwner } from '../../provider-request-telemetry';
 import { loadIsolatedAdministrationRegistry as loadAdministrationRegistry } from '../../league-administration/registry';
 import type { PublicDataRefreshSelection } from '../../league-administration/public-intake-runtime';
 import { runAdministrationMaintenance } from '../../league-administration/maintenance';
@@ -53,7 +54,7 @@ export async function runProductionProjectionSync(
   const data = !options.force && publicDataRefresh?.enabled === true
     ? loadDataRuntime().then(runtime => {
       if (!runtime) { warnDataFailure(); return undefined; }
-      return runtime.runSelectedPublicDataRefresh(publicDataRefresh, invocationStartedAt);
+      return withProviderRequestOwner('data-refresh', () => runtime.runSelectedPublicDataRefresh(publicDataRefresh, invocationStartedAt));
     }).then(outcome => { if (outcome?.status === 'unavailable') warnDataFailure(); return outcome; })
       .catch(() => { warnDataFailure(); })
     : Promise.resolve(undefined);
@@ -63,10 +64,10 @@ export async function runProductionProjectionSync(
     const current = createProductionProjectionDependencies(registry, defenseStats.source);
     dataLogger = current;
     if (!options.force) {
-      const result = await runWithDependencies(current, projectionOptions);
+      const result = await withProviderRequestOwner('primary-projection', () => runWithDependencies(current, projectionOptions));
       await data;
       // Administration outcomes are durable and separately visible; existing scoring remains isolated.
-      await runAdministrationMaintenance(registry, invocationStartedAt).catch(() => {
+      await withProviderRequestOwner('administration-maintenance', () => runAdministrationMaintenance(registry, invocationStartedAt)).catch(() => {
         current.logger.write('warn', { stage: 'administration-maintenance', outcome: 'failed' });
       });
       return result;
@@ -77,7 +78,7 @@ export async function runProductionProjectionSync(
     const runId = current.idGenerator.generate();
     const runStartedAt = current.clock.monotonicNow();
     try {
-      const value = await refreshCurrentLineupContext(current, runId);
+      const value = await withProviderRequestOwner('primary-projection', () => refreshCurrentLineupContext(current, runId));
       if (value.context.kind === 'disabled') return { status: 'disabled' };
       if (value.context.kind !== 'stored' || !value.context.authorities.length) return { status: 'failed' };
       const prepared: PreparedCurrentPreflight = { runId, now, runStartedAt, value };
@@ -87,17 +88,17 @@ export async function runProductionProjectionSync(
       if (!defaults.length && failedPreflightKeys.size > 0) return { status: 'failed' };
       const currentDefaults = defaults.filter((state) => state.materializationLane === 'current');
       const futureDefaults = defaults.filter((state) => state.materializationLane === 'future');
-      if (!futureDefaults.length) return runWithDependencies(current, projectionOptions, prepared);
+      if (!futureDefaults.length) return withProviderRequestOwner('primary-projection', () => runWithDependencies(current, projectionOptions, prepared));
       // One force request remains one bounded default period, never a future-horizon sweep.
       const period = futureDefaults[0].period;
       if (currentDefaults.length || futureDefaults.some((state) => state.period.season !== period.season
         || state.period.seasonType !== period.seasonType || state.period.week !== period.week)) {
         return { status: 'failed' };
       }
-      const result = await runFutureWithDependencies(createProductionFutureProjectionDependencies(registry), {
+      const result = await withProviderRequestOwner('primary-projection', () => runFutureWithDependencies(createProductionFutureProjectionDependencies(registry), {
         period, leagueKeys: futureDefaults.map((state) => state.configuration.key),
         execution: { now, runId, timing: { wallStartedAtMs: now.getTime(), monotonicStartedAt: runStartedAt } },
-      });
+      }));
       if (result.status === 'disabled' || result.status === 'failed') return result;
       if (result.status === 'skipped') return result.reason === 'deadline'
         ? { status: 'failed' }

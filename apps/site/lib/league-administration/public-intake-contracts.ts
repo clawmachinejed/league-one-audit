@@ -49,6 +49,22 @@ export type PublicCapture<T> = Readonly<{ payload: unknown; requestStartedAt: st
 export type PublicIntakeDisposition = 'complete' | 'partial' | 'unavailable' | 'backoff';
 export type PublicIntakeOutcome = Readonly<{ status: 'progress' | 'busy' | PublicIntakeDisposition;
   resource?: PublicIntakeWork['kind']; providerRequests: number }>;
+/** Explicit R058 capability; never inferred from the presence of legacy intake functions. */
+export const PUBLIC_DATA_BATCH_POLICY = 'public-data-batch-v1' as const;
+export const PUBLIC_DATA_SETTLED_REQUEST_BUDGET_POLICY = 'public-data-settled-request-budget-v1' as const;
+/** Only an explicit SQL budget response permits one bounded, same-owner retry. */
+export type PublicDataBatchAdmission = Readonly<{ status: 'admitted' | 'denied' | 'deadline' }>
+  | Readonly<{ status: 'budget-backoff'; serverNow: string; retryAt: string; retryAfterMs: number }>;
+export type PublicDataBatchOwner = Readonly<{
+  kind: 'acquired'; fence: AdministrationWriteFence; leaseUntil: string;
+  admissionDeadlineAt: string; cleanupDeadlineAt: string;
+}>;
+export type PublicDataBatchClaim = PublicDataBatchOwner | Readonly<{ kind: 'busy' | 'deadline' }>;
+export type PublicDataBatchOutcome = Readonly<{
+  status: PublicIntakeOutcome['status'] | 'idle' | 'capacity' | 'deadline' | 'disabled';
+  providerRequests: number; completedSteps: number;
+  stopReason: 'work-status' | 'admission-deadline' | 'step-bound' | 'owner-unavailable' | 'failed';
+}>;
 export type PublicCoreCheckpoint = Readonly<{
   observations: Readonly<{ league?: string; rosters?: string; users?: string }>;
   /** Fresh source request alongside its immutable, potentially deduplicated directory observation. */
@@ -72,6 +88,13 @@ export type PublicWeeklyReportCheckpoint = Readonly<{
   receipts: Readonly<{ weekly_report: string }>;
 }>;
 export type PublicIntakeStore = Readonly<{
+  requireResourceScheduleCapability?: () => Promise<void>;
+  beginResourceBatch?: (workerId: string, invocationStartedAt: string) => Promise<PublicDataBatchClaim>;
+  requireBatchCapability?: () => Promise<void>;
+  beginBatch?: (workerId: string, invocationStartedAt: string, requestId?: string) => Promise<PublicDataBatchClaim>;
+  advanceBatch?: (fence: AdministrationWriteFence, nextWorkerId: string) => Promise<PublicDataBatchClaim>;
+  nextBatch?: (requestId: string) => Promise<PublicIntakeWork | PublicIntakeDisposition>;
+  admitBatch?: (work: PublicIntakeWork, fence: AdministrationWriteFence) => Promise<PublicDataBatchAdmission>;
   submit: (input: PublicIntakeInput) => Promise<void>;
   recover: (requestId: string, fence: AdministrationWriteFence) => Promise<void>;
   next: (requestId: string) => Promise<PublicIntakeWork | PublicIntakeDisposition>;
