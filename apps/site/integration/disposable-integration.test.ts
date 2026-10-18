@@ -348,10 +348,13 @@ describe('original supervisor deadline in the actual child environment', () => {
 
 import { assertLocalDailyQualification, assertStorageMeasurementPreflight } from './disposable-integration';
 import { STORAGE_MEASUREMENT_PROFILE } from './qualification-profile';
-it('CP28 remains local-only and uses the unchanged default lifecycle',()=>{
+it('CP28 permits protected CI and keeps the unchanged default lifecycle and daily refusal',()=>{
   expect(integrationLifecycleForQualification(STORAGE_MEASUREMENT_PROFILE)).toBe('default');
   expect(()=>assertLocalDailyQualification({},STORAGE_MEASUREMENT_PROFILE)).not.toThrow();
-  for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])expect(()=>assertLocalDailyQualification({[key]:'true'},STORAGE_MEASUREMENT_PROFILE)).toThrow('local-only');
+  for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL']){
+    expect(()=>assertLocalDailyQualification({[key]:'true'},STORAGE_MEASUREMENT_PROFILE)).not.toThrow();
+    expect(()=>assertLocalDailyQualification({[key]:'true'},'data-freshness-capacity-daily-v1')).toThrow('local-only');
+  }
 });
 it('CP28 fixture preflight precedes configuration and any child creation',()=>{
   const source=readFileSync(new URL('./disposable-integration.ts',import.meta.url),'utf8'),body=source.slice(source.indexOf('export async function runDisposableIntegration'));

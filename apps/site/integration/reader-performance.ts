@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -303,13 +304,15 @@ export const STORAGE_MEASUREMENT_SUITE = 'bounded two league DATA storage measur
 export const STORAGE_MEASUREMENT_TEST = 'measures the frozen catalog forty two cores four corrections and exact pre acknowledgment replays';
 export const STORAGE_MEASUREMENT_FULL_NAMES = [STORAGE_MEASUREMENT_SUITE + ' > ' + STORAGE_MEASUREMENT_TEST];
 export const STORAGE_MEASUREMENT_EVIDENCE_FILE = 'cp28-storage-evidence.json';
-export const STORAGE_MEASUREMENT_LIMITS = Object.freeze({ rawBytes: 16 * 1024 * 1024, captureBytes: 64 * 1024 * 1024,
+export const STORAGE_PACKAGED_CATALOG_PATH = 'apps/site/integration/fixtures/cp28-sleeper-players-nfl.raw.json.gz';
+export const STORAGE_MEASUREMENT_LIMITS = Object.freeze({ packagedBytes: 4 * 1024 * 1024, rawBytes: 16 * 1024 * 1024, captureBytes: 64 * 1024 * 1024,
   catalogEntries: 20_000, responseBytes: 128 * 1024 * 1024, coreBytes: 1024 * 1024, evidenceBytes: 4 * 1024 * 1024,
   statements: 40_000, readers: 200, catalogPages: 100, snapshotMs: 30_000, allocationBytes: 256 * 1024 * 1024 });
 export const STORAGE_PHASES = ['S0-empty', 'S1-catalog', 'S2-A-prerequisites', 'S3-A-baseline', 'S4-B-prerequisites', 'S5-B-baseline',
   'S6-A-unchanged', 'S7-B-unchanged', 'S8-A-C1', 'S9-B-C1', 'S10-A-C2', 'S11-B-C2', 'S12-A-C3', 'S13-B-C3', 'S14-A-C4', 'S15-B-C4', 'S16-read-only'] as const;
 export type StorageFixtureManifest = { kind: 'data-cp28-fixture-v1'; rawCatalogPath: string; rawSha256: string; rawBytes: number;
-  entryCount: number; capturedAt: string; provenance: string; mapping: string[]; sourceBindings: string[]; fixtureDigest: string };
+  entryCount: number; capturedAt: string; provenance: string; mapping: string[]; sourceBindings: string[]; fixtureDigest: string;
+  packagedCatalog?: { path: typeof STORAGE_PACKAGED_CATALOG_PATH; sha256: string; bytes: number } };
 export type StorageSource = ReturnType<typeof createStorageSourceDataset>;
 export function createStorageSourceDataset(mapping: readonly string[]) {
   assert.equal(mapping.length, 160); assert.equal(new Set(mapping).size, 160);
@@ -359,10 +362,30 @@ export async function loadStorageFixture(repositoryRoot: string) {
   const stat = await lstat(path); assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024);
   const manifest: StorageFixtureManifest = JSON.parse(await readFile(path, 'utf8'));
   assert(/^test-results\/cp28-fixture\/[a-zA-Z0-9._-]+\.json$/u.test(manifest.rawCatalogPath));
-  const rawPath = join(repositoryRoot, manifest.rawCatalogPath), rawStat = await lstat(rawPath);
-  assert(rawStat.isFile() && !rawStat.isSymbolicLink() && rawStat.size > 0 && rawStat.size <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
-  const raw = await readFile(rawPath, 'utf8');
-  assert.deepEqual(manifest, await bindStorageFixture(raw, { rawCatalogPath: manifest.rawCatalogPath, capturedAt: manifest.capturedAt, provenance: manifest.provenance }), 'Frozen catalog or native fixture binding changed.');
+  const { packagedCatalog, ...sourceManifest } = manifest;
+  let raw: string;
+  if (Object.hasOwn(manifest, 'packagedCatalog')) {
+    assert(packagedCatalog && typeof packagedCatalog === 'object' && !Array.isArray(packagedCatalog));
+    assert.deepEqual(Object.keys(packagedCatalog).sort(), ['bytes','path','sha256']);
+    assert.equal(packagedCatalog.path, STORAGE_PACKAGED_CATALOG_PATH);
+    assert(typeof packagedCatalog.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(packagedCatalog.sha256));
+    assert(Number.isSafeInteger(packagedCatalog.bytes) && packagedCatalog.bytes > 0 && packagedCatalog.bytes <= STORAGE_MEASUREMENT_LIMITS.packagedBytes);
+    assert(Number.isSafeInteger(manifest.rawBytes) && manifest.rawBytes > 0 && manifest.rawBytes <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
+    assert(typeof manifest.rawSha256 === 'string' && /^[a-f0-9]{64}$/u.test(manifest.rawSha256));
+    const packagePath = join(repositoryRoot, packagedCatalog.path), packageStat = await lstat(packagePath);
+    assert(packageStat.isFile() && !packageStat.isSymbolicLink() && packageStat.size === packagedCatalog.bytes);
+    const compressed = await readFile(packagePath); assert.equal(compressed.byteLength, packagedCatalog.bytes);
+    assert.equal(createHash('sha256').update(compressed).digest('hex'), packagedCatalog.sha256, 'Frozen compressed catalog bytes changed.');
+    // The native output cap applies before UTF-8 decoding, parsing, or catalog normalization.
+    const decoded = gunzipSync(compressed, { maxOutputLength: STORAGE_MEASUREMENT_LIMITS.rawBytes });
+    assert.equal(decoded.byteLength, manifest.rawBytes); assert.equal(createHash('sha256').update(decoded).digest('hex'), manifest.rawSha256);
+    raw = new TextDecoder('utf-8', { fatal: true }).decode(decoded);
+  } else {
+    const rawPath = join(repositoryRoot, manifest.rawCatalogPath), rawStat = await lstat(rawPath);
+    assert(rawStat.isFile() && !rawStat.isSymbolicLink() && rawStat.size > 0 && rawStat.size <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
+    raw = await readFile(rawPath, 'utf8');
+  }
+  assert.deepEqual(sourceManifest, await bindStorageFixture(raw, { rawCatalogPath: manifest.rawCatalogPath, capturedAt: manifest.capturedAt, provenance: manifest.provenance }), 'Frozen catalog or native fixture binding changed.');
   return { manifest, raw, source: createStorageSourceDataset(manifest.mapping) };
 }
 

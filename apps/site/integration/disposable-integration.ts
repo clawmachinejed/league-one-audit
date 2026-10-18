@@ -317,7 +317,7 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
 
 /** The daily lane has no hosted CI envelope; reject CI before configuration or provisioning. */
 export function assertLocalDailyQualification(environment:Record<string,string|undefined>,profile:unknown){
-  if(profile!==DAILY_FLEET_LIFECYCLE_PROFILE && profile!==STORAGE_MEASUREMENT_PROFILE)return;
+  if(profile!==DAILY_FLEET_LIFECYCLE_PROFILE)return;
   for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])
     assert(environment[key]===undefined,'Daily qualification is local-only: '+key);
 }

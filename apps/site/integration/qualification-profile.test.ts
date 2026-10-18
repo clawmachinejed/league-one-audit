@@ -4578,7 +4578,7 @@ async function storageReportFixture(){const prior=await readerPerformanceReportF
   modules:[{path:STORAGE_MEASUREMENT_MODULE,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST}],profileDigest:qualificationDigest({version:1,profile:STORAGE_MEASUREMENT_PROFILE,module:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST,inventory:STORAGE_MEASUREMENT_FULL_NAMES,supportSources:STORAGE_MEASUREMENT_SUPPORT_SOURCES})};
   const evidence=structuredClone(prior.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,otherFilters:false}];
   evidence.modules[0].suites[0].name=STORAGE_MEASUREMENT_SUITE;evidence.modules[0].cases=[{...evidence.modules[0].cases[0],name:STORAGE_MEASUREMENT_FULL_NAMES[0]}];return{binding:{...prior.binding,context},evidence};}
-it('CP28 selects exactly one local case, binds current sources, and preserves CP27 rejection',async()=>{
+it('CP28 selects exactly one protected workflow case, binds current sources, and preserves CP27 rejection',async()=>{
   expect(parseQualificationArguments(['--profile='+STORAGE_MEASUREMENT_PROFILE])).toBe(STORAGE_MEASUREMENT_PROFILE);
   const{binding,evidence}=await storageReportFixture();expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();
   expect(qualificationArguments(STORAGE_MEASUREMENT_PROFILE,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter','--configLoader','runner',STORAGE_MEASUREMENT_MODULE,'--testNamePattern',STORAGE_MEASUREMENT_PATTERN]);
@@ -4586,7 +4586,14 @@ it('CP28 selects exactly one local case, binds current sources, and preserves CP
   const root=fileURLToPath(new URL('..',import.meta.url));await expect(assertStorageMeasurementSupportSources(root)).resolves.toBeUndefined();
   const context=await createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE);expect(context.modules).toHaveLength(1);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');
-  const workflow=await readFile(new URL('../../../.github/workflows/integration.yml',import.meta.url),'utf8');expect(workflow).not.toContain(STORAGE_MEASUREMENT_PROFILE);
+  const workflow=await readFile(new URL('../../../.github/workflows/integration.yml',import.meta.url),'utf8');
+  expect(workflow.match(/^ {10}- data-storage-measurement-v1\r?$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^ {12}workflow_dispatch:data-storage-measurement-v1\)\r?$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^ {14}pnpm test:integration --profile=data-storage-measurement-v1\r?$/gmu)).toHaveLength(1);
+  for(const unchanged of ['default: full',"- 'codex/integration-qualification-*'",'contents: read','environment: integration-test','group: integration-test','cancel-in-progress: false','persist-credentials: false',"push:|workflow_dispatch:full)","inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50"] )expect(workflow).toContain(unchanged);
+  expect(workflow).not.toContain('workflow_dispatch:data-freshness-capacity-daily-v1)');expect(workflow).not.toContain('pull_request_target:');
+  const artifactPaths=workflow.split('          path: |')[1].split('          if-no-files-found:')[0].trim().split(/\r?\n/u).map(line=>line.trim());
+  expect(artifactPaths).toEqual(['test-results/integration/*.json','test-results/integration/artifacts/**/*.json','test-results/integration/artifacts/**/ownership-journal-*.ndjson']);
 });
 it.each(['skip','extra','retry','hook','pattern'])('CP28 rejects %s report drift',async fault=>{const{binding,evidence}=await storageReportFixture();
   if(fault==='skip')evidence.modules[0].cases[0].state='skipped';if(fault==='extra')evidence.modules[0].cases.push({...evidence.modules[0].cases[0],id:'extra'});

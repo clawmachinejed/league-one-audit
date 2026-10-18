@@ -182,5 +182,10 @@
     "3b7967e75bf9f555be5c9be660d8bb1f1b8bcf86f857156991887eb86f6b36f9",
     "d04fdeae9fb3d3e9e83e0c95efe563690b24e1d2a541a700dbe81f94e8583bf0"
   ],
-  "fixtureDigest": "1da88e54b8a058b5bffffd4b5daa08dcf687ef5c46a34af4a0ecfc1e5e72c440"
+  "fixtureDigest": "1da88e54b8a058b5bffffd4b5daa08dcf687ef5c46a34af4a0ecfc1e5e72c440",
+  "packagedCatalog": {
+    "path": "apps/site/integration/fixtures/cp28-sleeper-players-nfl.raw.json.gz",
+    "sha256": "f2e1b59d817d9b12d669d48be14ca4acd25cfd5ab4ef87df35ab64155bf82d86",
+    "bytes": 2182057
+  }
 }

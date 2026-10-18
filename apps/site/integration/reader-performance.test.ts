@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 vi.mock('server-only', () => ({}));
 import { measuredReaderDatabase, readerFailureDiagnostic, ReaderCorrectnessError, readerPercentiles, runReaderSchedule, READER_PERFORMANCE_SCHEDULE,
   assertCompleteReaderPerformanceEvidence, createReaderSourceDataset, readerDigest, READER_SOURCE_DIGEST,
@@ -195,7 +197,7 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
   });
 });
 
-import { bindStorageFixture, loadStorageFixture, createStorageSourceDataset, storageReplayBoundary, STORAGE_PHASES } from './reader-performance';
+import { bindStorageFixture, loadStorageFixture, createStorageSourceDataset, storageReplayBoundary, STORAGE_PHASES, STORAGE_PACKAGED_CATALOG_PATH } from './reader-performance';
 import type { LeagueAdministrationStore } from '../lib/league-administration/store-contracts';
 import type { PublicIntakeStore } from '../lib/league-administration/public-intake-contracts';
 const cp28Catalog = () => Object.fromEntries(Array.from({length:164},(_,i)=>{const id=String(1000+i),position=['QB','RB','WR','TE'][i%4];return [id,{player_id:id,position,fantasy_positions:[position]}];}));
@@ -299,4 +301,26 @@ it('CP28 preflight rejects missing or changed raw and fabricated manifest bindin
     await expect(loadStorageFixture(root)).rejects.toThrow('binding changed');await writeFile(rawPath,raw);
     await writeFile(manifestPath,JSON.stringify({...manifest,fixtureDigest:'0'.repeat(64)}));await expect(loadStorageFixture(root)).rejects.toThrow('binding changed');
   }finally{await rm(root,{recursive:true,force:true});}
+});
+
+describe('CP28 checkout-delivered gzip fixture, offline only',()=>{
+  async function packaged(fault=''){
+    const root=await mkdtemp(join(tmpdir(),'cp28-package-offline-'));
+    try{
+      const raw=JSON.stringify(cp28Catalog()),source=await bindStorageFixture(raw,cp28Metadata);
+      let compressed=gzipSync(Buffer.from(raw));
+      if(fault==='corrupt')compressed=Buffer.from('invalid gzip');if(fault==='truncated')compressed=compressed.subarray(0,compressed.length-4);
+      if(fault==='expanded')compressed=gzipSync(Buffer.alloc(16*1024*1024+1));
+      const descriptor:Record<string,unknown>={path:STORAGE_PACKAGED_CATALOG_PATH,sha256:createHash('sha256').update(compressed).digest('hex'),bytes:compressed.byteLength};
+      if(fault==='hash')descriptor.sha256='0'.repeat(64);if(fault==='path')descriptor.path='../outside.json.gz';if(fault==='descriptor')descriptor.extra='unexpected';if(fault==='byte-type')descriptor.bytes=String(descriptor.bytes);if(fault==='compressed-cap')descriptor.bytes=4*1024*1024+1;
+      const manifest:Record<string,unknown>={...source,packagedCatalog:descriptor};if(fault==='raw-size')manifest.rawBytes=source.rawBytes+1;if(fault==='raw-hash')manifest.rawSha256='0'.repeat(64);if(fault==='extra-core')manifest.unexpected=true;
+      await mkdir(join(root,'docs/aggregator-backend'),{recursive:true});await mkdir(join(root,'apps/site/integration/fixtures'),{recursive:true});await mkdir(join(root,'test-results/cp28-fixture'),{recursive:true});
+      await writeFile(join(root,'docs/aggregator-backend/data-backend-cp28-measurement-fixture.json'),JSON.stringify(manifest));
+      // A valid legacy raw file must never conceal a missing or invalid declared package.
+      await writeFile(join(root,cp28Metadata.rawCatalogPath),raw);if(fault!=='missing')await writeFile(join(root,STORAGE_PACKAGED_CATALOG_PATH),compressed);
+      if(fault)await expect(loadStorageFixture(root)).rejects.toThrow();else{const loaded=await loadStorageFixture(root);expect(loaded.raw).toBe(raw);expect(loaded.manifest.fixtureDigest).toBe(source.fixtureDigest);expect(loaded.manifest.sourceBindings).toEqual(source.sourceBindings);}
+    }finally{await rm(root,{recursive:true,force:true});}
+  }
+  it('verifies binary gzip and exact raw identity while retaining all source bindings',async()=>{await packaged();});
+  it.each(['missing','hash','corrupt','truncated','expanded','path','descriptor','byte-type','compressed-cap','raw-size','raw-hash','extra-core'])('rejects %s package without raw fallback',async fault=>{await packaged(fault);});
 });

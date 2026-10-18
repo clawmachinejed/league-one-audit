@@ -239,14 +239,14 @@ export const STORAGE_MEASUREMENT_TESTS = ['measures the frozen catalog forty two
 export const STORAGE_MEASUREMENT_FULL_NAMES = STORAGE_MEASUREMENT_TESTS.map(name => STORAGE_MEASUREMENT_SUITE + ' > ' + name);
 export const STORAGE_MEASUREMENT_PATTERN = closedPattern(STORAGE_MEASUREMENT_FULL_NAMES);
 export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
-  { path: 'integration/disposable-integration.ts', sourceDigest: '09b9f1e28c46c9831a3868a36baedcfba7c804aa5ed8b9b4c864965e5cae54e2' },
+  { path: 'integration/disposable-integration.ts', sourceDigest: '06cae505c4930128f5a7b16bb04d6533c5d712d08b7e2c235caf171c0b640414' },
   { path: 'integration/integration-owner-loss-diagnostics.ts', sourceDigest: '9d37cd5993e3fd324c1472ba6a81ac93d7e253ba81116a5503fd7c73e41747c9' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'lib/league-administration/public-intake.ts', sourceDigest: '46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd' },
   { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479' },
   { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
-  { path: 'integration/reader-performance.ts', sourceDigest: '5880ce8575bf669816bc53c2a3af0c68548ff841be308e9e4101fb375ddee7fd' },
+  { path: 'integration/reader-performance.ts', sourceDigest: '44e3e813d7ff2f213a93338f7a2625caf63369d14746ab9ddd6b4b0b1808e3b3' },
   { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
   { path: 'integration/neon-integration-harness.ts', sourceDigest: '1ea7875c3cae6785ae94572144391a0bce0206ebb575e11dfa4fb4cec3eb7933' },
   { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },
@@ -275,7 +275,7 @@ export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
   { path: 'lib/aggregator/official-standings.ts', sourceDigest: '63a4c1055b4a9cfc331d7482b6e7b90ca0a90bdf0f622addea9a215969182b85' },
   { path: 'lib/projections/adapters/neon/identities.ts', sourceDigest: '02d1f57fc4a9154fbb8edb4d47e7e2f6d270f3997849adde04626f3420d18c26' },
   { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: 'eb50d2f1ca091c8d0eaa547cb38338951a6501f9cb6f138d6b5641413f4bedc3' },
-  { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'd7a8ee8b3dc5bc0c73e40d54947a0ce0d4456234b3ffa9d95c4366b9abe35480' },
+  { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'a073787759851045909475f7b47a36f5daf01530604d1556a3afe9cf43ff785f' },
   { path: 'migrations/001_projection_foundation.sql', sourceDigest: 'eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050' },
   { path: 'migrations/002_manager_snapshot_payloads.sql', sourceDigest: '74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d' },
   { path: 'migrations/003_league_period_authority.sql', sourceDigest: '6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e' },
@@ -345,6 +345,7 @@ export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
   { path: 'lib/projections/shared/revision-compatibility.ts', sourceDigest: 'e419b7d25c93599b132c533615ca7f31fbcd4d953825323816479f9bd3a76631' },
   { path: 'lib/league-administration/contracts.ts', sourceDigest: '89e78482db92555ae01fa5e26819acc2f56f858f88e9b54dbd3960f1fd06a97c' },
   { path: 'integration/exact-matchup-clock.ts', sourceDigest: '3f7b327bce2dc72766564f804f85ff2dbb2ed7547fcdf2d4f8c8536c55545b69' },
+  { path: '../../.github/workflows/integration.yml', sourceDigest: '0bfffec6811e594a4bcb40b4353da8313a4b012d2421fd761fffb02413ca0176' },
 ] as const;
 export const BATCH_CALIBRATION_PROFILE = 'data-batch-calibration-v1';
 export const BATCH_CALIBRATION_MODULE = 'integration/batch-calibration.qualification-case.ts';
