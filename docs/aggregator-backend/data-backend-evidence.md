@@ -1,5 +1,15 @@
 # DATA backend evidence and remaining qualification
 
+## Minimal live-test startup repair
+
+DATA-CP26-2026-10-18-LIVE-STARTUP-REPAIR records the user's renewed instruction to finish accurately with only the work needed for the real import measurement. The previous live attempt on 909a569 failed before any import because Vite's bundled config loader eagerly loaded server-only code; all generated credentials and the disposable branch were cleaned up. Its independent closeout is `909a569-live-run-39092320279-closeout.json`, SHA-256 `490c8fe450bdc22f95267cd8c5528d9a7446b3605ab11e3c9bed26a0a17eb824`.
+
+Independent reproduction confirmed that the existing runner loader reads the unchanged config correctly. The repair is limited to fixed `--configLoader runner` arguments for the two CP26 short profiles in `qualification-profile.ts` and an actual config-loading regression in its existing test file. Historical/default arguments, runtime, migrations, guards and deadlines remain unchanged. Independent nonauthor /root/contract_audit confirmed those two paths before implementation. The renewed execution authorization covers the corrected bounded live import and duplicate-request check; no long ownership/endurance profile is part of this continuation. The previous ordinary CI timeout remains recorded separately; it does not measure import performance. Fresh local/GitHub main and authenticated Ready Vercel production still agree at 87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f. No production release is included.
+
+
+The minimal repair passed seven focused tests, including actual configuration loading and preserved older/default selectors, scoped lint and whole-site TypeScript. Root reviewed the two-line argument change; scope and whitespace checks passed. The importer itself is unchanged. The real import measurement is pending.
+
+
 ## Approved CP26 completion scope — October 18, 2026 (UTC)
 
 DATA-CP26-2026-10-18-NARROW-ACCEPTANCE records the user's explicit approval after rejecting the five-profile, multi-day campaign. This amendment supersedes CP26's earlier fleet/endurance completion requirement; historical results and the deferred targets remain visible and are not converted to passes.

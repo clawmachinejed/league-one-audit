@@ -4252,7 +4252,7 @@ async function fleetReportFixture(profile:'data-freshness-capacity-healthy-v1'|'
  const evidence=structuredClone(previous.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:modulePath,pattern,otherFilters:false}];evidence.collected=[modulePath];evidence.modules=[{...evidence.modules[0],path:modulePath,suites:[{id:'suite',name:suite,mode:'run',errors:0}],cases:names.map((name,index)=>({...previous.evidence.modules[0].cases[0],id:'case-'+index,name,diagnostic:{retryCount:0,repeatCount:0,flaky:false,duration:1,startTime:1234+index*2}}))}];return{binding:{context,directory:previous.binding.directory},evidence,modulePath,names,pattern};
 }
 for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capacity-recovery-v1','data-freshness-capacity-daily-v1','data-live-public-batch-v1','data-freshness-capacity-ownership-v1'] as const){
- it('CP26 fleet registers only the exact source-bound selector '+profile,async()=>{const{binding,evidence,modulePath,pattern}=await fleetReportFixture(profile);expect(parseQualificationArguments(['--profile='+profile])).toBe(profile);expect(qualificationArguments(profile,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter',modulePath,'--testNamePattern',pattern]);expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([modulePath]);expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();for(const extra of ['--retry=1','--repeat=2','--testNamePattern=one',modulePath])expect(()=>parseQualificationArguments(['--profile='+profile,extra])).toThrow();});
+ it('CP26 fleet registers only the exact source-bound selector '+profile,async()=>{const{binding,evidence,modulePath,pattern}=await fleetReportFixture(profile);expect(parseQualificationArguments(['--profile='+profile])).toBe(profile);expect(qualificationArguments(profile,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter',...(profile==='data-live-public-batch-v1'||profile==='data-freshness-capacity-ownership-v1'?['--configLoader','runner']:[]),modulePath,'--testNamePattern',pattern]);expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([modulePath]);expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();for(const extra of ['--retry=1','--repeat=2','--testNamePattern=one',modulePath])expect(()=>parseQualificationArguments(['--profile='+profile,extra])).toThrow();});
  it('CP26 fleet rejects incomplete reordered retried filtered or unhooked cases '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);for(const mutate of [(row:QualificationReport)=>{row.modules[0].cases.pop();},(row:QualificationReport)=>{row.modules[0].cases.reverse();},(row:QualificationReport)=>{row.modules[0].cases[1].diagnostic!.startTime=0;},(row:QualificationReport)=>{row.modules[0].cases[0].diagnostic!.retryCount=1;},(row:QualificationReport)=>{row.modules[0].cases[0].state='skipped';},(row:QualificationReport)=>{row.hooks.pop();}]){const changed=structuredClone(evidence);mutate(changed);expect(()=>validateQualificationReport(binding.context,changed)).toThrow();}});
  it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
 }
@@ -4311,4 +4311,40 @@ it('CP26 short CI choices preserve protected execution and retain ownership jour
   expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
   expect(workflow).not.toContain('workflow_dispatch:data-freshness-capacity-daily-v1)');
   expect(workflow).not.toContain('pull_request_target:');
+});
+
+
+it('CP26 short live profile loads the actual integration config with its emitted loader', async () => {
+  const { binding, modulePath } = await fleetReportFixture('data-live-public-batch-v1');
+  const args = qualificationArguments('data-live-public-batch-v1', '/reporter');
+  const script = `
+    import net from 'node:net';
+    import path from 'node:path';
+    import { createRequire } from 'node:module';
+    import { pathToFileURL } from 'node:url';
+    net.Socket.prototype.connect = function () { throw new Error('Config-only regression forbids network'); };
+    const require = createRequire(path.join(process.cwd(), 'package.json'));
+    const vitestRequire = createRequire(require.resolve('vitest/package.json'));
+    const { loadConfigFromFile } = await import(pathToFileURL(vitestRequire.resolve('vite')).href);
+    const args = JSON.parse(process.argv[1]);
+    const index = args.indexOf('--configLoader');
+    const loader = index < 0 ? undefined : args[index + 1];
+    const loaded = await loadConfigFromFile({ command: 'serve', mode: 'test' },
+      path.resolve('vitest.integration.config.ts'), process.cwd(), 'silent', undefined, loader);
+    const { test, resolve } = loaded.config;
+    console.log(JSON.stringify({ loader, include: test.include, environment: test.environment,
+      globalSetup: test.globalSetup, fileParallelism: test.fileParallelism, maxWorkers: test.maxWorkers,
+      hookTimeout: test.hookTimeout, testTimeout: test.testTimeout, includeTaskLocation: test.includeTaskLocation,
+      serverOnlyAlias: resolve.alias['server-only'] }));
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(args)], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
+  });
+  expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [modulePath], environment: 'node',
+    globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
+    hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
+    serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
 });
