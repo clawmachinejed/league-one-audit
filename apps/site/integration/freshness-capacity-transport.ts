@@ -4,6 +4,7 @@ import { performance } from 'node:perf_hooks';
 import { assertCapacityEndpointInventory, capacityTime, freezeCapacityValue, type CapacityNativeResource, type CapacityEndpointBinding, type PayloadVersion } from './freshness-capacity-manifest';
 import type { CapacityFleetFixture } from './freshness-capacity-fixtures';
 import { assertCapacityRecoveryManifest, RECOVERY_CLOCK, type CapacityRecoveryManifest } from './freshness-capacity-recovery';
+import { assertCapacityDailyManifest, type CapacityDailyManifest } from './freshness-capacity-daily';
 import type { HttpAttempt } from './freshness-capacity-evidence';
 
 export type CapacitySourceResponse = { attemptId: string; endpointId: string; resource: CapacityNativeResource;
@@ -35,6 +36,28 @@ export function createCapacityRecoveryTransport(manifest:CapacityRecoveryManifes
   const endpoints=freezeCapacityValue(structuredClone(manifest.endpoints)),startedAt=options.startedAt;
   return createClosedTransport(endpoints,{...options,anchors:()=>new Map(),outage:{startedAt:startedAt+RECOVERY_CLOCK.outageStartMs,endedAt:startedAt+RECOVERY_CLOCK.outageEndMs}},
     (id,at)=>{const endpoint=endpoints.find(row=>row.id===id)!;return at>=startedAt+RECOVERY_CLOCK.outageEndMs?endpoint.after:endpoint.before;});
+}
+/** Same maintained-adapter interception with the separate fixed daily correction clock. */
+export function createCapacityDailyTransport(manifest: CapacityDailyManifest, options: Omit<CapacityTransportOptions, 'anchors' | 'outage'> & { startedAt: number | (() => number | null) }) {
+  assertCapacityDailyManifest(manifest); if (typeof options.startedAt === 'number') capacityTime(options.startedAt); assert(manifest.source.requestOwners.includes(options.owner));
+  const endpoints = manifest.endpoints; let epoch: number | null = typeof options.startedAt === 'number' ? options.startedAt : null;
+  return createClosedTransport(endpoints, { ...options, anchors: () => new Map() }, (id, at) => {
+    const actual = typeof options.startedAt === 'number' ? options.startedAt : options.startedAt();
+    if (actual !== null) { capacityTime(actual); assert(epoch === null || actual === epoch, 'daily publication epoch cannot be rebased'); epoch = actual; }
+    else assert(epoch === null, 'daily publication epoch cannot be cleared');
+    const endpoint = endpoints.find(row => row.id === id)!; return epoch === null || at < epoch + manifest.clock.publicationOffsetMs ? endpoint.before : endpoint.after;
+  });
+}
+/** Daily artifacts retain every response span but intern identical exact native bytes once. */
+export function packCapacityDailyResponses(rows: readonly { owner: string; responses: readonly CapacitySourceResponse[] }[]) {
+  const bodies = new Map<string, { sha256: string; utf8: string; byteLength: number }>();
+  const owners = rows.map(row => ({ owner: row.owner, responses: row.responses.map(({ rawUtf8, ...response }) => {
+    assert.equal(createHash('sha256').update(rawUtf8).digest('hex'), response.rawSha256);
+    const existing = bodies.get(response.rawSha256); if (existing) assert.equal(existing.utf8, rawUtf8);
+    else bodies.set(response.rawSha256, { sha256: response.rawSha256, utf8: rawUtf8, byteLength: Buffer.byteLength(rawUtf8, 'utf8') });
+    return { ...response, bodyRef: response.rawSha256 };
+  }) }));
+  return freezeCapacityValue({ kind: 'cp26-daily-response-pool-v1' as const, bodies: [...bodies.values()], owners });
 }
 function createClosedTransport(endpointInventory:readonly Omit<CapacityEndpointBinding,'versions'>[],options:CapacityTransportOptions,
   selectVersion:(id:string,requestStartedAt:number)=>PayloadVersion){

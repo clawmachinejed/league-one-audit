@@ -61,3 +61,22 @@ describe('closed recovery protocol',()=>{
     expect(()=>parseFleetMessage({...message(),profile:recovery.profile,type:'result',action:'run-recovery',sequence:4,result:{passed:true}},recovery,10)).toThrow('inventory');
   });
 });
+
+describe('closed local daily protocol',()=>{
+  it('binds the daily action to its original supervisor deadline without extending another lane',()=>{
+    const daily={...config,profile:'data-freshness-capacity-daily-v1' as const,workDeadlineAt:Date.now()+25*60*60_000};
+    expect(parseFleetConfig(daily)).toEqual(daily);
+    expect(fleetSupervisedWorkDeadline({INTEGRATION_SUPERVISED_WORK_DEADLINE_AT:String(daily.workDeadlineAt)},daily.profile)).toBe(daily.workDeadlineAt);
+    expect(()=>parseFleetConfig({...daily,workDeadlineAt:Date.now()+26*60*60_000+1000})).toThrow('deadline');
+    expect(()=>parseFleetConfig({...daily,profile:config.profile})).toThrow('deadline');
+    const command={version:FLEET_VERSION,nonce:daily.nonce,sequence:1,action:'run-daily' as const};
+    expect(parseFleetCommand(command,daily,1)).toEqual(command);expect(()=>parseFleetCommand(command,config,1)).toThrow('mismatch');
+    for(const action of ['run-healthy','run-recovery'] as const)expect(()=>parseFleetCommand({...command,action},daily,1)).toThrow('mismatch');
+    expect(()=>parseFleetMessage({...message(),profile:daily.profile,workDeadlineAt:daily.workDeadlineAt,type:'result',action:'run-daily',sequence:4,result:{passed:true}},daily,10)).toThrow('inventory');
+  });
+  it('rejects a daily CI child before secrets or provider credentials are forwarded',()=>{
+    const daily={...config,profile:'data-freshness-capacity-daily-v1' as const};
+    const env={CI:'1',INTEGRATION_SUPERVISED_WORK_DEADLINE_AT:String(daily.workDeadlineAt),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:resolve('test-results/protocol-unit')};
+    expect(()=>fleetEnvironment(env,runtimeUrl,daily)).toThrow('local-only');
+  });
+});

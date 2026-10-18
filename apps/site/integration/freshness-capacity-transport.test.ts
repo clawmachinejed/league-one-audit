@@ -1,6 +1,7 @@
+import { createCapacityDailyManifest } from './freshness-capacity-daily';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { createCapacityFleetFixture, type CapacityFleetFixture } from './freshness-capacity-fixtures';
-import { createCapacityFixtureTransport, createCapacityRecoveryTransport } from './freshness-capacity-transport';
+import { createCapacityFixtureTransport, createCapacityRecoveryTransport, createCapacityDailyTransport, packCapacityDailyResponses } from './freshness-capacity-transport';
 import { createCapacityRecoveryManifest, RECOVERY_CLOCK, type CapacityRecoveryManifest } from './freshness-capacity-recovery';
 import { projectDraftMetadata } from '../lib/aggregator/draft-metadata';
 import { projectDraftSelections } from '../lib/aggregator/draft-selections';
@@ -157,5 +158,35 @@ describe('separate recovery publication over the same HTTP boundary',()=>{
       for(const document of result.observations){const envelope:AdministrationEnvelope={schemaVersion:'league-administration-v1',normalizerVersion:'sleeper-administration-v1',dialect:'sleeper-nfl-v1',scope:{leagueKey:'recovery-unit',provider:'sleeper',externalLeagueId:native,season:2026},family:document.family,week:document.week,completeness:'complete',payload:document.payload as AdministrationEnvelope['payload'],provenance:{origin:'network',requestStartedAt:document.requestStartedAt,requestCompletedAt:document.requestCompletedAt,sourceObservedAt:document.requestCompletedAt,checkedAt:document.requestCompletedAt}};
         expect(project(normalizeAdministrationObservation(envelope)).status).toBe('accepted');}
     }expect(transport.journal().rejectedRequests).toEqual([]);}finally{spy.mockRestore();}
+  });
+});
+
+
+describe('daily exact byte pool and one-shot observation epoch',()=>{
+  function daily(){const {fixtureSha256,...pins}=recovery.source;void fixtureSha256;return createCapacityDailyManifest(fleet,pins);}
+  it('keeps pre-epoch auxiliary traffic and selects corrections at the immutable daily request clock',async()=>{
+    const plan=daily();let now=100000,epoch:number|null=null;
+    const transport=createCapacityDailyTransport(plan,{owner:'data-refresh',purpose:'intake',startedAt:()=>epoch,wallNow:()=>now,monotonicNow:()=>now});
+    const auxiliary=plan.auxiliary.endpoints.find(row=>row.resource==='rosters')!;
+    expect(JSON.parse(await(await transport.fetch(auxiliary.url)).text())).toHaveLength(12);
+    epoch=now+1000;now=epoch;
+    const endpoint=plan.endpoints.find(row=>row.resource==='rosters'&&row.scope.leagueKey==='league-01')!;
+    expect(await(await transport.fetch(endpoint.url)).text()).toBe(endpoint.before.utf8);
+    now=epoch+plan.clock.publicationOffsetMs;expect(await(await transport.fetch(endpoint.url)).text()).toBe(endpoint.after.utf8);
+    expect(transport.journal().coverageStartedAt).toBe(100000);expect(transport.journal().attempts).toHaveLength(3);
+    epoch++;await expect(transport.fetch(endpoint.url)).rejects.toThrow('publication');expect(transport.journal().rejectedRequests).toHaveLength(1);
+  });
+  it('interns identical bytes while retaining each independent physical response clock and identity',async()=>{
+    const plan=daily();let now=100000;
+    const transport=createCapacityDailyTransport(plan,{owner:'data-refresh',purpose:'intake',startedAt:100000,wallNow:()=>now,monotonicNow:()=>now});
+    const endpoint=plan.auxiliary.endpoints.find(row=>row.resource==='rosters')!;
+    await transport.fetch(endpoint.url);now++;await transport.fetch(endpoint.url);
+    const original=transport.journal(),packed=packCapacityDailyResponses([{owner:original.owner,responses:original.responses}]);
+    expect(packed.bodies).toHaveLength(1);expect(packed.owners[0].responses).toHaveLength(2);
+    expect(packed.owners[0].responses[0].attemptId).not.toBe(packed.owners[0].responses[1].attemptId);
+    expect(packed.owners[0].responses.map(row=>row.responseCompletedAt)).toEqual([100000,100001]);
+    expect(packed.bodies[0].utf8).toBe(endpoint.before.utf8);expect(packed.bodies[0].byteLength).toBe(Buffer.byteLength(endpoint.before.utf8));
+    const altered=structuredClone(original.responses);altered[0].rawUtf8='[]';
+    expect(()=>packCapacityDailyResponses([{owner:original.owner,responses:altered}])).toThrow();
   });
 });

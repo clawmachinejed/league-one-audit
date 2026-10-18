@@ -540,3 +540,9 @@ it('uses the closed recovery six-hour expiry without accepting arbitrary duratio
   expect(Date.parse(receipt.expiresAt)-before).toBeGreaterThan(360*60_000-2_000);
   expect(Date.parse(receipt.expiresAt)-before).toBeLessThanOrEqual(360*60_000);
 });
+
+it('uses the closed local daily 27 hour fallback without changing provider guards',async()=>{
+  const state=fixture(),before=Date.now();const receipt=await state.api.createBranch(config,runId,undefined,'data-freshness-capacity-daily-v1');
+  expect(Date.parse(receipt.expiresAt)-before).toBeGreaterThan(27*60*60_000-2_000);
+  expect(Date.parse(receipt.expiresAt)-before).toBeLessThanOrEqual(27*60*60_000);
+});

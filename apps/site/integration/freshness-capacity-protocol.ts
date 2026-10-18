@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, join, resolve } from 'node:path';
-import { integrationChildEnvironment } from './disposable-integration';
+import { integrationChildEnvironment, assertLocalDailyQualification } from './disposable-integration';
 import { createBackendControlsDatabaseFetchGuard } from './backend-controls-fetch';
 import { INTEGRATION_WORK_DEADLINE_ENV, integrationLifecycleEnvelope } from './integration-lifecycle-budget';
-import { FLEET_HEALTHY_PROFILE, FLEET_RECOVERY_PROFILE, assertFleetEvidenceInventory, type FleetEvidenceInventory } from './freshness-capacity-profile';
+import { FLEET_HEALTHY_PROFILE, FLEET_RECOVERY_PROFILE, FLEET_DAILY_PROFILE, assertFleetEvidenceInventory, type FleetEvidenceInventory } from './freshness-capacity-profile';
 
 export const FLEET_CONFIG = 'CP26_FLEET_CONFIG';
 export const FLEET_VERSION = 'cp26-fleet-v1';
-export type FleetProfile=typeof FLEET_HEALTHY_PROFILE|typeof FLEET_RECOVERY_PROFILE;
+export type FleetProfile=typeof FLEET_HEALTHY_PROFILE|typeof FLEET_RECOVERY_PROFILE|typeof FLEET_DAILY_PROFILE;
 export type FleetConfig = { profile:FleetProfile; nonce: string; fixtureId: string; contextNonce: string; gitSha: string; profileDigest: string;
   fixtureDigest: string; manifestDigest: string; workDeadlineAt:number; evidenceDirectory:string; plannedPostgresqlVersion:string; expectedDatabase: string; expectedBranch: string };
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u;
@@ -18,7 +18,7 @@ function object(value: unknown): Record<string, unknown> { assert(value && typeo
 export function parseFleetConfig(value: unknown): FleetConfig {
   const row = object(value) as FleetConfig;
   fleetKeys(row, ['profile','nonce','fixtureId','contextNonce','gitSha','profileDigest','fixtureDigest','manifestDigest','workDeadlineAt','evidenceDirectory','plannedPostgresqlVersion','expectedDatabase','expectedBranch']);
-  assert(row.profile===FLEET_HEALTHY_PROFILE||row.profile===FLEET_RECOVERY_PROFILE,'closed fleet profile required');
+  assert(row.profile===FLEET_HEALTHY_PROFILE||row.profile===FLEET_RECOVERY_PROFILE||row.profile===FLEET_DAILY_PROFILE,'closed fleet profile required');
   for (const id of [row.nonce,row.fixtureId,row.contextNonce]) assert.match(id,uuid);
   assert.match(row.plannedPostgresqlVersion,/^[1-9][0-9]*\.[0-9]+$/u);
   assert.match(row.gitSha,/^[a-f0-9]{40}$/u); for (const digest of [row.profileDigest,row.fixtureDigest,row.manifestDigest]) assert.match(digest,hash);
@@ -34,6 +34,7 @@ export function fleetSupervisedWorkDeadline(environment:Record<string,string|und
   const deadline=Number(text);assert(Number.isSafeInteger(deadline)&&deadline<=Date.now()+integrationLifecycleEnvelope(profile).workMs,'invalid supervised deadline');return deadline;
 }
 export function fleetEnvironment(source: Record<string,string|undefined>, runtimeUrl: string, config: FleetConfig) {
+  assertLocalDailyQualification(source,config.profile);
   parseFleetConfig(config); assert.equal(config.workDeadlineAt, fleetSupervisedWorkDeadline(source,config.profile), 'supervisor deadline changed');
   const artifactRoot=source.PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY; assert(artifactRoot&&isAbsolute(artifactRoot),'bound artifact directory required');
   assert.equal(config.evidenceDirectory,resolve(join(artifactRoot,'fleet-raw-'+config.nonce)),'worker artifact directory escaped bound run');
@@ -42,14 +43,15 @@ export function fleetEnvironment(source: Record<string,string|undefined>, runtim
   assert(['require','verify-ca','verify-full'].includes(url.searchParams.get('sslmode') ?? '')); assert.equal(decodeURIComponent(url.pathname.slice(1)),config.expectedDatabase);
   return { ...integrationChildEnvironment(source), DATABASE_URL:runtimeUrl, [FLEET_CONFIG]:JSON.stringify(config) };
 }
-export const FLEET_ACTIONS = ['omitted','false','prepare','run-healthy','run-recovery','snapshot','stop'] as const;
+export const FLEET_ACTIONS = ['omitted','false','prepare','run-healthy','run-recovery','run-daily','snapshot','stop'] as const;
 export type FleetAction = typeof FLEET_ACTIONS[number];
 export type FleetCommand = { version:typeof FLEET_VERSION; nonce:string; sequence:number; action:FleetAction };
 export function parseFleetCommand(value:unknown,config:FleetConfig,sequence:number):FleetCommand {
   const row=object(value) as FleetCommand;fleetKeys(row,['version','nonce','sequence','action']);assert.equal(row.version,FLEET_VERSION);assert.equal(row.nonce,config.nonce);
   assert(Number.isSafeInteger(sequence)&&sequence>=1&&sequence<=16);assert.equal(row.sequence,sequence);assert(FLEET_ACTIONS.includes(row.action));
   if(row.action==='run-healthy')assert.equal(config.profile,FLEET_HEALTHY_PROFILE,'profile command mismatch');
-  if(row.action==='run-recovery')assert.equal(config.profile,FLEET_RECOVERY_PROFILE,'profile command mismatch');return row;
+  if(row.action==='run-recovery')assert.equal(config.profile,FLEET_RECOVERY_PROFILE,'profile command mismatch');
+  if(row.action==='run-daily')assert.equal(config.profile,FLEET_DAILY_PROFILE,'profile command mismatch');return row;
 }
 export type FleetSpan = { startedAt:string; endedAt:string; monotonicStartMs:number; monotonicEndMs:number };
 export function fleetStart(){return {startedAt:new Date().toISOString(),monotonicStartMs:performance.now()};}
@@ -74,7 +76,7 @@ export function parseFleetMessage(value:unknown,config:FleetConfig,pid:number):F
   if(row.type==='ready'){assert.equal(row.sequence,0);assert.equal(row.action,null);assert.equal(row.inventory,null);assert.equal(row.result,null);assert.equal(row.error,false);}
   else {assert(row.sequence>0);assert(FLEET_ACTIONS.includes(row.action as FleetAction));assert(row.action!=='stop');
     if(row.result!==null)object(row.result);if(row.inventory!==null){assertFleetEvidenceInventory(row.inventory);assert.equal(row.inventory.manifestDigest,config.manifestDigest);}
-    if((row.action==='run-healthy'||row.action==='run-recovery')&&!row.error)assert(row.inventory,'complete fleet result requires immutable evidence inventory');}
+    if((row.action==='run-healthy'||row.action==='run-recovery'||row.action==='run-daily')&&!row.error)assert(row.inventory,'complete fleet result requires immutable evidence inventory');}
   return row;
 }
 export type FleetSqlAttempt = { sequence:number;span:FleetSpan;querySha256:string;outcome:'success'|'failed';signal:boolean };

@@ -10,7 +10,7 @@ import { superviseCapacityChild } from './collection-capacity-supervision';
 import { spawnIntegrationChild, stopIntegrationChildTree, verifyIntegrationChildTreeClosed } from './integration-child-process';
 import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV } from './integration-artifacts';
 import { IntegrationDeadlineError, IntegrationLifecycleBudget, integrationLifecycleForQualification, INTEGRATION_WORK_DEADLINE_ENV,
-  INTEGRATION_TEARDOWN_RESERVE_MS } from './integration-lifecycle-budget';
+  INTEGRATION_TEARDOWN_RESERVE_MS, DAILY_FLEET_LIFECYCLE_PROFILE } from './integration-lifecycle-budget';
 
 import { FRESH_INSTALL_PROFILE, createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
   type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
@@ -313,9 +313,16 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
     && receipt.credentialsRevoked && receipt.branchDeletionVerified && receipt.failures.length === 0 && !signal?.aborted;
 }
 
+/** The daily lane has no hosted CI envelope; reject CI before configuration or provisioning. */
+export function assertLocalDailyQualification(environment:Record<string,string|undefined>,profile:unknown){
+  if(profile!==DAILY_FLEET_LIFECYCLE_PROFILE)return;
+  for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])
+    assert(environment[key]===undefined,'Daily qualification is local-only: '+key);
+}
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
   journal: (receipt: IntegrationRunReceipt, signal: AbortSignal) => Promise<void>; signal: AbortSignal;
   output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
+  assertLocalDailyQualification(options.environment,options.profile);
   const lifecycleProfile = integrationLifecycleForQualification(options.profile);
   const budget = options.budget ?? new IntegrationLifecycleBudget(lifecycleProfile);
   assert.equal(budget.envelope.profile, lifecycleProfile, 'Lifecycle envelope must match the selected closed profile');

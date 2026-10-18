@@ -290,3 +290,12 @@ it('rejects recovery with a healthy budget before any provisioner or network use
     expect(denied).not.toHaveBeenCalled();
   }finally{denied.mockRestore();}
 });
+
+it.each(['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])('rejects daily %s before configuration or network provisioning',async key=>{
+  const denied=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No provisioning permitted'));
+  try{await expect(runDisposableIntegration({environment:{NODE_ENV:'test',[key]:'false'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:'data-freshness-capacity-daily-v1'})).rejects.toThrow('local-only');expect(denied).not.toHaveBeenCalled();}finally{denied.mockRestore();}
+});
+it('rejects a daily profile with an ordinary lifecycle before any provisioner use',async()=>{
+  const denied=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('No provisioning permitted'));
+  try{await expect(runDisposableIntegration({environment:{NODE_ENV:'test'},gitSha:'a'.repeat(40),journal:async()=>{},signal:new AbortController().signal,output:()=>{},profile:'data-freshness-capacity-daily-v1',budget:new IntegrationLifecycleBudget()})).rejects.toThrow('Lifecycle');expect(denied).not.toHaveBeenCalled();}finally{denied.mockRestore();}
+});

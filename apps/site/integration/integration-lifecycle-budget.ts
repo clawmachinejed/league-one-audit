@@ -7,13 +7,16 @@ export const INTEGRATION_FINALIZATION_RESERVE_MS = 10_000;
 export const INTEGRATION_WORK_DEADLINE_ENV = 'INTEGRATION_SUPERVISED_WORK_DEADLINE_AT';
 export const HEALTHY_FLEET_LIFECYCLE_PROFILE = 'data-freshness-capacity-healthy-v1';
 export const RECOVERY_FLEET_LIFECYCLE_PROFILE = 'data-freshness-capacity-recovery-v1';
-export type IntegrationLifecycleProfile = 'default' | typeof HEALTHY_FLEET_LIFECYCLE_PROFILE | typeof RECOVERY_FLEET_LIFECYCLE_PROFILE;
+export const DAILY_FLEET_LIFECYCLE_PROFILE = 'data-freshness-capacity-daily-v1';
+export type IntegrationLifecycleProfile = 'default' | typeof HEALTHY_FLEET_LIFECYCLE_PROFILE | typeof RECOVERY_FLEET_LIFECYCLE_PROFILE | typeof DAILY_FLEET_LIFECYCLE_PROFILE;
 export function integrationLifecycleForQualification(profile:unknown):IntegrationLifecycleProfile {
-  return profile===HEALTHY_FLEET_LIFECYCLE_PROFILE||profile===RECOVERY_FLEET_LIFECYCLE_PROFILE?profile:'default';
+  return profile===HEALTHY_FLEET_LIFECYCLE_PROFILE||profile===RECOVERY_FLEET_LIFECYCLE_PROFILE||profile===DAILY_FLEET_LIFECYCLE_PROFILE?profile:'default';
 }
 export function integrationLifecycleEnvelope(profile: IntegrationLifecycleProfile = 'default') {
-  assert(profile === 'default' || profile === HEALTHY_FLEET_LIFECYCLE_PROFILE || profile === RECOVERY_FLEET_LIFECYCLE_PROFILE, 'Unknown integration lifecycle profile');
-  return Object.freeze(profile === RECOVERY_FLEET_LIFECYCLE_PROFILE
+  assert(profile === 'default' || profile === HEALTHY_FLEET_LIFECYCLE_PROFILE || profile === RECOVERY_FLEET_LIFECYCLE_PROFILE || profile === DAILY_FLEET_LIFECYCLE_PROFILE, 'Unknown integration lifecycle profile');
+  return Object.freeze(profile === DAILY_FLEET_LIFECYCLE_PROFILE
+    ? { profile, workMs:26*60*60_000,lifecycleMs:(26*60+10)*60_000,branchExpiryMs:27*60*60_000,ciMinutes:null }
+    : profile === RECOVERY_FLEET_LIFECYCLE_PROFILE
     ? { profile, workMs:340*60_000,lifecycleMs:350*60_000,branchExpiryMs:360*60_000,ciMinutes:360 }
     : profile === HEALTHY_FLEET_LIFECYCLE_PROFILE
     ? { profile, workMs: 240 * 60_000, lifecycleMs: 250 * 60_000, branchExpiryMs: 270 * 60_000, ciMinutes: 270 }

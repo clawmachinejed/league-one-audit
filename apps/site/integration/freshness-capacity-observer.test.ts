@@ -14,7 +14,7 @@ import { bindCapacityManifest, capacityDigest, freezeCapacityValue, type Capacit
 import type { HttpAttempt } from './freshness-capacity-evidence';
 import { RECOVERY_INITIAL_SCOPE } from './freshness-capacity-recovery';
 import type { CapacitySourceResponse } from './freshness-capacity-transport';
-import { CAPACITY_ANCILLARY_HEADS_SQL, CAPACITY_ANCILLARY_FIRST_RECEIPT_SQL, CAPACITY_ANCILLARY_BODY_BYTES, encodeCapacityAncillaryBody, encodeCapacityAncillaryBodies, CAPACITY_DISPATCH_JOURNAL_SQL, CAPACITY_RECEIPT_LINEAGE_SQL, composeCapacityAncillary, evaluateCapacityAncillaryChain, type CapacityAncillarySuccess, createCapacityObserver, capacityCurrentIntakeResource, capacityStoredReceiptNormalization, capacityWeeklyReportReaderValue, capacityDraftReaderScope, capacityIntakeReadOptions, assertCapacityInitialStoredRequest } from './freshness-capacity-observer';
+import { CAPACITY_DAILY_CATALOG_CLAIM_SQL, CAPACITY_DAILY_CATALOG_RESERVE_SQL, createCapacityDailyCatalogFetch, CAPACITY_ANCILLARY_HEADS_SQL, CAPACITY_ANCILLARY_FIRST_RECEIPT_SQL, CAPACITY_ANCILLARY_BODY_BYTES, encodeCapacityAncillaryBody, encodeCapacityAncillaryBodies, CAPACITY_DISPATCH_JOURNAL_SQL, CAPACITY_RECEIPT_LINEAGE_SQL, composeCapacityAncillary, evaluateCapacityAncillaryChain, type CapacityAncillarySuccess, createCapacityObserver, capacityCurrentIntakeResource, capacityStoredReceiptNormalization, capacityWeeklyReportReaderValue, capacityDraftReaderScope, capacityIntakeReadOptions, assertCapacityInitialStoredRequest, assertCapacityAuxiliaryTeams, assertCapacityAuxiliaryScope, capacityAuxiliaryReadOptions } from './freshness-capacity-observer';
 
 vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({ store: { readSourceMapping: vi.fn(), readAcceptedCurrentRoster: vi.fn(),
@@ -778,5 +778,93 @@ describe('earliest ancillary receipt checkpoint binding', () => {
     await test.observer.observeAncillary(benchmark+60_000,new Map([['intake-a',requestId]]),['league-09']);
     expect(test.observer.snapshot().ancillaryAnchors).toHaveLength(0);
     expect(test.observer.snapshot().failures.some(row=>row.operation.startsWith('ancillary'))).toBe(true);
+  });
+});
+
+
+describe('daily auxiliary immutable identity and scope guards', () => {
+  it('uses the maintained20-row draft page bound and explicit advancing cursor',()=>{
+    expect(capacityAuxiliaryReadOptions('a')).toEqual({managerEvidenceVersion:'v2',draftPicksPage:{afterOrdinal:0,limit:20}});
+    expect(capacityAuxiliaryReadOptions('a',200)).toEqual({managerEvidenceVersion:'v2',draftPicksPage:{afterOrdinal:200,limit:20}});
+    expect(capacityAuxiliaryReadOptions('b')).toEqual({managerEvidenceVersion:'v2'});
+    expect(()=>capacityAuxiliaryReadOptions('a',-1)).toThrow();
+  });
+  const nativeIds = Array.from({length:12},(_,i)=>String(i+1));
+  const read = () => ({status:'available',teams:nativeIds.map(id=>({externalRosterId:id,seasonTeamId:hashId('aux-team-'+id),players:[]}))});
+  const scope = () => ({terminal:true,username:'aux-a',seasons:[2026],draft_picks:'sleeper-2026-draft-picks-v1',
+    period_inventory:null,transaction_history:null,transaction_period:null,playoff_brackets:null,submission_capacity:null,resource_occurrence_id:null,exact_periods:[],weekly_reports:[]});
+  it('retains twelve native-to-canonical identities independently of row order',()=>{
+    const actual=read(),reordered=read();reordered.teams.reverse();
+    expect(assertCapacityAuxiliaryTeams(nativeIds,actual)).toEqual(assertCapacityAuxiliaryTeams(nativeIds,reordered));
+    expect(assertCapacityAuxiliaryTeams(nativeIds,actual)).toHaveLength(12);
+  });
+  it.each(['empty','duplicate-native','duplicate-canonical','nonempty-player','invalid-canonical','unavailable'])('rejects vacuous or altered overlap evidence: %s',mutation=>{
+    const actual=read();if(mutation==='empty')actual.teams=[];
+    if(mutation==='duplicate-native')actual.teams[1].externalRosterId=actual.teams[0].externalRosterId;
+    if(mutation==='duplicate-canonical')actual.teams[1].seasonTeamId=actual.teams[0].seasonTeamId;
+    if(mutation==='nonempty-player')(actual.teams[0].players as unknown[]).push({playerId:'unexpected'});
+    if(mutation==='invalid-canonical')actual.teams[0].seasonTeamId='label';
+    if(mutation==='unavailable')actual.status='unavailable';
+    expect(()=>assertCapacityAuxiliaryTeams(nativeIds,actual)).toThrow();
+  });
+  it('binds separate A draft and B core-only ordinary request scopes',()=>{
+    expect(()=>assertCapacityAuxiliaryScope(scope(),'aux-a',true)).not.toThrow();
+    expect(()=>assertCapacityAuxiliaryScope({...scope(),username:'aux-b',draft_picks:null},'aux-b',false)).not.toThrow();
+  });
+  it.each(['username','terminal','drafts','selected-period','internal','capacity'])('rejects changed auxiliary SQL request scope: %s',mutation=>{
+    const actual=scope();if(mutation==='username')actual.username='other';if(mutation==='terminal')actual.terminal=false;
+    if(mutation==='drafts')(actual as Record<string,unknown>).draft_picks=null;
+    if(mutation==='selected-period')(actual as Record<string,unknown>).exact_periods=[{season:2026,nativeWeek:7}];
+    if(mutation==='internal')(actual as Record<string,unknown>).resource_occurrence_id=hashId('internal');
+    if(mutation==='capacity')(actual as Record<string,unknown>).submission_capacity='pending-request-limit';
+    expect(()=>assertCapacityAuxiliaryScope(actual,'aux-a',true)).toThrow();
+  });
+});
+
+
+describe('passive closed daily catalog SQL acknowledgment capture',()=>{
+  const params=['league-administration-public-intake','league-administration-public-intake','2026-10-17T00:00:00.000Z',JSON.stringify({policy:'public-player-directory-v1',mode:'player-directory'}),hashId('directory-owner'),'25','60'];
+  const body=(query=CAPACITY_DAILY_CATALOG_CLAIM_SQL,values:unknown[]=params)=>({method:'POST',body:JSON.stringify({query,params:values})});
+  const reply=()=>new Response(JSON.stringify({fields:[{name:'attempt_count'},{name:'lease_until'}],rows:[['1','2026-10-17T00:00:25.000Z']]}),{status:200});
+  const clock={wallNow:()=>benchmark,monotonicNow:()=>100};
+  it('returns the original response with untouched body and binds only the exact declared result',async()=>{
+    const response=reply(),next=vi.fn<typeof fetch>().mockResolvedValue(response),record=vi.fn();
+    const wrapped=createCapacityDailyCatalogFetch(next,record,clock),input='https://isolated.invalid/sql',init=body();
+    expect(await wrapped(input,init)).toBe(response);expect(next).toHaveBeenCalledExactlyOnceWith(input,init);
+    expect(await response.json()).toMatchObject({rows:[['1','2026-10-17T00:00:25.000Z']]});
+    expect(record).toHaveBeenCalledOnce();expect(record.mock.calls[0][0]).toMatchObject({kind:'claim',status:'success',params,response:{fields:['attempt_count','lease_until'],rows:[['1','2026-10-17T00:00:25.000Z']]}});
+    expect(Object.keys(record.mock.calls[0][0]).sort()).toEqual(['kind','params','querySha256','response','span','status']);
+  });
+  it('records exact reservation results without changing ordinary decoding',async()=>{
+    const response=new Response(JSON.stringify({fields:[{name:'result'}],rows:[[JSON.stringify({status:'backoff',retryAt:'2026-10-18T00:00:00.000Z'})]]}));
+    const record=vi.fn(),wrapped=createCapacityDailyCatalogFetch(vi.fn<typeof fetch>().mockResolvedValue(response),record,clock);
+    await wrapped('https://isolated.invalid/sql',body(CAPACITY_DAILY_CATALOG_RESERVE_SQL,[hashId('attempt'),JSON.stringify({jobKey:'league-administration-public-intake',workerId:params[4],generation:1,deadlineAt:'2026-10-17T00:00:22.000Z'})]));
+    expect(record.mock.calls[0][0]).toMatchObject({kind:'reserve',status:'success'});
+  });
+  it.each(['other-query','other-payload','extra-payload','other-owner'])('does not copy unrelated query values: %s',async mutation=>{
+    const values=[...params];let query=CAPACITY_DAILY_CATALOG_CLAIM_SQL;
+    if(mutation==='other-query')query='select private_data';
+    if(mutation==='other-payload')values[3]=JSON.stringify({policy:'public-data-batch-v1',mode:'intake'});
+    if(mutation==='extra-payload')values[3]=JSON.stringify({policy:'public-player-directory-v1',mode:'player-directory',extra:'unrelated'});
+    if(mutation==='other-owner')values[0]='another-job';
+    const record=vi.fn(),response=reply(),wrapped=createCapacityDailyCatalogFetch(vi.fn<typeof fetch>().mockResolvedValue(response),record,clock);
+    expect(await wrapped('https://isolated.invalid/sql',body(query,values))).toBe(response);expect(record).not.toHaveBeenCalled();
+  });
+  it('does not copy undeclared owner fields from even an exact reservation query',async()=>{
+    const record=vi.fn(),response=reply(),wrapped=createCapacityDailyCatalogFetch(vi.fn<typeof fetch>().mockResolvedValue(response),record,clock);
+    await wrapped('https://isolated.invalid/sql',body(CAPACITY_DAILY_CATALOG_RESERVE_SQL,[hashId('attempt'),JSON.stringify({jobKey:'league-administration-public-intake',workerId:params[4],generation:1,deadlineAt:'2026-10-17T00:00:22.000Z',unrelated:'not-retained'})]));
+    expect(record).not.toHaveBeenCalled();
+  });
+  it('retains malformed success as unclassified and preserves HTTP errors without copying their bodies',async()=>{
+    for(const response of [new Response(JSON.stringify({fields:[{name:'other'}],rows:[['unrelated']]})),new Response('private failure',{status:500})]){
+      const record=vi.fn(),wrapped=createCapacityDailyCatalogFetch(vi.fn<typeof fetch>().mockResolvedValue(response),record,clock);
+      expect(await wrapped('https://isolated.invalid/sql',body())).toBe(response);
+      expect(record.mock.calls[0][0]).toMatchObject({status:response.ok?'unclassified':'failed',response:null});
+    }
+  });
+  it('rethrows the same transport failure while retaining only its bounded failure status',async()=>{
+    const error=new Error('private transport error'),record=vi.fn(),wrapped=createCapacityDailyCatalogFetch(vi.fn<typeof fetch>().mockRejectedValue(error),record,clock);
+    await expect(wrapped('https://isolated.invalid/sql',body())).rejects.toBe(error);
+    expect(record.mock.calls[0][0]).toMatchObject({status:'failed',response:null});expect(JSON.stringify(record.mock.calls)).not.toContain(error.message);
   });
 });

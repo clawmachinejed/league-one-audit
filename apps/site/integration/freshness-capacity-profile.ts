@@ -7,6 +7,15 @@ import { lstat, readFile, readdir, writeFile, realpath } from 'node:fs/promises'
 import { join, resolve } from 'node:path';
 import { bindCapacityManifest, capacityDigest, type ReaderExpectation } from './freshness-capacity-manifest';
 
+export const FLEET_DAILY_PROFILE = 'data-freshness-capacity-daily-v1';
+export const FLEET_DAILY_MODULE = 'integration/freshness-capacity-daily.qualification-case.ts';
+export const FLEET_DAILY_SUITE = 'daily DATA source refresh and inactive league correction through the production facade';
+export const FLEET_DAILY_TESTS = [
+  'runs the fixed daily workload through the existing facade with original lifecycle authority',
+  'verifies actual daily resource clocks complete corrections and provider-compliant catalog scheduling',
+  'reconciles immutable evidence and actual cleanup without claiming active freshness percentiles',
+] as const;
+export const FLEET_DAILY_FULL_NAMES = FLEET_DAILY_TESTS.map(name=>FLEET_DAILY_SUITE+' > '+name);
 export const FLEET_RECOVERY_PROFILE = 'data-freshness-capacity-recovery-v1';
 export const FLEET_RECOVERY_MODULE = 'integration/freshness-capacity-recovery.qualification-case.ts';
 export const FLEET_RECOVERY_SUITE = 'provider outage and complete queued DATA recovery through the production facade';
@@ -160,7 +169,7 @@ export const FLEET_REQUEST_OWNERS = ['data-refresh','primary-projection','admini
 export const FLEET_QUERY_SOURCE_PATHS = ['integration/freshness-capacity-observer.ts','lib/league-administration/public-intake-reader.ts',
   'lib/league-administration/neon/current-roster.ts','lib/league-administration/neon/roster-player-links.ts','lib/league-administration/neon/exact-matchup-values.ts','lib/league-administration/neon/transactions.ts',
   'lib/league-administration/neon/official-standings.ts','lib/league-administration/neon/brackets.ts',
-  'lib/league-administration/neon/exact-period-context.ts','lib/aggregator/official-results.ts'] as const;
+  'lib/league-administration/neon/exact-period-context.ts','lib/aggregator/official-results.ts','lib/league-administration/neon/player-directory.ts'] as const;
 /** Shared parent/worker construction. Clean Git binds the complete source tree; no worker import or SQL occurs here. */
 export async function buildFleetHealthyManifest(input:{fixtureId:string;gitSha:string;plannedPostgresqlVersion:string}) {
   keys(input,['fixtureId','gitSha','plannedPostgresqlVersion']);
@@ -202,10 +211,26 @@ export async function buildFleetRecoveryManifest(input:Parameters<typeof buildFl
   return{fixture,observerManifest,recoveryManifest,sourceFiles};
 }
 
-import type { FleetConfig, FleetMessage, FleetSpan } from './freshness-capacity-protocol';
+/** Daily changes only the declared source state and observation clock; retained binding readers stay shared. */
+export async function buildFleetDailyManifest(input:Parameters<typeof buildFleetHealthyManifest>[0]) {
+  const {fixture,manifest:observerManifest,sourceFiles}=await buildFleetHealthyManifest(input);
+  const {createCapacityDailyManifest}=await import('./freshness-capacity-daily');const source=observerManifest.source;
+  const dailyManifest=createCapacityDailyManifest(fixture,{readinessContractSha256:source.readinessContractSha256,acceptanceContractSha256:source.acceptanceContractSha256,
+    plannedPostgresqlVersion:source.plannedPostgresqlVersion,gitSha:source.gitSha,appTreeSha:source.appTreeSha,requestBudgetPolicy:source.requestBudgetPolicy!,
+    readerQueryMixSha256:source.readerQueryMixSha256,requestOwners:source.requestOwners,observerManifestDigest:observerManifest.digest});
+  return{fixture,observerManifest,dailyManifest,sourceFiles};
+}
+export async function fleetDailyWindow(invocationStartedAt:number,supervisedWorkDeadlineAt:number){
+  safeInteger(invocationStartedAt);safeInteger(supervisedWorkDeadlineAt);const{DAILY_CLOCK}=await import('./freshness-capacity-daily');
+  assert(supervisedWorkDeadlineAt-invocationStartedAt>=DAILY_CLOCK.minimumRemainingWorkMs,'Insufficient original supervised work budget for daily observation');
+  assert(supervisedWorkDeadlineAt-invocationStartedAt<=DAILY_CLOCK.workMs,'Daily work budget was rebased or extended');
+  return{invocationStartedAt,observationEndsAt:invocationStartedAt+DAILY_CLOCK.observationMs,workDeadlineAt:supervisedWorkDeadlineAt};
+}
+
+import type { FleetConfig, FleetMessage, FleetSpan, FleetSqlAttempt } from './freshness-capacity-protocol';
 import type { QualificationBinding } from './qualification-profile';
 
-export type FleetCompanion = { kind:'cp26-fleet-healthy-evidence-v1'|'cp26-fleet-recovery-evidence-v1'; contextDigest:string;
+export type FleetCompanion = { kind:'cp26-fleet-healthy-evidence-v1'|'cp26-fleet-recovery-evidence-v1'|'cp26-fleet-daily-evidence-v1'; contextDigest:string;
   config:FleetConfig; ready:FleetMessage; calls:FleetMessage[]; cases:{name:string;state:string;span:FleetSpan}[];
   rawDirectory:string;rawInventory:FleetEvidenceInventory;finalDirectory:string;finalInventory:FleetEvidenceInventory;
   cleanup:{childClosed:boolean;backendGone:boolean;locksGone:boolean;connectionsClosed:boolean};cleanupAttempts:{span:FleetSpan;completed:boolean;facts:FleetCompanion['cleanup']}[];childExit:{code:number|null;signal:string|null};forcedStop:boolean;actualServer:{version:string;versionNum:string};
@@ -216,14 +241,14 @@ export async function assertFleetCompanionEnvelope(value:unknown,binding:Qualifi
   const protocol=await import('./freshness-capacity-protocol');const config=protocol.parseFleetConfig(row.config);
   assert.equal(config.profile,binding.context.profile);assert.equal(config.contextNonce,binding.context.nonce);assert.equal(config.gitSha,binding.context.gitSha);assert.equal(config.profileDigest,binding.context.profileDigest);
   assert.equal(row.contextDigest,hash(JSON.stringify(binding.context)));
-  const recovery=config.profile===FLEET_RECOVERY_PROFILE;assert.equal(row.kind,recovery?'cp26-fleet-recovery-evidence-v1':'cp26-fleet-healthy-evidence-v1');
+  const recovery=config.profile===FLEET_RECOVERY_PROFILE,daily=config.profile===FLEET_DAILY_PROFILE;assert.equal(row.kind,daily?'cp26-fleet-daily-evidence-v1':recovery?'cp26-fleet-recovery-evidence-v1':'cp26-fleet-healthy-evidence-v1');
   assert.equal(row.rawDirectory,'fleet-raw-'+config.nonce);assert.equal(row.finalDirectory,'fleet-final-'+config.nonce);
   assert.equal(config.evidenceDirectory,resolve(binding.directory,row.rawDirectory));
   assertFleetEvidenceInventory(row.rawInventory);assertFleetEvidenceInventory(row.finalInventory);
   assert.equal(row.rawInventory.manifestDigest,config.manifestDigest);assert.equal(row.finalInventory.manifestDigest,config.manifestDigest);
   assert.equal(row.rawInventory.coverage.find(item=>item.stream==='cleanup')!.rows,0);assert(row.finalInventory.coverage.every(item=>item.rows>0));
   const ready=protocol.parseFleetMessage(row.ready,config,row.ready.pid);assert.equal(ready.type,'ready');
-  const expected=['omitted','false','prepare',recovery?'run-recovery':'run-healthy','snapshot'];assert.equal(row.calls.length,expected.length);
+  const expected=['omitted','false','prepare',daily?'run-daily':recovery?'run-recovery':'run-healthy','snapshot'];assert.equal(row.calls.length,expected.length);
   let previous=Date.parse(ready.span.endedAt);
   for(const [index,input] of row.calls.entries()){const call=protocol.parseFleetMessage(input,config,ready.pid);assert.equal(call.type,'result');assert.equal(call.action,expected[index]);assert.equal(call.sequence,index+1);assert.equal(call.error,false);
     assert.equal(call.backendPid,ready.backendPid);assert.equal(call.backendStart,ready.backendStart);
@@ -231,10 +256,10 @@ export async function assertFleetCompanionEnvelope(value:unknown,binding:Qualifi
     if(index===3)assert.equal(capacityDigest(call.inventory),capacityDigest(row.rawInventory));else assert.equal(call.inventory,null);
   }
   assert(previous<=config.workDeadlineAt,'worker result exceeded original work deadline');
-  const names=recovery?FLEET_RECOVERY_TESTS:FLEET_HEALTHY_TESTS;assert.equal(row.cases.length,names.length);previous=0;
+  const names=daily?FLEET_DAILY_TESTS:recovery?FLEET_RECOVERY_TESTS:FLEET_HEALTHY_TESTS;assert.equal(row.cases.length,names.length);previous=0;
   for(const [index,item] of row.cases.entries()){keys(item,['name','state','span']);assert.equal(item.name,names[index]);assert.equal(item.state,'passed');protocol.assertFleetSpan(item.span);
     assert(Date.parse(item.span.startedAt)>=previous);previous=Date.parse(item.span.endedAt);}
-  for(const [index,first,last] of (recovery?[[0,0,4]]:[[0,0,1],[1,2,4]])){assert(Date.parse(row.cases[index].span.startedAt)<=Date.parse(row.calls[first].span.startedAt));assert(Date.parse(row.cases[index].span.endedAt)>=Date.parse(row.calls[last].span.endedAt));}
+  for(const [index,first,last] of (recovery||daily?[[0,0,4]]:[[0,0,1],[1,2,4]])){assert(Date.parse(row.cases[index].span.startedAt)<=Date.parse(row.calls[first].span.startedAt));assert(Date.parse(row.cases[index].span.endedAt)>=Date.parse(row.calls[last].span.endedAt));}
   keys(row.cleanup,['childClosed','backendGone','locksGone','connectionsClosed']);assert(Object.values(row.cleanup).every(item=>item===true),'unverified parent process cleanup');
   assert.equal(row.forcedStop,false);keys(row.childExit,['code','signal']);assert.equal(row.childExit.code,0);assert.equal(row.childExit.signal,null);
   assert(Array.isArray(row.cleanupAttempts)&&row.cleanupAttempts.length>0);for(const attempt of row.cleanupAttempts){keys(attempt,['span','completed','facts']);protocol.assertFleetSpan(attempt.span);assert.equal(capacityDigest(attempt.facts),capacityDigest(row.cleanup));assert.equal(attempt.completed,true);}
@@ -263,35 +288,39 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
   assert.equal(cleanup.backendPid,companion.ready.backendPid);assert.equal(cleanup.backendStart,companion.ready.backendStart);
   assert(typeof cleanup.at==='string'&&Number.isFinite(Date.parse(cleanup.at)));assert(Date.parse(cleanup.at)>=Date.parse(companion.calls.at(-1)!.span.endedAt));
   assert.equal(cleanup.scope,'Child process, pinned connection and locks only; outer supervisor owns database resources.');
-  const capacity=object(documents['capacity-evidence']);keys(capacity,['manifest','evidence','analysis','journalValidation','evidenceFailures',...(config.profile===FLEET_RECOVERY_PROFILE?['observerManifest']:[])]);assert.equal(capacity.journalValidation,'validated');assert.deepEqual(capacity.evidenceFailures,[]);
+  let capacity=object(documents['capacity-evidence']);keys(capacity,['manifest','evidence','analysis','journalValidation','evidenceFailures',...(config.profile!==FLEET_HEALTHY_PROFILE?['observerManifest']:[])]);assert.equal(capacity.journalValidation,'validated');assert.deepEqual(capacity.evidenceFailures,[]);
   const buildInput={fixtureId:config.fixtureId,gitSha:config.gitSha,plannedPostgresqlVersion:config.plannedPostgresqlVersion};
-  const healthy=config.profile===FLEET_HEALTHY_PROFILE;
-  const built=healthy?await buildFleetHealthyManifest(buildInput):await buildFleetRecoveryManifest(buildInput);
+  const healthy=config.profile===FLEET_HEALTHY_PROFILE,daily=config.profile===FLEET_DAILY_PROFILE;
+  const built=healthy?await buildFleetHealthyManifest(buildInput):daily?await buildFleetDailyManifest(buildInput):await buildFleetRecoveryManifest(buildInput);
   const manifest='manifest'in built?built.manifest:built.observerManifest;
-  const laneManifest='manifest'in built?built.manifest:built.recoveryManifest;
+  const laneManifest='manifest'in built?built.manifest:'dailyManifest'in built?built.dailyManifest:built.recoveryManifest;
+  assert.equal(built.fixture.digest,config.fixtureDigest);assert.equal(laneManifest.digest,config.manifestDigest);
+  if(daily)capacity={...capacity,manifest:resolveFleetDailyManifestReference(capacity.manifest,'daily-manifest',laneManifest),observerManifest:resolveFleetDailyManifestReference(capacity.observerManifest,'observer-manifest',manifest)};
   if(!healthy)assert.equal(capacityDigest(capacity.observerManifest),capacityDigest(manifest),'recovery observer binding drift');
-  assert.equal(built.fixture.digest,config.fixtureDigest);assert.equal(laneManifest.digest,config.manifestDigest);assert.equal(capacityDigest(capacity.manifest),capacityDigest(laneManifest));
+  assert.equal(capacityDigest(capacity.manifest),capacityDigest(laneManifest));
+  if(daily)capacity={...capacity,evidence:{...object(capacity.evidence),requests:resolveFleetDailyRequestLedger(object(capacity.evidence).requests,documents['transport-attempts'])}};
   const evidence=object(capacity.evidence);assert.equal(evidence.manifestDigest,config.manifestDigest);
   assert.equal(capacityDigest(documents['transport-attempts']),capacityDigest(evidence.requests));
   const {evaluateCapacityEvidence,assertCapacityHttpEndpoint}=await import('./freshness-capacity-evidence');
   const analysis=healthy?evaluateCapacityEvidence(manifest,capacity.evidence as import('./freshness-capacity-evidence').CapacityEvidence)
+    :daily?(await import('./freshness-capacity-daily')).evaluateCapacityDaily(laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest,capacity.evidence as import('./freshness-capacity-daily').CapacityDailyEvidence)
     :(await import('./freshness-capacity-recovery')).evaluateCapacityRecovery(laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest,capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence);
   assert.equal(capacityDigest(analysis),capacityDigest(capacity.analysis),'reported analysis differs from complete evidence');
   assert('offlineChecksPass'in analysis?analysis.offlineChecksPass:analysis.pass,'fleet evidence gates failed');
   const requests=object(evidence.requests),attempts=fleetIndex(fleetRows(requests.attempts),'id');
   for(const row of attempts.values())assertCapacityHttpEndpoint(row as import('./freshness-capacity-evidence').HttpAttempt,true);
-  const responseOwners=fleetRows(documents['transport-responses']);assert.deepEqual(responseOwners.map(row=>row.owner).sort(),[...FLEET_REQUEST_OWNERS].sort());
+  const responseOwners=daily?unpackFleetDailyResponses(documents['transport-responses']):fleetRows(documents['transport-responses']);assert.deepEqual(responseOwners.map(row=>row.owner).sort(),[...FLEET_REQUEST_OWNERS].sort());
   const responses=new Map<string,Record<string,unknown>>();
   for(const owner of responseOwners)for(const response of fleetRows(owner.responses)){
     const id=String(response.attemptId);assert(!responses.has(id),'duplicate physical response');responses.set(id,response);const attempt=attempts.get(id);assert(attempt&&attempt.owner===owner.owner&&attempt.outcome==='success');
     assert.equal(hash(String(response.rawUtf8)),response.rawSha256);assert.equal(response.rawSha256,attempt.responseSha256);assert.equal(response.requestStartedAt,attempt.at);assert.equal(response.responseCompletedAt,attempt.endedAt);
     assert.equal(response.responseBoundary,'full-synthetic-bytes-available');assert(Number(response.monotonicCompletedAt)>=Number(response.monotonicStartedAt));
-    const endpoint=manifest.source.endpointInventory.find(row=>row.id===response.endpointId);assert(endpoint);assert.equal(attempt.origin+String(attempt.path),endpoint.url);assert.equal(attempt.method,endpoint.method);
-    const permitted=healthy?endpoint.versions:(laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).endpoints.find(row=>row.id===endpoint.id)?[...['before','after'].map(key=>((laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).endpoints.find(row=>row.id===endpoint.id)! as unknown as Record<string,unknown>)[key])]:[];
+    const endpoint=(daily?(laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest).endpoints:manifest.source.endpointInventory).find(row=>row.id===response.endpointId);assert(endpoint);assert.equal(attempt.origin+String(attempt.path),endpoint.url);assert.equal(attempt.method,endpoint.method);
+    const permitted=healthy?manifest.source.endpointInventory.find(row=>row.id===endpoint.id)!.versions:(laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).endpoints.find(row=>row.id===endpoint.id)?[...['before','after'].map(key=>((laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).endpoints.find(row=>row.id===endpoint.id)! as unknown as Record<string,unknown>)[key])]:[];
     assert(permitted.some(value=>{const payload=value as {version:string;sha256:string;utf8:string};return payload.version===response.version&&payload.sha256===response.rawSha256&&payload.utf8===response.rawUtf8;}),'unbound physical payload version');
     assert.equal(capacityDigest(response.pairIds),capacityDigest(endpoint.pairIds));
   }
-  const primary=object(documents['primary-coexistence']),fixture=object(primary.fixture),secondary=fleetRows(primary.secondaryResponses);
+  const rawPrimary=object(documents['primary-coexistence']),primary=daily?{...rawPrimary,sqlAttempts:unpackFleetDailySqlAttempts(rawPrimary.sqlAttempts),secondaryResponses:unpackFleetDailySecondaryResponses(rawPrimary,attempts)}:rawPrimary,fixture=object(primary.fixture),secondary=fleetRows(primary.secondaryResponses);
   const nativeDocuments=fleetIndex(fleetRows(fixture.documents),'url');
   for(const response of secondary){const id=String(response.attemptId);assert(!responses.has(id));const attempt=attempts.get(id),document=object(response.document);
     const retained=nativeDocuments.get(String(document.url));assert(retained&&capacityDigest(retained)===capacityDigest(document));assert.equal(hash(String(document.utf8)),document.sha256);
@@ -299,6 +328,7 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
   for(const [id,attempt] of attempts)assert.equal(responses.has(id),attempt.outcome==='success','source response coverage mismatch');
   const operations=object(documents['observer-operations']),reads=object(documents['observer-reads']),proofDocument=object(documents['observer-lineage']);
   assert.equal(operations.openInvocations,0);assert(Array.isArray(operations.failures));
+  if(daily)assert(!fleetRows(operations.operations).some(op=>op.operation==='orphan-daily-catalog-choice'),'orphan catalog choice');
   const coverage=fleetIndex(fleetRows(operations.ownerCoverage),'owner');for(const owner of FLEET_REQUEST_OWNERS){const row=coverage.get(owner);assert(row&&Number(row.startedAt)<=Number(evidence.startedAt)&&Number(row.endedAt)>=Number(evidence.endedAt));}
   const invocations=fleetRows(operations.invocations);for(const invocation of invocations){assert.equal(invocation.owner,'data-refresh');numericSpan(invocation.span);assert.notEqual(invocation.failed,null);}
   const durable=fleetRows(proofDocument.durableDispatches);assert(durable.length>0);for(const row of durable){const dispatch=object(row.dispatch),outcome=object(row.outcome);assert.equal(dispatch.worker_id,outcome.worker_id);assert.equal(dispatch.generation,outcome.generation);}
@@ -315,7 +345,7 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
     assert.equal(invocations.filter(row=>{const span=object(row.span);return Number(span.startedAt)<=captureStart&&captureEnd<=Number(span.endedAt)&&Date.parse(witness.fence.deadlineAt)===Number(span.startedAt)+20_000;}).length,1);
   }
   const readRows=fleetRows(reads.lineage);for(const row of readRows){numericSpan(row);assert(proofRows.has(String(row.proofId)));assert(row.outcomeId===null||outcomes.has(String(row.outcomeId)));}
-  const origins=fleetIndex(fleetRows(evidence.origins),'id');
+  const origins=fleetIndex(fleetRows(evidence.origins??(daily?[]:undefined)),'id');
   function actualRead(pairId:string,read:import('./freshness-capacity-evidence').ResourceRead,reader?:ReaderExpectation){
     const origin=origins.get(read.originObservationId);assert(origin&&origin.pairId===pairId);const id=read.originObservationId.slice(0,read.originObservationId.indexOf('/')),proof=proofRows.get(id);assert(proof);
     assert.equal(proof.version,read.version);assert.equal(proof.sourceResponseSha256,read.payloadSha256);assert.equal(proof.transportAttemptId,origin.attemptId);assert.equal(proof.sourceResponseCompletedAt,origin.observedAt);
@@ -326,7 +356,7 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
     for(const row of ev.samples)if(row.read)actualRead(manifest.plan.samples.find(slot=>slot.id===row.id)!.pairId,row.read);
     for(const row of ev.events){const event=manifest.events.find(item=>item.id===row.id)!,pair=manifest.plan.events.find(item=>item.id===row.id)!.pairId;if(row.read)actualRead(pair,row.read,row.reader!);
       for(const expected of event.retainedHistory)assert(readRows.some(item=>item.pairId===pair&&item.selection==='receipt'&&item.selector===expected.selector&&item.readerValueDigest===capacityDigest(expected.value)&&proofRows.get(String(item.proofId))?.version===expected.version),'missing actual immutable history read');}
-  }else{const ev=capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence;
+  }else if(!daily){const ev=capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence;
     for(const row of [...ev.initial,...ev.recovered,...ev.lastGood.flatMap(row=>[row.before,row.during])])actualRead(row.pairId,row.read,row.reader);
     for(const pair of (laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).pairs)for(const expected of pair.retainedHistory)assert(readRows.some(item=>item.pairId===pair.pairId&&item.selection==='receipt'&&item.selector===expected.selector&&item.readerValueDigest===capacityDigest(expected.value)&&proofRows.get(String(item.proofId))?.version===expected.version),'missing actual recovery immutable history read');
     for(const row of ev.samples)if(row.read)actualRead((laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest).samples.find(slot=>slot.id===row.id)!.pairId,row.read);
@@ -340,7 +370,8 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
       const leagues=manifest.source.leagues.filter(row=>manifest.plan.leagues.find(item=>item.key===row.key)!.cohort===intake.cohort),ids=leagues.map(row=>row.nativeLeagueId);assert.deepEqual([...proof.nativeIds].sort(),ids.sort());assert.equal(proof.terminal,true);assert(Number.isSafeInteger(proof.terminalRevision)&&proof.terminalRevision>0);assert.equal(proof.parity,'immutable-intake-receipts-and-current-readers');assert.equal(proof.detailedPeriods,ids.length*18);assert.equal(proof.detailedTransactions,ids.length*19);assert.equal(proof.detailedDrafts,ids.length*5);
       const identity='identity:'+intake.cohort,discovery='discovery:'+intake.cohort;const endpoints=manifest.source.endpointInventory.filter(row=>ids.includes(row.scope.nativeLeagueId??'')||row.id===identity||row.id===discovery).map(row=>row.id);assert.deepEqual([...proof.completedEndpointIds].sort(),endpoints.sort());assert.equal(proof.retainedPages.length,proof.pages);assert.equal(proof.originalAggregateStatuses.length,proof.pages);assert(proof.originalAggregateStatuses.every(status=>['available','partial'].includes(status)));fullProofs.push({completedAt:intake.completeAt,completeProof:proof});
     }
-  }else{const ev=capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence;fullProofs.push(...ev.submissions,...ev.queue.completed);}
+  }else if(daily){const ev=capacity.evidence as import('./freshness-capacity-daily').CapacityDailyEvidence;fullProofs.push(...ev.intakes.map(row=>({completedAt:row.completedAt,completeProof:row.proof})));}
+  else{const ev=capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence;fullProofs.push(...ev.submissions,...ev.queue.completed);}
     const endpointRows=fleetRows(proofDocument.endpointProofs),endpoints=new Map<string,Record<string,unknown>>();
     for(const row of endpointRows){const key=[row.requestId??'shared',row.endpointId,row.proofId].join('/');assert(!endpoints.has(key));endpoints.set(key,row);await assertFleetEndpointLineage(row,responses,attempts,invocations);}
     if(!healthy){const ev=capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence;
@@ -349,7 +380,7 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
     }
     const currentRows=fleetIndex(fleetRows(proofDocument.currentIntakeReads),'id');
     for(const completed of fullProofs){const proof=completed.completeProof;if(!proof)continue;
-      const recovery=healthy?null:laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest,queue=healthy?null:(capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence).queue;const initialTarget=queue?.targets.find(target=>target.input.identityRequestId===proof.requestId);const initialScope=initialTarget?recovery!.initialRequests.find(row=>row.cohort===initialTarget.cohort):null;assert.equal(proof.coverage,initialScope?'complete-materialized-initial-scope':'complete-materialized-inventory');const exactWeeks=initialScope?[7]:Array.from({length:18},(_,i)=>i+1),transactionWeeks=initialScope?[7]:Array.from({length:19},(_,i)=>i);if(initialScope){assert.deepEqual([...proof.completedEndpointIds].sort(),[...initialScope.endpointIds].sort());assert.deepEqual([...proof.nativeIds].sort(),[...initialScope.nativeLeagueIds].sort());assert.equal(proof.draftProofs.length,0);}
+      const recovery=healthy?null:daily?(laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest).bindingPlan:laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest,queue=healthy||daily?null:(capacity.evidence as import('./freshness-capacity-recovery').CapacityRecoveryEvidence).queue;const initialTarget=daily?(capacity.evidence as import('./freshness-capacity-daily').CapacityDailyEvidence).initialSubmissions.find(row=>row.requestId===proof.requestId):queue?.targets.find(target=>target.input.identityRequestId===proof.requestId);const initialScope=initialTarget?recovery!.initialRequests.find(row=>row.cohort===initialTarget.cohort):null;assert.equal(proof.coverage,initialScope?'complete-materialized-initial-scope':'complete-materialized-inventory');const exactWeeks=initialScope?[7]:Array.from({length:18},(_,i)=>i+1),transactionWeeks=initialScope?[7]:Array.from({length:19},(_,i)=>i);if(initialScope){assert.deepEqual([...proof.completedEndpointIds].sort(),[...initialScope.endpointIds].sort());assert.deepEqual([...proof.nativeIds].sort(),[...initialScope.nativeLeagueIds].sort());assert.equal(proof.draftProofs.length,0);}
 
       for(const endpointId of proof.completedEndpointIds)assert(endpointRows.some(row=>row.requestId===proof.requestId&&row.endpointId===endpointId&&proof.immutableProofIds.includes(String(row.proofId))),'missing original immutable endpoint lineage');
       for(const id of proof.immutableProofIds)assert(endpointRows.some(row=>row.requestId===proof.requestId&&row.proofId===id),'foreign immutable intake proof');
@@ -374,7 +405,9 @@ export async function validateFleetCompanion(value:unknown,binding:Qualification
     }
   const pages=fleetIndex(fleetRows(reads.intakePages),'digest');for(const row of pages.values())assert.equal(capacityDigest(row.value),row.digest);
   for(const row of fleetRows(reads.intakePageReads)){numericSpan(row.span);assert(pages.has(String(row.digest)));}
-  const ancillary=await assertFleetAncillaryEvidence({manifest,recovery:healthy?null:laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest,evidence,lineage:proofDocument,reads,operations,primary,responses,attempts,invocations});
+  if(daily)await assertFleetDailyAuxiliary({manifest:laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest,evidence:capacity.evidence as import('./freshness-capacity-daily').CapacityDailyEvidence,lineage:proofDocument,operations,responses,attempts,invocations});
+  if(daily)await assertFleetDailyRecordedState({manifest:laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest,evidence:capacity.evidence as import('./freshness-capacity-daily').CapacityDailyEvidence,operations,reads,lineage:proofDocument,primary,attempts,config});
+  const ancillary=await assertFleetAncillaryEvidence({manifest,recovery:healthy||daily?null:laneManifest as import('./freshness-capacity-recovery').CapacityRecoveryManifest,...(daily?{daily:laneManifest as import('./freshness-capacity-daily').CapacityDailyManifest}:{}),evidence,lineage:proofDocument,reads,operations,primary,responses,attempts,invocations});
   await assertFleetNamedAndCoexistence(companion,documents,primary);
   return{profile:config.profile,manifestDigest:config.manifestDigest,rawInventory:companion.rawInventory,finalInventory:companion.finalInventory,analysis,ancillary,
     checkpoint26Qualified:false as const,cleanupScope:'child-process-and-connections-only' as const};
@@ -559,7 +592,9 @@ export function fleetSqlEvidenceTime(value:unknown){assert(typeof value==='strin
 export type FleetAncillarySuccess = { receiptId:string; attemptId:string; sourceAt:number; acceptedAt:number; committedAt:number; confirmedAt:number };
 /** Independent parent reduction: only a new physical capture can renew the clock.
  * A later confirmation cannot repair an interval that already exceeded fifteen minutes. */
-export function assertFleetAncillaryChain(start:number,end:number,successes:readonly FleetAncillarySuccess[],options:{requirePrior?:boolean;freshSource?:boolean}={}) {
+export function assertFleetAncillaryChain(start:number,end:number,successes:readonly FleetAncillarySuccess[],options:{requirePrior?:boolean;freshSource?:boolean}={}){return assertFleetSourceChain(start,end,successes,options,900000);}
+export function assertFleetDailyChain(start:number,end:number,successes:readonly FleetAncillarySuccess[]){return assertFleetSourceChain(start,end,successes,{},86400000);}
+function assertFleetSourceChain(start:number,end:number,successes:readonly FleetAncillarySuccess[],options:{requirePrior?:boolean;freshSource?:boolean},sourceLimit:900000|86400000) {
   safeInteger(start);safeInteger(end);assert(end>=start);
   const receipts=new Map<string,FleetAncillarySuccess>(),attempts=new Map<string,string>();
   const ordered=[...successes].sort((a,b)=>a.confirmedAt-b.confirmedAt);
@@ -576,11 +611,11 @@ export function assertFleetAncillaryChain(start:number,end:number,successes:read
   const distinct=[...receipts.values()],prior=distinct.filter(row=>row.confirmedAt<=start&&row.sourceAt<=start&&row.acceptedAt<=start&&row.committedAt<=start).at(-1);
   let source:number|null=null;const gaps:number[]=[];
   if(options.requirePrior)assert(prior,'missing confirmed ancillary start');
-  if(prior&&!options.freshSource){assert(start-prior.sourceAt<=900_000,'stale ancillary start');assert(prior.confirmedAt-prior.sourceAt<=900_000,'stale initial confirmation');source=prior.sourceAt;}
+  if(prior&&!options.freshSource){assert(start-prior.sourceAt<=sourceLimit,'stale ancillary start');assert(prior.confirmedAt-prior.sourceAt<=sourceLimit,'stale initial confirmation');source=prior.sourceAt;}
   const pending=distinct.filter(row=>row.confirmedAt>=start&&row.confirmedAt<=end&&row.acceptedAt<=end&&row.committedAt<=end&&(!options.freshSource||row.sourceAt>=start));
   for(const row of pending){if(row===prior&&options.requirePrior)continue;const gap=row.confirmedAt-(source??start);gaps.push(gap);
-    assert(gap<=900_000,'ancillary successful-confirmation gap exceeds fifteen minutes');assert(row.confirmedAt-row.sourceAt<=900_000,'ancillary current proof is stale');source=row.sourceAt;}
-  assert(source!==null,'no confirmed ancillary refresh');const tail=end-source;gaps.push(tail);assert(tail<=900_000,'ancillary trailing gap exceeds fifteen minutes');
+    assert(gap<=sourceLimit,sourceLimit===900000?'ancillary successful-confirmation gap exceeds fifteen minutes':'daily successful-confirmation gap exceeds twenty-four hours');assert(row.confirmedAt-row.sourceAt<=sourceLimit,'ancillary current proof is stale');source=row.sourceAt;}
+  assert(source!==null,'no confirmed ancillary refresh');const tail=end-source;gaps.push(tail);assert(tail<=sourceLimit,sourceLimit===900000?'ancillary trailing gap exceeds fifteen minutes':'daily trailing gap exceeds twenty-four hours');
   return{start,end,distinctCaptures:distinct.filter(row=>row.confirmedAt<=end).length,maximumGapMs:Math.max(0,...gaps),tailMs:tail};
 }
 /** Replay the exact maintained typed reader against retained query output. No SQL is executed. */
@@ -616,9 +651,10 @@ export async function replayFleetAncillaryQueries(component:FleetAncillaryCompon
 
 /** Ancillary evidence is mandatory in the new profiles, independently of worker summaries. */
 export async function assertFleetAncillaryEvidence(input:{manifest:import('./freshness-capacity-manifest').CapacityManifest;recovery:import('./freshness-capacity-recovery').CapacityRecoveryManifest|null;
+  daily?:import('./freshness-capacity-daily').CapacityDailyManifest;
   evidence:Record<string,unknown>;lineage:Record<string,unknown>;reads:Record<string,unknown>;operations:Record<string,unknown>;primary:Record<string,unknown>;
   responses:Map<string,Record<string,unknown>>;attempts:Map<string,Record<string,unknown>>;invocations:Record<string,unknown>[]}){
-  const{manifest,recovery,evidence,lineage,reads,operations,primary,responses,attempts,invocations}=input;
+  const{manifest,recovery,daily,evidence,lineage,reads,operations,primary,responses,attempts,invocations}=input;assert(!(recovery&&daily));
   const same=(a:unknown,b:unknown)=>assert.equal(capacityDigest(a),capacityDigest(b));
   const time=(value:unknown)=>{const at=Date.parse(String(value));safeInteger(at);return at;};
   const decoded=decodeFleetAncillaryBodies(lineage.ancillaryQueryRows,lineage.ancillaryProofs),queryRows=decoded.queryRows;
@@ -639,17 +675,18 @@ export async function assertFleetAncillaryEvidence(input:{manifest:import('./fre
   const requests=fleetIndex(fleetRows(lineage.ancillaryRequests),'cohort');assert.deepEqual([...requests.keys()].sort(),['accepted','intake-a','intake-b']);
   const operationRows=fleetRows(operations.operations);
   for(const[cohort,row]of requests){keys(row,['cohort','requestId']);assert.match(String(row.requestId),/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu);
-    if(recovery){const target=fleetRows(object(evidence.queue).targets).find(item=>item.cohort===cohort);assert(target);assert.equal(object(target.input).identityRequestId,row.requestId);}
+    if(daily){const submitted=fleetRows(evidence.initialSubmissions).find(item=>item.cohort===cohort);assert(submitted);assert.equal(submitted.requestId,row.requestId);assert.equal(object(submitted.receipt).status,'retained');}
+    else if(recovery){const target=fleetRows(object(evidence.queue).targets).find(item=>item.cohort===cohort);assert(target);assert.equal(object(target.input).identityRequestId,row.requestId);}
     else if(cohort==='accepted'){const submitted=fleetRows(primary.setup).filter(item=>item.operation==='initial-submit');assert.equal(submitted.length,1);assert.equal(submitted[0].requestId,row.requestId);assert.equal(object(submitted[0].receipt).status,'retained');}
     else{const submitted=operationRows.filter(item=>item.operation==='submission/'+cohort);assert.equal(submitted.length,1);assert.equal(object(submitted[0].outcome).requestId,row.requestId);assert.equal(object(submitted[0].outcome).status,'retained');}
   }
   assert.equal(new Set([...requests.values()].map(row=>row.requestId)).size,3);
   const anchors=new Map<string,Record<string,unknown>>();const {CAPACITY_ANCILLARY_FIRST_RECEIPT_SQL,CAPACITY_ANCILLARY_HEADS_SQL}=await import('./freshness-capacity-observer');
-  const mainAcceptances=fleetRows(recovery?evidence.initial:evidence.firstAcceptances),mainFor=(key:string,component:FleetAncillaryComponent)=>{
+  const mainAcceptances=fleetRows(daily?evidence.initialHeadConfirmations:recovery?evidence.initial:evidence.firstAcceptances),mainFor=(key:string,component:FleetAncillaryComponent)=>{
     const pairId=key+(component==='standings'?'/rosters':'/lineups'),row=mainAcceptances.find(item=>item.pairId===pairId);assert(row);return row;};
   for(const anchor of fleetRows(lineage.ancillaryAnchors)){keys(anchor,['leagueKey','component','kind','at','requestId','receiptId','query']);const league=manifest.source.leagues.find(item=>item.key===anchor.leagueKey),planned=manifest.plan.leagues.find(item=>item.key===anchor.leagueKey);assert(league&&planned);const component=anchor.component as FleetAncillaryComponent;assert(FLEET_ANCILLARY_COMPONENTS.includes(component));const key=league.key+'/'+component;assert(!anchors.has(key));anchors.set(key,anchor);safeInteger(Number(anchor.at));assert.equal(anchor.requestId,requests.get(planned.cohort)!.requestId);
-    if(!recovery&&planned.cohort==='accepted'){assert.equal(anchor.kind,'benchmark');assert.equal(anchor.at,evidence.startedAt);assert.equal(anchor.receiptId,null);assert.equal(anchor.query,null);}
-    else if(component==='standings'||component==='exact-results'){const main=mainFor(league.key,component),read=object(main.read);assert.equal(anchor.kind,'pair-first-read');assert.equal(anchor.at,recovery?read.at:main.at);assert.equal(anchor.receiptId,String(read.originObservationId).split('/')[0]);assert.equal(anchor.query,null);}
+    if(!recovery&&!daily&&planned.cohort==='accepted'){assert.equal(anchor.kind,'benchmark');assert.equal(anchor.at,evidence.startedAt);assert.equal(anchor.receiptId,null);assert.equal(anchor.query,null);}
+    else if(component==='standings'||component==='exact-results'){const main=mainFor(league.key,component),read=daily?{at:main.at,originObservationId:main.proofId}:object(main.read);assert.equal(anchor.kind,'pair-first-read');assert.equal(anchor.at,recovery?read.at:main.at);assert.equal(anchor.receiptId,String(read.originObservationId).split('/')[0]);assert.equal(anchor.query,null);}
     else{assert.equal(anchor.kind,'initial-request-first-receipt');const query=object(anchor.query);keys(query,['sql','params','rowsRef','span']);assert.equal(query.sql,CAPACITY_ANCILLARY_FIRST_RECEIPT_SQL);same(query.params,[anchor.requestId,league.nativeLeagueId,component]);const rows=fleetRows(queryRows.get(String(query.rowsRef)));assert.equal(rows.length,1);numericSpan(query.span);const record=rows[0],receipt=object(record.receipt),content=object(record.content),provenance=object(receipt.provenance);
       assert.equal(receipt.id,anchor.receiptId);assert.equal(object(record.dispatch).intake_id,anchor.requestId);assert.equal(content.family,component);assert.equal(content.external_league_id,league.nativeLeagueId);assert.equal(time(object(record.acceptance).accepted_at),anchor.at);
       const matched=[...responses.values()].filter(row=>row.nativeLeagueId===league.nativeLeagueId&&row.resource===component.replace('_','-')&&Number(row.requestStartedAt)>=time(provenance.requestStartedAt)&&Number(row.responseCompletedAt)<=time(provenance.requestCompletedAt)&&capacityDigest(JSON.parse(String(row.rawUtf8)))===capacityDigest(content.payload));assert.equal(matched.length,1,'ambiguous initial bracket capture');const response=matched[0];
@@ -659,11 +696,12 @@ export async function assertFleetAncillaryEvidence(input:{manifest:import('./fre
   }
   assert.equal(anchors.size,manifest.source.leagues.length*4,'missing fixed ancillary anchor');
   const successes=new Map<string,FleetAncillarySuccess[]>(),observations=fleetRows(reads.ancillaryReads),seenSlots=new Set<string>(),lastConfirmedHeads=new Map<string,string>();
-  const t0=Number(evidence.startedAt)-(recovery?0:FLEET_HEALTHY_CLOCK.benchmarkOffsetMs),endedAt=Number(evidence.endedAt);safeInteger(t0);safeInteger(endedAt);
-  const leagueEnds=new Map(manifest.source.leagues.map(league=>[league.key,recovery?endedAt:fleetAncillaryHealthyEnd(Number(evidence.startedAt),manifest.plan.leagues.find(planned=>planned.key===league.key)!.cohort,manifest.plan.pairs.filter(pair=>pair.leagueKey===league.key).map(pair=>{const accepted=mainAcceptances.find(row=>row.pairId===pair.id);assert(accepted);return Number(accepted.at);}))]));
-  assertFleetAncillarySchedule(t0,[...leagueEnds].map(([leagueKey,endAt])=>({leagueKey,endAt})),observations.map(row=>({leagueKey:String(row.leagueKey),scheduledAt:Number(row.scheduledAt)})),!recovery);
+  const t0=Number(evidence.startedAt)-(recovery||daily?0:FLEET_HEALTHY_CLOCK.benchmarkOffsetMs),endedAt=Number(evidence.endedAt);safeInteger(t0);safeInteger(endedAt);
+  const leagueEnds=new Map(manifest.source.leagues.map(league=>[league.key,daily?t0+daily.clock.observationMs:recovery?endedAt:fleetAncillaryHealthyEnd(Number(evidence.startedAt),manifest.plan.leagues.find(planned=>planned.key===league.key)!.cohort,manifest.plan.pairs.filter(pair=>pair.leagueKey===league.key).map(pair=>{const accepted=mainAcceptances.find(row=>row.pairId===pair.id);assert(accepted);return Number(accepted.at);}))]));
+  if(daily)assertFleetDailyAncillarySchedule(daily,evidence as unknown as import('./freshness-capacity-daily').CapacityDailyEvidence,observations);
+  else assertFleetAncillarySchedule(t0,[...leagueEnds].map(([leagueKey,endAt])=>({leagueKey,endAt})),observations.map(row=>({leagueKey:String(row.leagueKey),scheduledAt:Number(row.scheduledAt)})),!recovery);
   const {composeOfficialResults}=await import('../lib/aggregator/official-results');
-  for(const read of observations){keys(read,['leagueKey','scheduledAt','span','components','componentSpans','currentQueries','unavailable','heads','unchanged','composed']);for(const field of ['componentSpans','currentQueries','unavailable'])assert(Object.keys(object(read[field])).every(key=>FLEET_ANCILLARY_COMPONENTS.includes(key as FleetAncillaryComponent)));const league=manifest.source.leagues.find(item=>item.key===read.leagueKey);assert(league);safeInteger(Number(read.scheduledAt));assert(Number(read.scheduledAt)>=t0&&Number(read.scheduledAt)<=endedAt&&((Number(read.scheduledAt)-t0)%60_000===0||!recovery&&read.scheduledAt===leagueEnds.get(league.key)),'unfrozen ancillary slot');const slot=league.key+'/'+read.scheduledAt;assert(!seenSlots.has(slot),'replaced ancillary slot');seenSlots.add(slot);const span=numericSpan(read.span);assert(Number(span.endedAt)<=endedAt);const components=object(read.components);keys(components,[...FLEET_ANCILLARY_COMPONENTS]);
+  for(const read of observations){keys(read,['leagueKey','scheduledAt','span','components','componentSpans','currentQueries','unavailable','heads','unchanged','composed']);for(const field of ['componentSpans','currentQueries','unavailable'])assert(Object.keys(object(read[field])).every(key=>FLEET_ANCILLARY_COMPONENTS.includes(key as FleetAncillaryComponent)));const league=manifest.source.leagues.find(item=>item.key===read.leagueKey);assert(league);safeInteger(Number(read.scheduledAt));assert(Number(read.scheduledAt)>=t0&&Number(read.scheduledAt)<=endedAt&&(daily||(Number(read.scheduledAt)-t0)%60_000===0||!recovery&&read.scheduledAt===leagueEnds.get(league.key)),'unfrozen ancillary slot');const slot=league.key+'/'+read.scheduledAt;assert(!seenSlots.has(slot),'replaced ancillary slot');seenSlots.add(slot);const span=numericSpan(read.span);assert(Number(span.endedAt)<=endedAt);const components=object(read.components);keys(components,[...FLEET_ANCILLARY_COMPONENTS]);
     const unchanged=read.unchanged;assert(Array.isArray(unchanged)&&new Set(unchanged).size===unchanged.length&&unchanged.every(component=>FLEET_ANCILLARY_COMPONENTS.includes(component)));for(const component of unchanged)assert.equal(components[component],null,'unchanged hint cannot fabricate current proof');if(unchanged.length){assert.equal(unchanged.length,4);assert(read.heads!==null);assert.deepEqual(read.currentQueries,{});assert.deepEqual(read.componentSpans,{});assert.equal(read.composed,null);}
     if(read.heads!==null){const head=object(read.heads);keys(head,['sql','params','rowsRef','span']);assert.equal(head.sql,CAPACITY_ANCILLARY_HEADS_SQL);same(head.params,[league.nativeLeagueId,Number(league.nativePeriod)]);assert(queryRows.has(String(head.rowsRef)));const clock=numericSpan(head.span);assert(Number(clock.startedAt)>=Number(span.startedAt)&&Number(clock.endedAt)<=Number(span.endedAt));}
     const available=new Map<FleetAncillaryComponent,Record<string,unknown>>();
@@ -683,20 +721,21 @@ export async function assertFleetAncillaryEvidence(input:{manifest:import('./fre
   }
   const reports:Record<string,unknown>[]=[];
   for(const league of manifest.source.leagues){const planned=manifest.plan.leagues.find(row=>row.key===league.key)!;
-    const pairAnchors=manifest.plan.pairs.filter(pair=>pair.leagueKey===league.key).map(pair=>{const row=mainAcceptances.find(item=>item.pairId===pair.id);assert(row);return Number(recovery?object(row.read).at:planned.cohort==='accepted'?evidence.startedAt:row.at);});
-    const end=recovery?endedAt:fleetAncillaryHealthyEnd(Number(evidence.startedAt),planned.cohort,pairAnchors);assert(endedAt>=end,'truncated ancillary interval');
+    const pairAnchors=manifest.plan.pairs.filter(pair=>pair.leagueKey===league.key).map(pair=>{const row=mainAcceptances.find(item=>item.pairId===pair.id);assert(row);return Number(daily?row.at:recovery?object(row.read).at:planned.cohort==='accepted'?evidence.startedAt:row.at);});
+    const end=daily?t0+daily.clock.observationMs:recovery?endedAt:fleetAncillaryHealthyEnd(Number(evidence.startedAt),planned.cohort,pairAnchors);assert(endedAt>=end,'truncated ancillary interval');
     const final=recovery?observations.filter(row=>row.leagueKey===league.key&&Number(row.scheduledAt)<=end).sort((a,b)=>Number(a.scheduledAt)-Number(b.scheduledAt)).at(-1):observations.find(row=>row.leagueKey===league.key&&row.scheduledAt===end);
     assert(final,'missing frozen ancillary end read');const boundaryAt=Number(final.scheduledAt),boundarySpan=numericSpan(final.span);assert(boundaryAt<=end&&end-boundaryAt<=manifest.plan.sampleTimeoutMs,'unobserved ancillary end');
     assert(Number(boundarySpan.startedAt)>=boundaryAt&&Number(boundarySpan.startedAt)<=boundaryAt+manifest.plan.sampleDispatchLatenessMs&&Number(boundarySpan.endedAt)<=boundaryAt+manifest.plan.sampleTimeoutMs);
-    for(const component of FLEET_ANCILLARY_COMPONENTS){const id=object(final.components)[component];assert(typeof id==='string','missing typed ancillary end component');const success=proofs.get(id)!.success;assert(end-success.sourceAt<=900_000,'stale current ancillary end');}
-    if(!recovery&&planned.cohort==='accepted'){const boundary=observations.find(row=>row.leagueKey===league.key&&row.scheduledAt===evidence.startedAt);assert(boundary&&FLEET_ANCILLARY_COMPONENTS.every(component=>object(boundary.components)[component]!==null),'missing fixed benchmark current proof');}
+    for(const component of FLEET_ANCILLARY_COMPONENTS){const id=object(final.components)[component];assert(typeof id==='string','missing typed ancillary end component');const success=proofs.get(id)!.success;assert(end-success.sourceAt<=(daily?daily.clock.maxSourceGapMs:900_000),'stale current ancillary end');}
+    if(!recovery&&!daily&&planned.cohort==='accepted'){const boundary=observations.find(row=>row.leagueKey===league.key&&row.scheduledAt===evidence.startedAt);assert(boundary&&FLEET_ANCILLARY_COMPONENTS.every(component=>object(boundary.components)[component]!==null),'missing fixed benchmark current proof');}
     for(const component of [...FLEET_ANCILLARY_COMPONENTS,'official-results']as const){const key=league.key+'/'+component,anchor=component==='official-results'?{at:Math.max(...FLEET_ANCILLARY_COMPONENTS.map(part=>Number(anchors.get(league.key+'/'+part)!.at)))}:anchors.get(key)!,rows=successes.get(key)??[];
-      if(!recovery)reports.push({leagueKey:league.key,component,...assertFleetAncillaryChain(Number(anchor.at),end,rows,{requirePrior:planned.cohort==='accepted'})});
+      if(daily){if(daily.leagues.find(row=>row.key===league.key)!.status==='post_season')reports.push({leagueKey:league.key,component,...assertFleetDailyChain(Number(anchor.at),end,rows)});}
+      else if(!recovery)reports.push({leagueKey:league.key,component,...assertFleetAncillaryChain(Number(anchor.at),end,rows,{requirePrior:planned.cohort==='accepted'})});
       else{const outage=object(evidence.outage),cutoff=Number(evidence.startedAt)+60*60_000,restored=Math.max(Number(outage.dependencyRestoredAt),Number(outage.runnerRestoredAt));safeInteger(restored);assert(Number(anchor.at)<=cutoff,'initial ancillary acceptance missed fixed outage');
         const before=assertFleetAncillaryChain(Number(anchor.at),cutoff,rows);const after=assertFleetAncillaryChain(restored,end,rows,{freshSource:true});reports.push({leagueKey:league.key,component,before,outage:{startedAt:Number(outage.startedAt),restoredAt:restored,excludedFromHealthyCadence:true},after});}
     }
   }
-  return{policy:'cp1-active-ancillary-fifteen-minute-v1',sourceLimitMs:900_000,metadataPolicy:'existing-daily-applicability',reports};
+  return{policy:daily?'cp1-inactive-ancillary-twenty-four-hour-v1':'cp1-active-ancillary-fifteen-minute-v1',sourceLimitMs:daily?daily.clock.maxSourceGapMs:900_000,metadataPolicy:'existing-daily-applicability',reports};
 }
 
 
@@ -749,4 +788,301 @@ export function assertFleetAncillaryAnchorJournal(anchor:Record<string,unknown>,
     if(outcome.status==='pending-checkpoint')assert.equal(actualOutcome,null);else{assert.equal(outcome.status,'checkpoint-committed');assert.equal(capacityDigest(actualOutcome),capacityDigest(finalOutcome));if(capacityDigest(query)===capacityDigest(finalQuery))finalSeen=true;}
   }
   assert(finalSeen,'final ancillary anchor checkpoint query absent');
+}
+
+/** Daily reads are sparse but frozen: every completed intake scope and all four fixed fleet boundaries. */
+export function assertFleetDailyAncillarySchedule(manifest:import('./freshness-capacity-daily').CapacityDailyManifest,evidence:import('./freshness-capacity-daily').CapacityDailyEvidence,rows:readonly Record<string,unknown>[]){
+  const expected=new Set<string>(),start=evidence.startedAt;
+  for(const offset of manifest.boundaryOffsets)for(const league of manifest.leagues)expected.add(league.key+'/'+(start+offset));
+  for(const intake of evidence.intakes){const request=manifest.initialRequests.find(row=>row.cohort===intake.cohort);assert(request);for(const key of request.leagueKeys)expected.add(key+'/'+intake.completedAt);}
+  const actual=rows.map(row=>String(row.leagueKey)+'/'+String(row.scheduledAt));assert.equal(new Set(actual).size,actual.length,'duplicate daily ancillary observation');assert.deepEqual([...actual].sort(),[...expected].sort(),'incomplete daily ancillary schedule');
+  for(const boundary of evidence.boundaries){const selected=rows.filter(row=>row.scheduledAt===boundary.scheduledAt),ids=selected.flatMap(row=>Object.values(object(row.components)));assert.equal(selected.length,manifest.leagues.length);assert(ids.every(id=>typeof id==='string'));assert.deepEqual([...boundary.proofIds].sort(),ids.sort(),'daily boundary proof inventory drift');}
+}
+
+/** Daily-only exact-byte interning. No physical response or owner may disappear behind a shared body. */
+export function unpackFleetDailyResponses(value:unknown):Record<string,unknown>[]{
+  const row=object(value);keys(row,['kind','bodies','owners']);assert.equal(row.kind,'cp26-daily-response-pool-v1');
+  const bodies=new Map<string,string>(),used=new Set<string>();let decodedBytes=0,responses=0;
+  for(const entry of fleetRows(row.bodies)){keys(entry,['sha256','utf8','byteLength']);assert(typeof entry.utf8==='string');assert.match(String(entry.sha256),/^[a-f0-9]{64}$/u);assert(!bodies.has(String(entry.sha256)),'duplicate daily body');assert.equal(Buffer.byteLength(entry.utf8),entry.byteLength);assert.equal(hash(entry.utf8),entry.sha256);decodedBytes+=Number(entry.byteLength);assert(decodedBytes<=FLEET_DOCUMENT_LIMITS.totalDecodedBytes);bodies.set(String(entry.sha256),entry.utf8);}
+  const owners=fleetRows(row.owners);assert.deepEqual(owners.map(owner=>owner.owner).sort(),[...FLEET_REQUEST_OWNERS].sort());
+  const attempts=new Set<string>();const result=owners.map(owner=>{keys(owner,['owner','responses']);return{owner:owner.owner,responses:fleetRows(owner.responses).map(response=>{
+    keys(response,['attemptId','endpointId','resource','nativeLeagueId','nativeWeek','pairIds','version','rawSha256','requestStartedAt','responseCompletedAt','monotonicStartedAt','monotonicCompletedAt','responseBoundary','bodyRef']);
+    const id=String(response.attemptId);assert(!attempts.has(id),'duplicate daily physical response');attempts.add(id);assert(++responses<=FLEET_EVIDENCE_LIMITS.maxRows);
+    assert.equal(response.bodyRef,response.rawSha256);const utf8=bodies.get(String(response.bodyRef));assert(utf8!==undefined,'missing daily response body');used.add(String(response.bodyRef));
+    const{bodyRef,...rest}=response;void bodyRef;return{...rest,rawUtf8:utf8};
+  })};});assert.deepEqual([...used].sort(),[...bodies.keys()].sort(),'unused daily response body');return result;
+}
+export function unpackFleetDailySecondaryResponses(primary:Record<string,unknown>,attempts:ReadonlyMap<string,Record<string,unknown>>):Record<string,unknown>[]{
+  const documents=fleetIndex(fleetRows(object(primary.fixture).documents),'url'),tank=fleetIndex(fleetRows(primary.tankAttempts),'id');
+  for(const document of documents.values())assert.equal(hash(String(document.utf8)),document.sha256);
+  return fleetRows(primary.secondaryResponses).map(response=>{assert(!Object.hasOwn(response,'document'));assert(typeof response.documentRef==='string');const attempt=attempts.get(String(response.attemptId))??tank.get(String(response.attemptId));assert(attempt,'unbound daily secondary attempt');const document=documents.get(String(attempt.origin)+String(attempt.path));assert(document&&document.sha256===response.documentRef,'missing daily secondary source document');const{documentRef,...rest}=response;void documentRef;return{...rest,document};});
+}
+
+/** Replays the bounded existing directory reader; supplied eligibility labels cannot replace its rows. */
+export async function replayFleetDailyCatalogTurn(turn:import('./freshness-capacity-daily').DailyCatalogTurn){
+  if(turn.state==='missed'){assert.equal(turn.read,null);assert.equal(turn.lastAttemptId,null);assert.equal(turn.retryAt,null);assert.deepEqual(turn.attemptIds,[]);return null;}
+  const document=object(turn.read);keys(document,['value','queries']);assert.equal(turn.state,'invoked','daily catalog eligibility was not observed');
+  const queries=fleetRows(document.queries);assert.equal(queries.length,1,'missing exact catalog eligibility query');const query=queries[0];keys(query,['sql','params','rows','span']);
+  const{PLAYER_DIRECTORY_READ_SQL,playerDirectoryMethods}=await import('../lib/league-administration/neon/player-directory');assert.equal(query.sql,PLAYER_DIRECTORY_READ_SQL);assert.deepEqual(query.params,[null,null,null,2]);assert(Array.isArray(query.rows));const span=numericSpan(query.span);assert(Number(span.startedAt)>=turn.startedAt&&Number(span.endedAt)<=turn.endedAt);
+  let count=0;const client:import('../lib/database').DatabaseClient={enabled:true,query:(async(sql:string,params:readonly unknown[]=[])=>{assert.equal(++count,1);assert.equal(sql,query.sql);assert.equal(capacityDigest(params),capacityDigest(query.params));return query.rows;}) as import('../lib/database').DatabaseClient['query']};
+  const actual=await playerDirectoryMethods(client).readAcceptedPlayerDirectory({limit:1});assert.equal(count,1);assert.equal(capacityDigest(actual),capacityDigest(document.value),'daily catalog typed eligibility drift');assert(actual.status==='missing'||actual.status==='available');
+  const latest=actual.latestAttempt;assert.equal(turn.lastAttemptId,latest?.attemptId??null);assert.equal(turn.retryAt,latest?Date.parse(latest.retryAt):null);if(latest)assert.equal(Date.parse(latest.retryAt)-Date.parse(latest.reservedAt),86_400_000);
+  return actual;
+}
+
+/** Binds the pure daily inventory to the actual read-only SQL/reader transcript.
+ * SQL clocks are retained as SQL clocks; no client/server offset is invented. */
+export async function assertFleetDailyRecordedState(input:{manifest:import('./freshness-capacity-daily').CapacityDailyManifest;
+  evidence:import('./freshness-capacity-daily').CapacityDailyEvidence;operations:Record<string,unknown>;reads:Record<string,unknown>;
+  lineage:Record<string,unknown>;primary:Record<string,unknown>;attempts:ReadonlyMap<string,Record<string,unknown>>;
+  config:{workDeadlineAt:number}}){
+  const{manifest,evidence,operations,reads,lineage,primary,attempts,config}=input;
+  const same=(a:unknown,b:unknown,message='daily recorded evidence drift')=>assert.equal(capacityDigest(a),capacityDigest(b),message);
+  const time=(value:unknown)=>{assert(typeof value==='string');const at=Date.parse(value);assert(Number.isFinite(at));return at;};
+  const uuid=(value:unknown)=>{assert(typeof value==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value));return value;};
+  const ops=fleetRows(operations.operations),proofs=fleetIndex(fleetRows(lineage.receiptProofs),'receiptId'),readRows=fleetRows(reads.lineage);
+  const{CAPACITY_DAILY_QUEUE_SQL}=await import('./freshness-capacity-observer');
+  assert.equal(evidence.workDeadlineAt,config.workDeadlineAt);assert(evidence.endedAt<=config.workDeadlineAt);
+  const submissions=fleetIndex(evidence.initialSubmissions as unknown as Record<string,unknown>[],'cohort');
+  assert.deepEqual([...submissions.keys()].sort(),manifest.initialRequests.map(row=>row.cohort).sort());
+  for(const planned of manifest.initialRequests){const row=submissions.get(planned.cohort)!,id=uuid(row.requestId);
+    const matches=ops.filter(op=>op.operation==='recovery-submit/initial-'+planned.cohort);assert.equal(matches.length,1,'missing actual daily submission');
+    const op=matches[0],span=numericSpan(op.span),outcome=object(op.outcome);same(outcome.receipt,row.receipt);assert.equal(outcome.requestId,id);assert.equal(object(outcome.receipt).status,'retained');
+    assert.equal(span.startedAt,row.submittedAt);assert.equal(outcome.receiptAt,row.receiptAt);assert(Number(row.receiptAt)<=Number(span.endedAt));assert(Number(span.startedAt)>=evidence.startedAt);
+  }
+  assert.equal(evidence.initialHeadConfirmations.length,64);const pairIds=new Set<string>();
+  for(const head of evidence.initialHeadConfirmations){assert(!pairIds.has(head.pairId));pairIds.add(head.pairId);
+    const [leagueKey,family]=head.pairId.split('/'),planned=manifest.initialRequests.find(row=>row.leagueKeys.includes(leagueKey));assert(planned&&['rosters','lineups','official-scores','transactions'].includes(family));
+    assert.equal(head.requestId,submissions.get(planned.cohort)!.requestId);const proof=proofs.get(head.proofId);assert(proof,'missing daily initial receipt');
+    assert.equal(object(object(proof.dispatch).work).requestId,head.requestId);assert.equal(object(object(proof.mapping).scope).externalLeagueId,manifest.leagues.find(row=>row.key===leagueKey)!.nativeLeagueId);
+    assert(readRows.some(row=>row.proofId===head.proofId&&row.pairId===head.pairId&&row.endedAt===head.at&&row.selection==='current'),'daily initial head lacks actual current reader');
+    assert(Number(proof.sourceResponseCompletedAt)<=head.at);
+  }
+  const snapshots=evidence.queue;assert(snapshots.length>0);const bodies=new Map<string,typeof snapshots[number]>();let priorAt=-1;
+  for(const snapshot of snapshots){assert(snapshot.at>=priorAt&&snapshot.at<=evidence.endedAt);priorAt=snapshot.at;
+    const{at,...body}=snapshot,digest=capacityDigest(body);assert(!bodies.has(digest),'duplicate unchanged queue body');bodies.set(digest,snapshot);
+    const matches=ops.filter(op=>op.operation==='daily-queue'&&object(op.outcome).digest===digest);assert(matches.length>0,'unread daily queue snapshot');
+    assert(matches.some(op=>Number(numericSpan(op.span).endedAt)===at));
+  }
+  const queueOps=ops.filter(op=>op.operation==='daily-queue');assert(queueOps.length>0);
+  for(const op of queueOps){const span=numericSpan(op.span),outcome=object(op.outcome);keys(outcome,['digest','querySha256','params']);assert.equal(outcome.querySha256,hash(CAPACITY_DAILY_QUEUE_SQL));assert.deepEqual(outcome.params,[]);assert(bodies.has(String(outcome.digest)));assert(Number(span.endedAt)<=evidence.endedAt);}
+  assert(Number(numericSpan(queueOps.at(-1)!.span).endedAt)>=evidence.startedAt+manifest.clock.observationMs,'missing fixed-end queue observation');
+  const targets=fleetIndex(evidence.targets as unknown as Record<string,unknown>[],'cohort');assert.deepEqual([...targets.keys()].sort(),manifest.targets.map(row=>row.cohort).sort());
+  const fullScope=manifest.bindingPlan.submissions[0].input as unknown as Record<string,unknown>;
+  const fields=[['seasons','seasons'],['periodInventory','period_inventory'],['transactionHistory','transaction_history'],['draftPicks','draft_picks'],['playoffBrackets','playoff_brackets'],['weeklyReports','weekly_reports']] as const;
+  const periods=Array.from({length:18},(_,index)=>({season:2026,nativeWeek:index+1}));
+  for(const planned of manifest.targets){const target=targets.get(planned.cohort)!,value=object(target.input);uuid(target.targetId);assert.equal(target.configurationRevision,1);
+    assert.equal(value.id,target.targetId);assert.equal(value.expectedRevision,0);assert.equal(value.identityRequestId,submissions.get(planned.cohort)!.requestId);assert.equal(value.cadenceSeconds,72000);assert.equal(value.paused,false);assert.equal(time(value.expiresAt),config.workDeadlineAt);
+    for(const[field]of fields)same(value[field],fullScope[field]);
+    const configured=fleetRows(primary.setup).filter(row=>row.operation==='configure'&&row.cohort===planned.cohort);assert.equal(configured.length,1);const ack=object(configured[0].result);assert.equal(ack.targetId,target.targetId);assert.equal(ack.configurationRevision,target.configurationRevision);assert.equal(configured[0].configuredAt,target.configuredAt);
+  }
+  const immutableConfigs=new Map<string,string>(),immutableCycles=new Map<string,string>(),immutableOutcomes=new Map<string,string>(),requestInputs=new Map<string,string>(),seenRequests=new Set<string>(),requestState=new Map<string,{revision:number;terminal:boolean}>();
+  const targetById=new Map(evidence.targets.map(row=>[row.targetId,row]));const cyclesByRequest=new Map<string,Record<string,unknown>>();
+  const auxiliary=object((evidence as unknown as Record<string,unknown>).auxiliary),auxIds=new Set(fleetRows(auxiliary.requests).map(row=>uuid(row.requestId)));
+  for(const snapshot of snapshots){
+    const configurations=fleetIndex(fleetRows(snapshot.configurations).map(row=>({...row,id:object(row.target).id})),'id');
+    for(const id of immutableConfigs.keys())assert(configurations.has(id),'daily approval disappeared');
+    for(const item of configurations.values()){const target=object(item.target),configuration=object(item.configuration),declared=targetById.get(uuid(target.id));assert(declared,'undeclared daily target');
+      assert.equal(target.configuration_revision,1);assert.equal(configuration.target_id,target.id);assert.equal(configuration.revision,1);assert.equal(configuration.identity_request_id,declared.input.identityRequestId);assert.equal(configuration.cadence_seconds,72000);assert.equal(configuration.paused,false);assert.equal(time(configuration.expires_at),config.workDeadlineAt);
+      for(const[field,column]of fields)same(configuration[column],declared.input[field]);same(configuration.exact_periods,periods);time(configuration.configured_at);time(target.created_at);
+      const digest=capacityDigest(configuration),old=immutableConfigs.get(String(target.id));if(old)assert.equal(old,digest,'immutable daily approval changed');immutableConfigs.set(String(target.id),digest);
+    }
+    const cycles=fleetRows(snapshot.cycles),cycleKeys=new Set<string>();
+    for(const cycle of cycles){const target=targetById.get(uuid(cycle.target_id));assert(target);assert(cycle.cycle===1||cycle.cycle===2);assert.equal(cycle.configuration_revision,1);const key=String(cycle.target_id)+'/'+String(cycle.cycle);assert(!cycleKeys.has(key));cycleKeys.add(key);
+      const digest=capacityDigest(cycle),old=immutableCycles.get(key);if(old)assert.equal(old,digest,'immutable daily cycle changed');immutableCycles.set(key,digest);const requestId=uuid(cycle.intake_id);const existing=cyclesByRequest.get(requestId);if(existing)same(existing,cycle);cyclesByRequest.set(requestId,cycle);assert(time(cycle.created_at)>=time(cycle.due_at));
+    }
+    for(const key of immutableCycles.keys())assert(cycleKeys.has(key),'daily cycle disappeared');
+    const outcomeKeys=new Set<string>();for(const outcome of fleetRows(snapshot.outcomes)){const key=String(outcome.target_id)+'/'+String(outcome.cycle);assert(cycleKeys.has(key)&&!outcomeKeys.has(key));outcomeKeys.add(key);assert.equal(outcome.disposition,'complete');time(outcome.recorded_at);time(outcome.next_due_at);const digest=capacityDigest(outcome),old=immutableOutcomes.get(key);if(old)assert.equal(old,digest,'immutable cycle outcome changed');immutableOutcomes.set(key,digest);}
+    for(const key of immutableOutcomes.keys())assert(outcomeKeys.has(key),'daily cycle outcome disappeared');
+    const requests=fleetIndex(fleetRows(snapshot.requests),'id');for(const id of seenRequests)assert(requests.has(id),'ordinary request disappeared');
+    for(const[id,request]of requests){uuid(id);assert(request.resource_occurrence_id===null||request.resource_occurrence_id===undefined,'internal occurrence entered ordinary inventory');seenRequests.add(id);
+      const initial=evidence.initialSubmissions.find(row=>row.requestId===id),cycle=cyclesByRequest.get(id);assert(initial||cycle||auxIds.has(id),'unexpected ordinary daily work');
+      if(!auxIds.has(id)){const target=cycle?targetById.get(String(cycle.target_id))!:targets.get(initial!.cohort)!,cohort=String(target.cohort),planned=manifest.targets.find(row=>row.cohort===cohort)!;
+        assert.equal(request.username,initial?planned.username:planned.nativeUsername);const scope=(initial?manifest.initialScope:fullScope) as unknown as Record<string,unknown>;
+        for(const[field,column]of fields)same(request[column],scope[field]??(field==='weeklyReports'?[]:null),'ordinary daily scope drift');same(request.exact_periods,initial?manifest.initialScope.exactPeriods:periods);same(request.transaction_period,initial?manifest.initialScope.transactionPeriod:null);
+      }
+      const stable={id,username:request.username,created_at:request.created_at,...Object.fromEntries(fields.map(([,column])=>[column,request[column]])),exact_periods:request.exact_periods,transaction_period:request.transaction_period},digest=capacityDigest(stable),old=requestInputs.get(id);if(old)assert.equal(old,digest,'immutable request input changed');requestInputs.set(id,digest);time(request.created_at);
+      assert(Number.isSafeInteger(request.revision)&&Number(request.revision)>=0);assert(typeof request.terminal==='boolean');const previous=requestState.get(id);if(previous){assert(Number(request.revision)>=previous.revision);if(previous.terminal)assert(request.terminal&&request.revision===previous.revision,'terminal request changed');}requestState.set(id,{revision:Number(request.revision),terminal:request.terminal});
+    }
+  }
+  assert.equal(immutableConfigs.size,3);assert.equal(immutableCycles.size,6);assert.equal(immutableOutcomes.size,6);
+  const final=fleetIndex(fleetRows(snapshots.at(-1)!.requests),'id'),completed=fleetIndex(evidence.intakes as unknown as Record<string,unknown>[],'requestId');assert.equal(completed.size,9);
+  assert.deepEqual([...final.keys()].sort(),[...completed.keys(),...auxIds].sort(),'final ordinary inventory is incomplete or has extra work');
+  for(const intake of evidence.intakes){const request=final.get(intake.requestId);assert(request&&request.terminal===true&&request.revision===intake.proof.terminalRevision);const initial=evidence.initialSubmissions.find(row=>row.requestId===intake.requestId),planned=manifest.initialRequests.find(row=>row.cohort===intake.cohort);assert(planned);
+    assert.equal(intake.kind,initial?'initial':'cycle');assert.equal(intake.proof.requestId,intake.requestId);assert.equal(intake.proof.terminal,true);assert.equal(intake.proof.parity,'immutable-intake-receipts-and-current-readers');same([...intake.proof.nativeIds].sort(),[...planned.nativeLeagueIds].sort());assert.equal(intake.proof.coverage,initial?'complete-materialized-initial-scope':'complete-materialized-inventory');
+    const expectedEndpoints=initial?planned.endpointIds:manifest.targets.find(row=>row.cohort===intake.cohort)!.endpointIds;same([...intake.proof.completedEndpointIds].sort(),[...expectedEndpoints].sort());assert.equal(intake.proof.detailedPeriods,planned.nativeLeagueIds.length*(initial?1:18));assert.equal(intake.proof.detailedTransactions,planned.nativeLeagueIds.length*(initial?1:19));assert.equal(intake.proof.detailedDrafts,planned.nativeLeagueIds.length*(initial?0:5));
+    assert.equal(intake.createdAt,time(request.created_at));const cycle=cyclesByRequest.get(intake.requestId);assert.equal(intake.cycle,cycle?.cycle??null);assert.equal(intake.targetId,cycle?.target_id??null);assert.equal(intake.dueAt,cycle?time(cycle.due_at):null);
+    await assertFleetDailyIntakeRecord(intake,request,cycle??null,ops,evidence.endedAt);
+  }
+  for(const turn of evidence.catalogTurns){await replayFleetDailyCatalogTurn(turn);const matching=ops.filter(op=>op.operation==='daily-turn/'+turn.ordinal);
+    if(turn.state==='missed'){assert.equal(matching.length,0);continue;}assert.equal(matching.length,1);const span=numericSpan(matching[0].span);assert.equal(span.startedAt,turn.startedAt);assert(Number(span.endedAt)>=turn.endedAt);const outcome=object(matching[0].outcome);assert.equal(outcome.state,turn.state);same(outcome.attemptIds,turn.attemptIds);same(outcome.invocationOutcome,turn.invocationOutcome);assert.equal(outcome.invocationFailed,turn.invocationFailed);same(outcome.catalogChoices,turn.catalogChoices);
+    const calls=fleetRows(primary.calls).filter(call=>call.action==='enabled'&&Date.parse(String(object(call.span).startedAt))>=turn.startedAt&&Date.parse(String(object(call.span).endedAt))<=turn.endedAt);assert.equal(calls.length,1,'daily turn not bound to one actual facade call');same(calls[0].outcome,turn.invocationOutcome);assert.equal(calls[0].failed,turn.invocationFailed);const invocation=fleetRows(operations.invocations).filter(row=>row.owner==='data-refresh'&&Number(object(row.span).startedAt)>=turn.startedAt&&Number(object(row.span).endedAt)<=turn.endedAt);assert.equal(invocation.length,1);await assertFleetDailyCatalogChoices(turn,invocation[0],fleetRows(primary.sqlAttempts),attempts);
+    const actual=[...attempts.values()].filter(row=>row.owner==='data-refresh'&&row.origin==='https://api.sleeper.app'&&row.path==='/v1/players/nfl'&&Number(row.at)>=turn.startedAt&&Number(row.endedAt)<=turn.endedAt).map(row=>String(row.id));same([...turn.attemptIds].sort(),actual.sort());
+  }
+  const coverage=fleetIndex(fleetRows(operations.ownerCoverage),'owner');for(const owner of FLEET_REQUEST_OWNERS){const held=coverage.get(owner);assert(held);assert(Number(held.startedAt)<=Number(auxiliary.startedAt));for(const attempt of attempts.values())if(attempt.owner===owner)assert(Number(attempt.at)>=Number(held.startedAt)&&Number(attempt.endedAt)<=Number(held.endedAt));}
+  return{ordinaryRequests:final.size,completedDailyRequests:completed.size,cycles:immutableCycles.size,catalogTurns:evidence.catalogTurns.length,initialHeads:pairIds.size};
+}
+
+/** Replays the existing aggregate reader from its complete actual SQL transcript.
+ * Concurrent calls match exact SQL+parameters, never a fabricated typed result. */
+export async function replayFleetDailyAuxiliaryRead(proof:import('./freshness-capacity-daily').DailyAuxiliaryRead,label:'a'|'b'){
+  const span=numericSpan(proof.span),queries=fleetRows(proof.queries).map((row,index)=>({row,index,used:false}));
+  for(const{row}of queries){keys(row,['sql','params','rows','span']);assert(typeof row.sql==='string');assert(Array.isArray(row.params)&&Array.isArray(row.rows));const clock=numericSpan(row.span);assert(Number(clock.startedAt)>=Number(span.startedAt)&&Number(clock.endedAt)<=Number(span.endedAt));}
+  const database:import('../lib/database').DatabaseClient={enabled:true,query:(async(sql:string,params:readonly unknown[]=[])=>{const matches=queries.filter(value=>!value.used&&value.row.sql===sql&&capacityDigest(value.row.params)===capacityDigest(params));assert(matches.length>0,'unrecorded auxiliary reader query');if(matches.length>1)for(const match of matches)sameRows(match.row.rows,matches[0].row.rows);const selected=matches[0];selected.used=true;return selected.row.rows;}) as import('../lib/database').DatabaseClient['query']};
+  const{CAPACITY_INTAKE_REQUEST_SQL,CAPACITY_INTAKE_CANDIDATES_SQL}=await import('./freshness-capacity-observer');
+  const request=await database.query(CAPACITY_INTAKE_REQUEST_SQL,[proof.requestId]);assert.equal(request.length,1);sameRows(request[0],proof.request);
+  const candidates=await database.query(CAPACITY_INTAKE_CANDIDATES_SQL,[proof.requestId]);sameRows(candidates,proof.candidates);
+  const{createLeagueAdministrationStore}=await import('../lib/league-administration/store'),{readPublicSleeperIntake}=await import('../lib/league-administration/public-intake-reader');
+  const store=createLeagueAdministrationStore(database),mapping=await store.readSourceMapping(String(object(object(proof.mapping).scope).externalLeagueId));sameRows(mapping,proof.mapping);
+  const pages=[proof.read,...proof.additionalPages];assert(label==='a'||proof.additionalPages.length===0);let afterOrdinal:number|null=0;let read:Awaited<ReturnType<typeof readPublicSleeperIntake>>|null=null;
+  for(const[index,value]of pages.entries()){assert(index===0||label==='a'&&afterOrdinal!==null,'extra auxiliary aggregate page');read=await readPublicSleeperIntake(database,store,proof.requestId,{managerEvidenceVersion:'v2',...(label==='a'?{draftPicksPage:{afterOrdinal:afterOrdinal!,limit:20}}:{})});
+   const retained=object(value);assert(typeof retained.readAt==='string');const originalAt=Date.parse(retained.readAt);assert(Number.isFinite(originalAt)&&originalAt>=Number(span.startedAt)&&originalAt<=Number(span.endedAt),'auxiliary original read clock outside actual span');const{readAt:replayedAt,...actualValue}=object(read),{readAt:retainedAt,...retainedValue}=retained;assert(Number.isFinite(Date.parse(String(replayedAt))));void retainedAt;sameRows(actualValue,retainedValue);
+   if(label==='a'){const page=object(object(retained.draftPicks).page);assert.equal(page.afterOrdinal,afterOrdinal);assert.equal(page.limit,20);const next=page.nextAfterOrdinal;assert(next===null||Number.isSafeInteger(next)&&Number(next)>Number(afterOrdinal));afterOrdinal=next as number|null;}
+  }assert(read);if(label==='a')assert.equal(afterOrdinal,null,'incomplete auxiliary draft cursor chain');const candidate=proof.candidates.map(object).map(row=>object(row.candidate)).find(row=>row.external_league_id===object(object(proof.mapping).scope).externalLeagueId);assert(candidate);const retainedRoster=await store.readRosterPlayerLinks({rosterReceiptId:String(candidate.players_receipt_id),leagueSeasonId:String(object(proof.mapping).leagueSeasonId)});sameRows(retainedRoster,proof.retainedRoster);assert.equal(retainedRoster.status,'available');assert(queries.every(row=>row.used),'unused auxiliary reader SQL');return read;
+}
+function sameRows(a:unknown,b:unknown){assert.equal(capacityDigest(a),capacityDigest(b),'recorded SQL/reader value changed');}
+
+export async function assertFleetDailyAuxiliary(input:{manifest:import('./freshness-capacity-daily').CapacityDailyManifest;
+ evidence:import('./freshness-capacity-daily').CapacityDailyEvidence;lineage:Record<string,unknown>;operations:Record<string,unknown>;
+ responses:Map<string,Record<string,unknown>>;attempts:Map<string,Record<string,unknown>>;invocations:Record<string,unknown>[]}){
+ const{manifest,evidence,lineage,operations,responses,attempts,invocations}=input,aux=evidence.auxiliary,planned=manifest.auxiliary,ops=fleetRows(operations.operations),endpointRows=fleetRows(lineage.endpointProofs),current=fleetIndex(fleetRows(lineage.currentIntakeReads),'id');
+ const time=(value:unknown)=>{const at=Date.parse(String(value));assert(Number.isFinite(at));return at;};
+ assert.equal(new Set(planned.nativeLeagueIds).size,21);assert.equal(planned.nativeRosterIds.length,12);assert(planned.nativeLeagueIds.every(id=>!manifest.leagues.some(row=>row.nativeLeagueId===id)));
+ assert(aux.startedAt<=aux.endedAt&&aux.endedAt<=evidence.startedAt);assert.equal(aux.requests.length,2);
+ await assertFleetDailyEmptyOrigin(aux.initialState,aux.startedAt,Math.min(...aux.requests.map(row=>row.submittedAt)),evidence.requests.coverageStartedAt,[...attempts.values()]);
+ const queue=evidence.queue.find(row=>{const{at,...body}=row;void at;return capacityDigest(body)===aux.queueDigest;});assert(queue,'missing actual auxiliary terminal queue');assert.equal(queue.requests.length,2);assert.deepEqual(queue.cycles,[]);assert.deepEqual(queue.configurations,[]);assert.deepEqual(queue.outcomes,[]);assert(queue.at<=evidence.startedAt);
+ const window=ops.filter(op=>op.operation==='daily-window-start');assert.equal(window.length,1);const origin=object(window[0].outcome);sameRows(origin,{startedAt:evidence.startedAt,setupStartedAt:aux.startedAt,auxiliaryDigest:capacityDigest(aux)});assert(Number(numericSpan(window[0].span).startedAt)>=aux.endedAt);
+ const pairs=new Map<string,{mapping:Record<string,unknown>;teams:{native:string;id:string}[];identity:string}>();
+ for(const user of planned.users){const entry=aux.requests.find(row=>row.label===user.label);assert(entry);const submitted=ops.filter(op=>op.operation==='daily-auxiliary-submission/'+user.label);assert.equal(submitted.length,1);sameRows(submitted[0].outcome,entry.receipt);assert.equal(object(entry.receipt).status,'retained');assert.equal(object(entry.receipt).requestId,entry.requestId);const submitSpan=numericSpan(submitted[0].span);assert.equal(submitSpan.startedAt,entry.submittedAt);assert.equal(submitSpan.endedAt,entry.receiptAt);
+  const queueRequest:Record<string,unknown>|undefined=fleetRows(queue.requests).find(row=>row.id===entry.requestId);assert(queueRequest?.terminal===true);assert.equal(queueRequest.username,user.username);
+  const acquired=[...attempts.values()].filter(row=>row.owner==='data-refresh'&&Number(row.at)>=entry.submittedAt&&Number(row.endedAt)<=entry.completedAt&&planned.endpoints.some(endpoint=>endpoint.url===String(row.origin)+String(row.path)));
+  assert.equal(acquired.length,planned.expectedHttp[user.label],'auxiliary physical request count differs');assert(acquired.every(row=>row.method==='GET'&&row.outcome==='success'));
+  const endpointIds=acquired.map(row=>String(responses.get(String(row.id))?.endpointId));assert(!endpointIds.includes('auxiliary:league-21'),'21st association fanned out');
+  const expectedBase=['auxiliary:identity-'+user.label,'auxiliary:discovery-'+user.label,'auxiliary:league-1','auxiliary:rosters','auxiliary:users'];const expectedProofs=user.label==='a'?[...expectedBase,'auxiliary:drafts','auxiliary:league-trades','auxiliary:draft-detail','auxiliary:draft-picks','auxiliary:draft-trades']:expectedBase;
+  for(const proof of [entry.proof,aux.overlap[user.label]]){
+   assert.equal(proof.requestId,entry.requestId);const span=numericSpan(proof.span);assert(Number(span.startedAt)>=entry.receiptAt&&Number(span.endedAt)<=aux.endedAt);const logged=ops.filter(op=>op.operation==='daily-auxiliary-read/'+user.label&&object(op.outcome).digest===capacityDigest(proof));assert.equal(logged.length,1);sameRows(logged[0].span,proof.span);
+   await replayFleetDailyAuxiliaryRead(proof,user.label);
+   await assertFleetDailyAuxiliaryImmutable(proof,proof===aux.overlap[user.label]?Math.max(...aux.requests.map(row=>row.completedAt)):entry.receiptAt,endpointRows);
+   const request=object(proof.request),stored=object(request.stored_request),identity=object(request.identity);assert.equal(request.id,entry.requestId);sameRows(stored,queueRequest);assert.equal(stored.username,user.username);assert.equal(stored.terminal,true);sameRows(stored.seasons,[2026]);assert.equal(stored.draft_picks,user.scope.draftPicks??null);for(const key of ['period_inventory','transaction_history','transaction_period','playoff_brackets','resource_occurrence_id','submission_capacity'])assert.equal(stored[key],null);sameRows(stored.exact_periods,[]);sameRows(stored.weekly_reports,[]);
+   assert.equal(object(identity.payload).user_id,user.nativeManagerId);assert.equal(identity.intake_id,entry.requestId);const lists=fleetRows(request.lists);assert.equal(lists.length,1);sameRows(fleetRows(lists[0].payload).map(row=>row.league_id).sort(),[...user.nativeLeagueIds].sort());
+   sameRows([...proof.completedEndpointIds].sort(),[...expectedProofs].sort());for(const endpointId of expectedProofs){const bound=endpointRows.filter(row=>row.requestId===entry.requestId&&row.endpointId===endpointId&&proof.immutableProofIds.includes(String(row.proofId)));assert(bound.length>0);for(const row of bound)await assertFleetEndpointLineage(row,responses,attempts,invocations);}
+   for(const id of proof.immutableProofIds)assert(endpointRows.some(row=>row.requestId===entry.requestId&&row.proofId===id),'foreign auxiliary immutable receipt');
+   const candidates=fleetRows(proof.candidates).map(row=>object(row.candidate));sameRows(candidates.map(row=>row.external_league_id).sort(),[...user.nativeLeagueIds].sort());assert.equal(candidates.length,user.label==='a'?21:1);
+   for(const candidate of candidates){assert.equal(candidate.intake_id,entry.requestId);assert.equal(candidate.season,2026);const admitted=candidate.external_league_id===planned.admittedNativeLeagueId;assert.equal(candidate.stage,admitted?'complete':'capacity');if(!admitted)assert.equal(candidate.league_season_id,null);
+    const nativeIndex=planned.nativeLeagueIds.indexOf(String(candidate.external_league_id));assert(nativeIndex>=0);if(nativeIndex===20){for(const field of ['bootstrap_payload','bootstrap_started_at','bootstrap_completed_at'])assert.equal(candidate[field],null);continue;}
+    const native=object(candidate.bootstrap_payload);assert.equal(native.league_id,candidate.external_league_id);assert.equal(native.status,'pre_draft');assert.equal(native.total_rosters,admitted?12:21);const from=time(candidate.bootstrap_started_at),to=time(candidate.bootstrap_completed_at);
+    const bound=acquired.filter(attempt=>attempt.path==='/v1/league/'+candidate.external_league_id&&Number(attempt.at)>=from&&Number(attempt.endedAt)<=to);assert.equal(bound.length,1,'unbound auxiliary bootstrap');const response=responses.get(String(bound[0].id));assert(response);sameRows(JSON.parse(String(response.rawUtf8)),native);
+    const dispatches:Record<string,unknown>[]=fleetRows(lineage.durableDispatches).filter(row=>{const dispatch=object(row.dispatch),work=object(dispatch.work);return dispatch.intake_id===entry.requestId&&work.kind==='bootstrap'&&work.externalLeagueId===candidate.external_league_id;});assert.equal(dispatches.length,1);assert.equal(object(dispatches[0].outcome).outcome,'checkpoint-committed');
+   }
+   assert.equal(proof.currentReadProofIds.length,3);const resources=new Map<string,Record<string,unknown>>();for(const id of proof.currentReadProofIds){const row=current.get(id);assert(row&&row.requestId===entry.requestId&&row.nativeLeagueId===planned.admittedNativeLeagueId);const{id:ignored,...body}=row;void ignored;assert.equal(capacityDigest(body),id);assert(!resources.has(String(row.kind)));resources.set(String(row.kind),row);await assertFleetCurrentIntakeRead(row,responses,attempts,invocations);assert(Number(numericSpan(row.span).endedAt)<=Number(span.endedAt));}
+   sameRows([...resources.keys()].sort(),['heldRoster','settings','teamManagers']);const held=object(resources.get('heldRoster')!.read),teams=fleetRows(held.teams);assert.equal(teams.length,12);sameRows(teams.map(row=>row.externalRosterId).sort(),[...planned.nativeRosterIds].sort());assert.equal(new Set(teams.map(row=>row.seasonTeamId)).size,12);
+   for(const team of teams){assert.match(String(team.seasonTeamId),/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu);sameRows(team.players,[]);}
+   for(const team of fleetRows(object(resources.get('teamManagers')!.read).teams))assert.equal(object(team.primaryOwner).state,'unowned');
+   const aggregate=object(proof.read),leagues=fleetRows(aggregate.leagues);sameRows(leagues.map(row=>row.externalLeagueId).sort(),[...user.nativeLeagueIds].sort());const league=leagues.find(row=>row.externalLeagueId===planned.admittedNativeLeagueId)!;assert.equal(league.collection,'complete');const currentResource=(value:unknown)=>{const row=object(value);return row.status==='available'?row:object(row.retained);};for(const[kind,row]of resources)sameRows(currentResource(object(league.resources)[kind]),row.read);
+   if(user.label==='a'){const aggregatePages=[aggregate,...proof.additionalPages.map(object)];for(const page of aggregatePages)assertFleetAuxiliaryDraftInventory(page,planned);const allDrafts=aggregatePages.flatMap(page=>fleetRows(page.drafts));assert.equal(allDrafts.length,43);assert.equal(new Set(allDrafts.map(row=>row.ordinal)).size,43);const drafts=allDrafts.filter(row=>row.externalLeagueId===planned.admittedNativeLeagueId);assert.equal(drafts.length,5);for(const draft of drafts){const read=object(draft.resource);assert.equal(read.status,'available');const original=endpointRows.find(row=>row.requestId===entry.requestId&&row.proofId===read.receiptId);assert(original);const normalized=await normalizedFleetReceipt(object(original.record)),payload=object(object(object(original.record).content).payload);const projected=payload.kind==='catalog'||payload.kind==='detail'?(await import('../lib/aggregator/draft-metadata')).projectDraftMetadata(normalized):payload.kind==='selections'?(await import('../lib/aggregator/draft-selections')).projectDraftSelections(normalized):(await import('../lib/aggregator/traded-picks')).projectTradedPicks(normalized);assert.equal(projected.status,'accepted');sameRows(read.value,projected.value);}}else assert.equal(aggregate.drafts,undefined);
+   if(proof===aux.overlap[user.label]){const mapping=object(proof.mapping);assert.equal(object(mapping.scope).externalLeagueId,planned.admittedNativeLeagueId);pairs.set(user.label,{mapping,teams:teams.map(row=>({native:String(row.externalRosterId),id:String(row.seasonTeamId)})).sort((a,b)=>a.native.localeCompare(b.native)),identity:String(identity.source_manager_account_id)});
+    for(const row of resources.values())assert.equal(object(object(row.source).dispatch).intake_id,aux.requests.find(value=>value.label==='b')!.requestId,'overlap must prove actual B current heads');}
+  }
+ }
+ assert.equal(pairs.size,2);const a=pairs.get('a')!,b=pairs.get('b')!;assert.notEqual(a.identity,b.identity);for(const key of ['connectionId','leagueSeasonId','revisionId'])assert.equal(a.mapping[key],b.mapping[key]);sameRows(a.teams,b.teams);return{physicalHttp:36,nativeAssociations:21,rosterCountDeferrals:19,noFanout:1,canonicalTeams:12};
+}
+
+/** A completed label qualifies only when the same actual terminal SQL row and
+ * bounded immutable/current-reader proof were observed in that operation. */
+export async function assertFleetDailyIntakeRecord(intake:import('./freshness-capacity-daily').DailyIntakeEvidence,
+ request:Record<string,unknown>,cycle:Record<string,unknown>|null,ops:readonly Record<string,unknown>[],snapshotEndedAt:number){
+ const{CAPACITY_DAILY_INTAKE_SQL}=await import('./freshness-capacity-observer');assert.equal(request.id,intake.requestId);assert.equal(request.terminal,true);assert.equal(request.revision,intake.proof.terminalRevision);assert.equal(intake.proof.requestId,intake.requestId);
+ assert.equal(intake.createdAt,Date.parse(String(request.created_at)));assert.equal(intake.targetId,cycle?.target_id??null);assert.equal(intake.cycle,cycle?.cycle??null);assert.equal(intake.dueAt,cycle?Date.parse(String(cycle.due_at)):null);if(cycle)assert.equal(cycle.intake_id,intake.requestId);
+ const binding=ops.filter(op=>op.operation==='daily-intake-binding/'+intake.requestId);assert.equal(binding.length,1);const bound=object(binding[0].outcome);keys(bound,['request','cycle','querySha256','params']);assert.equal(bound.querySha256,hash(CAPACITY_DAILY_INTAKE_SQL));assert.deepEqual(bound.params,[intake.requestId]);sameRows(bound.request,request);sameRows(bound.cycle,cycle);const bindingSpan=numericSpan(binding[0].span);
+ const success=ops.filter(op=>op.operation==='daily-intake/'+intake.requestId&&op.outcome!==null);assert.equal(success.length,1);const span=numericSpan(success[0].span);sameRows(success[0].outcome,{requestId:intake.requestId,completedAt:intake.completedAt,proofDigest:capacityDigest(intake.proof)});assert(Number(span.startedAt)<=intake.completedAt&&intake.completedAt<=Number(span.endedAt));assert(Number(bindingSpan.startedAt)>=Number(span.startedAt)&&Number(bindingSpan.endedAt)<=intake.completedAt);assert(intake.completedAt<=snapshotEndedAt&&Number(span.endedAt)<=snapshotEndedAt,'daily completion outside snapshot');
+}
+
+export async function assertFleetDailyAuxiliaryImmutable(proof:import('./freshness-capacity-daily').DailyAuxiliaryRead,notBefore:number,endpointRows:readonly Record<string,unknown>[]){
+ const fresh=object(proof.immutableReceiptRead);keys(fresh,['span','rows','directories','queries']);const span=numericSpan(fresh.span),outer=numericSpan(proof.span);assert(Number(span.startedAt)>=notBefore&&Number(span.startedAt)>=Number(outer.startedAt)&&Number(span.endedAt)<=Number(outer.endedAt),'original receipt was not freshly read after the required boundary');
+ const{CAPACITY_ENDPOINT_RECEIPTS_SQL,CAPACITY_ENDPOINT_DIRECTORIES_SQL,CAPACITY_INTAKE_REQUEST_SQL}=await import('./freshness-capacity-observer');const queries=fleetRows(fresh.queries);assert.equal(queries.length,3);
+ for(const[sql,rows]of [[CAPACITY_ENDPOINT_RECEIPTS_SQL,fresh.rows],[CAPACITY_ENDPOINT_DIRECTORIES_SQL,fresh.directories],[CAPACITY_INTAKE_REQUEST_SQL,[proof.request]]]as const){const matches=queries.filter(row=>row.sql===sql);assert.equal(matches.length,1);const query=matches[0];keys(query,['sql','params','rows','span']);assert.deepEqual(query.params,[proof.requestId]);sameRows(query.rows,rows);const clock=numericSpan(query.span);assert(Number(clock.startedAt)>=Number(span.startedAt)&&Number(clock.endedAt)<=Number(span.endedAt));}
+ const rows=fleetRows(fresh.rows),ids=new Set<string>();for(const row of rows){const id=String(object(row.receipt).id);assert(!ids.has(id));ids.add(id);assert(proof.immutableProofIds.includes(id));const original=endpointRows.find(value=>value.requestId===proof.requestId&&value.proofId===id);assert(original);sameRows(row,original.record);assert.equal(object(row.dispatch).intake_id,proof.requestId);await normalizedFleetReceipt(row);}
+ for(const row of fleetRows(fresh.directories)){const id=String(object(row.capture).id),original=endpointRows.find(value=>value.requestId===proof.requestId&&value.proofId===id);assert(original&&proof.immutableProofIds.includes(id));sameRows(row,original.record);assert.equal(object(row.capture).intake_id,proof.requestId);}
+ const candidate=proof.candidates.map(object).map(row=>object(row.candidate)).find(row=>row.external_league_id===object(object(proof.mapping).scope).externalLeagueId);assert(candidate);for(const key of ['settings_receipt_id','players_receipt_id','managers_receipt_id'])assert(ids.has(String(candidate[key])),'original candidate receipt absent from fresh immutable read');
+ assertFleetAuxiliaryRetainedRosterIdentity(proof.retainedRoster,proof.mapping,candidate.players_receipt_id);
+}
+export function assertFleetAuxiliaryDraftInventory(aggregate:Record<string,unknown>,planned:import('./freshness-capacity-daily').CapacityDailyAuxiliary){
+ const inventory=object(aggregate.draftPicks);assert.equal(inventory.policy,'sleeper-2026-draft-picks-v1');assert.equal(inventory.collection,'partial');sameRows(inventory.summary,{observedLeagues:21,admittedLeagues:20,capacityLeagues:1,materializedResources:43,pendingResources:0,acquiredResources:5,unavailableResources:38,undiscoveredDraftLeagues:19});
+ const tasks=fleetRows(inventory.tasks);assert.equal(tasks.length,43);assert.equal(new Set(tasks.map(row=>row.ordinal)).size,43);assert.equal(tasks.filter(row=>row.collection==='complete').length,5);
+ for(const id of planned.nativeLeagueIds.slice(1,20)){const rows=tasks.filter(row=>row.externalLeagueId===id);assert.equal(rows.length,2);sameRows(rows.map(row=>row.resource).sort(),['catalog','league-trades']);for(const row of rows){assert.equal(row.collection,'unavailable');assert.equal(row.reason,'bootstrap-capacity');assert.equal(row.draftReceiptId,null);}}
+ assert(!tasks.some(row=>row.externalLeagueId===planned.nativeLeagueIds[20]));const admitted=tasks.filter(row=>row.externalLeagueId===planned.admittedNativeLeagueId);sameRows(admitted.map(row=>row.resource).sort(),['catalog','detail','draft-trades','league-trades','selections']);for(const row of admitted){assert.equal(row.collection,'complete');assert(typeof row.draftReceiptId==='string');}
+}
+
+/** A shortened initial budget horizon is justified only by the actual empty isolated schema read. */
+export async function assertFleetDailyEmptyOrigin(value:unknown,setupStartedAt:number,firstSubmissionAt:number,coverageStartedAt:number,attempts:readonly Record<string,unknown>[]){
+ const row=object(value);keys(row,['sql','params','rows','span']);const{CAPACITY_DAILY_EMPTY_SQL}=await import('./freshness-capacity-observer');assert.equal(row.sql,CAPACITY_DAILY_EMPTY_SQL);assert.deepEqual(row.params,[]);sameRows(row.rows,[{requests:0,dispatches:0,targets:0,cycles:0,catalog_attempts:0}]);const span=numericSpan(row.span);assert(Number(span.startedAt)>=setupStartedAt&&Number(span.endedAt)<=firstSubmissionAt,'empty origin was not observed before first submission');assert(Number.isFinite(coverageStartedAt)&&coverageStartedAt<=setupStartedAt);for(const attempt of attempts){assert(Number(attempt.at)>=coverageStartedAt,'attempt predates original coverage');assert(Number(attempt.endedAt)>=Number(attempt.at));}
+}
+
+/** Exact directory choice/admission SQL proves a selected operation without conflating it with network success. */
+export async function assertFleetDailyCatalogChoices(turn:import('./freshness-capacity-daily').DailyCatalogTurn,invocation:Record<string,unknown>,sqlAttempts:readonly Record<string,unknown>[],attempts:ReadonlyMap<string,Record<string,unknown>>){
+ const uuid=(value:unknown)=>{assert(typeof value==='string'&&/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value));return value;};
+ const clock=numericSpan(invocation.span),from=Number(clock.startedAt),to=Number(clock.endedAt);assert.equal(invocation.owner,'data-refresh');assert(from>=turn.startedAt&&to<=turn.endedAt);sameRows(invocation.outcome,turn.invocationOutcome);assert.equal(invocation.failed,turn.invocationFailed);
+ const{CAPACITY_DAILY_CATALOG_CLAIM_SQL,CAPACITY_DAILY_CATALOG_RESERVE_SQL}=await import('./freshness-capacity-observer');const declared={claim:hash(CAPACITY_DAILY_CATALOG_CLAIM_SQL),reserve:hash(CAPACITY_DAILY_CATALOG_RESERVE_SQL)};
+ const choices=turn.catalogChoices;assert(Array.isArray(choices)&&choices.length<=2);const eligible=turn.retryAt===null||turn.startedAt>=turn.retryAt;
+ if(!eligible&&choices.length===0){assert.deepEqual(turn.attemptIds,[]);return{status:'not-due' as const};}
+ assert(choices.length>=1,'eligible directory operation unclassified');const used=new Set<unknown>();
+ for(const choice of choices){keys(choice as unknown as Record<string,unknown>,['kind','querySha256','params','response','span','status']);assert(choice.kind==='claim'||choice.kind==='reserve');assert.equal(choice.querySha256,declared[choice.kind]);assert.equal(choice.status,'success','unknown catalog acknowledgment');assert(choice.response);keys(choice.response as unknown as Record<string,unknown>,['fields','rows']);const span=numericSpan(choice.span);assert(Number(span.startedAt)>=from&&Number(span.endedAt)<=to);
+  const matching=sqlAttempts.filter(row=>row.querySha256===choice.querySha256&&Date.parse(String(object(row.span).startedAt))<=Number(span.startedAt)&&Date.parse(String(object(row.span).endedAt))>=Number(span.endedAt));assert.equal(matching.length,1,'catalog choice lacks exact physical SQL span');assert.equal(matching[0].outcome,'success');assert(!used.has(matching[0].sequence));used.add(matching[0].sequence);
+  const fields=choice.kind==='claim'?['attempt_count','lease_until']:['result'];sameRows(choice.response.fields,fields);assert(choice.response.rows.length<=1);for(const row of choice.response.rows)assert(Array.isArray(row)&&row.length===fields.length);
+ }
+ const claim=choices[0];assert.equal(claim.kind,'claim');if(turn.retryAt!==null)assert(Number(claim.span.startedAt)>=turn.retryAt,'catalog choice predates persisted eligibility');assert.equal(claim.params.length,7);const[owner,type,scheduled,payload,worker,lease,minimum]=claim.params;assert.equal(owner,'league-administration-public-intake');assert.equal(type,owner);uuid(worker);assert.equal(Number(lease),25);assert.equal(Number(minimum),60);sameRows(typeof payload==='string'?JSON.parse(payload):payload,{policy:'public-player-directory-v1',mode:'player-directory'});const scheduledAt=Date.parse(String(scheduled));assert(Number.isFinite(scheduledAt)&&scheduledAt%60_000===0&&scheduledAt>=Math.floor(from/60_000)*60_000&&scheduledAt<=Math.floor(Number(claim.span.startedAt)/60_000)*60_000);
+ if(claim.response!.rows.length===0){assert.equal(choices.length,1);assert.deepEqual(turn.attemptIds,[]);return{status:'claim-busy' as const};}
+ const acquired=claim.response!.rows[0] as import('../lib/league-administration/contracts').JsonValue[],generation=Number(acquired[0]);assert(Number.isSafeInteger(generation)&&generation>0);assert(Number.isFinite(Date.parse(String(acquired[1]))));assert.equal(choices.length,2);const reserve=choices[1];assert.equal(reserve.kind,'reserve');assert(Number(reserve.span.startedAt)>=Number(claim.span.endedAt));assert.equal(reserve.params.length,2);const[id,wireFence]=reserve.params;uuid(id);const fence=object(typeof wireFence==='string'?JSON.parse(wireFence):wireFence);keys(fence,['jobKey','workerId','generation','deadlineAt']);assert.equal(fence.jobKey,owner);assert.equal(fence.workerId,worker);assert.equal(fence.generation,generation);assert.equal(Date.parse(String(fence.deadlineAt)),from+20_000);assert(Number(reserve.span.endedAt)<=from+20_000);assert.equal(reserve.response!.rows.length,1);const value=(reserve.response!.rows[0] as import('../lib/league-administration/contracts').JsonValue[])[0],result=object(typeof value==='string'?JSON.parse(value):value);
+ if(result.status==='backoff'){keys(result,['status','retryAt']);assert(Number.isFinite(Date.parse(String(result.retryAt))));assert.deepEqual(turn.attemptIds,[]);return{status:'reservation-backoff' as const,retryAt:result.retryAt};}
+ keys(result,['status','attempt']);assert.equal(result.status,'reserved');const{validatePlayerDirectoryAttempt}=await import('../lib/league-administration/player-directory');const reservation=validatePlayerDirectoryAttempt(object(result.attempt) as unknown as import('../lib/league-administration/player-directory-contracts').PlayerDirectoryAttempt);assert.equal(reservation.id,id);assert.equal(turn.attemptIds.length,1,'known reservation lacks its physical source attempt');const attempt=attempts.get(turn.attemptIds[0]);assert(attempt&&attempt.owner==='data-refresh'&&attempt.method==='GET'&&attempt.origin==='https://api.sleeper.app'&&attempt.path==='/v1/players/nfl');assert((turn.retryAt===null||Number(attempt.at)>=turn.retryAt)&&Number(attempt.at)>=Number(reserve.span.endedAt)&&Number(attempt.endedAt)<=to&&Number(attempt.endedAt)<=from+20_000);return{status:'reserved' as const,attempt:reservation,fence};
+}
+
+export function assertFleetAuxiliaryRetainedRosterIdentity(value:unknown,mapping:unknown,receiptId:unknown){
+ const retained=object(value);assert.equal(retained.status,'available');assert.equal(retained.rosterReceiptId,receiptId);assert.equal(object(retained.mapping).leagueSeasonId,object(mapping).leagueSeasonId);
+}
+
+export type FleetDailySqlLedger={kind:'cp26-daily-sql-ledger-v1';queryDigests:string[];rows:[number,string,string,number,number,number,0|1,0|1][]};
+/** Daily-only lossless representation; callback completion order is preserved, including concurrent [2,1]. */
+export function packFleetDailySqlAttempts(attempts:readonly FleetSqlAttempt[]):FleetDailySqlLedger{
+ assert(Array.isArray(attempts)&&attempts.length<=FLEET_EVIDENCE_LIMITS.maxRows);const queryDigests:string[]=[],indices=new Map<string,number>();
+ const rows=attempts.map(attempt=>{keys(attempt,['sequence','span','querySha256','outcome','signal']);keys(attempt.span,['startedAt','endedAt','monotonicStartMs','monotonicEndMs']);assert(attempt.outcome==='success'||attempt.outcome==='failed');assert(typeof attempt.signal==='boolean');
+  let index=indices.get(attempt.querySha256);if(index===undefined){index=queryDigests.length;queryDigests.push(attempt.querySha256);indices.set(attempt.querySha256,index);}return[attempt.sequence,attempt.span.startedAt,attempt.span.endedAt,attempt.span.monotonicStartMs,attempt.span.monotonicEndMs,index,attempt.outcome==='success'?0:1,attempt.signal?1:0]as FleetDailySqlLedger['rows'][number];});
+ const result:FleetDailySqlLedger={kind:'cp26-daily-sql-ledger-v1',queryDigests,rows};validateFleetDailySqlLedger(result);return result;
+}
+function validateFleetDailySqlLedger(value:unknown):FleetDailySqlLedger{
+ const envelope=object(value);keys(envelope,['kind','queryDigests','rows']);assert.equal(envelope.kind,'cp26-daily-sql-ledger-v1');assert(Array.isArray(envelope.rows)&&envelope.rows.length<=FLEET_EVIDENCE_LIMITS.maxRows);assert(Array.isArray(envelope.queryDigests)&&envelope.queryDigests.length<=envelope.rows.length);
+ const digests=envelope.queryDigests as unknown[];assert(digests.every(value=>typeof value==='string'&&/^[a-f0-9]{64}$/u.test(value)));assert.equal(new Set(digests).size,digests.length,'duplicate daily SQL digest');const sequences=new Set<number>(),used=new Set<number>();let bytes=2;
+ for(const raw of envelope.rows){assert(Array.isArray(raw)&&raw.length===8,'daily SQL tuple must retain all eight fields');const[sequence,startedAt,endedAt,monoStart,monoEnd,index,outcome,signal]=raw;assert(Number.isSafeInteger(sequence)&&sequence>=1&&sequence<=envelope.rows.length&&!sequences.has(sequence),'incomplete or duplicate SQL sequence');sequences.add(sequence);
+  for(const clock of [startedAt,endedAt])assert(typeof clock==='string'&&clock.length<=27&&Number.isFinite(Date.parse(clock))&&new Date(clock).toISOString()===clock,'exact ISO SQL clock required');assert(Date.parse(endedAt)>=Date.parse(startedAt));assert(Number.isFinite(monoStart)&&monoStart>=0&&!Object.is(monoStart,-0)&&Number.isFinite(monoEnd)&&monoEnd>=monoStart&&!Object.is(monoEnd,-0),'invalid original monotonic SQL span');assert(Number.isSafeInteger(index)&&index>=0&&index<digests.length);if(!used.has(index)){assert.equal(index,used.size,'daily SQL dictionary first-use order');used.add(index);}assert(outcome===0||outcome===1);assert(signal===0||signal===1);
+  const row={sequence,span:{startedAt,endedAt,monotonicStartMs:monoStart,monotonicEndMs:monoEnd},querySha256:digests[index],outcome:outcome===0?'success':'failed',signal:signal===1};bytes+=Buffer.byteLength(JSON.stringify(row))+(sequences.size>1?1:0);assert(bytes<=FLEET_EVIDENCE_LIMITS.totalBytes,'expanded daily SQL ledger exceeds decoded bound');
+ }assert.equal(used.size,digests.length,'unused daily SQL digest');return envelope as unknown as FleetDailySqlLedger;
+}
+export function unpackFleetDailySqlAttempts(value:unknown):FleetSqlAttempt[]{
+ // Every row and the aggregate allocation are checked before the output array is allocated.
+ const ledger=validateFleetDailySqlLedger(value);return ledger.rows.map(([sequence,startedAt,endedAt,monotonicStartMs,monotonicEndMs,index,outcome,signal])=>({sequence,span:{startedAt,endedAt,monotonicStartMs,monotonicEndMs},querySha256:ledger.queryDigests[index],outcome:outcome===0?'success':'failed',signal:signal===1}));
+}
+
+/** Daily-only exact reference to the already hashed full physical request document. */
+export type FleetDailyRequestLedgerReference={kind:'cp26-daily-request-ledger-reference-v1';stream:'transport-attempts';sha256:string;attemptCount:number};
+export function packFleetDailyRequestLedger(requests:import('./freshness-capacity-evidence').RequestAccounting):FleetDailyRequestLedgerReference{
+ const ledger=object(requests);assert(Array.isArray(ledger.attempts)&&ledger.attempts.length<=FLEET_EVIDENCE_LIMITS.maxRows);
+ return{kind:'cp26-daily-request-ledger-reference-v1',stream:'transport-attempts',sha256:capacityDigest(requests),attemptCount:ledger.attempts.length};
+}
+export function resolveFleetDailyRequestLedger(reference:unknown,verifiedDocument:unknown):import('./freshness-capacity-evidence').RequestAccounting{
+ const ref=object(reference);keys(ref,['kind','stream','sha256','attemptCount']);assert.equal(ref.kind,'cp26-daily-request-ledger-reference-v1');assert.equal(ref.stream,'transport-attempts');
+ assert(typeof ref.sha256==='string'&&/^[a-f0-9]{64}$/u.test(ref.sha256));safeInteger(Number(ref.attemptCount));assert(typeof ref.attemptCount==='number'&&ref.attemptCount<=FLEET_EVIDENCE_LIMITS.maxRows);
+ const ledger=object(verifiedDocument);assert(Array.isArray(ledger.attempts)&&ledger.attempts.length<=FLEET_EVIDENCE_LIMITS.maxRows);assert.equal(ledger.attempts.length,ref.attemptCount);assert.equal(capacityDigest(ledger),ref.sha256,'daily request document differs from its complete reference');
+ return ledger as unknown as import('./freshness-capacity-evidence').RequestAccounting;
+}
+
+export type FleetDailyManifestRole='daily-manifest'|'observer-manifest';
+export type FleetDailyManifestReference={kind:'cp26-daily-manifest-reference-v1';role:FleetDailyManifestRole;digest:string;sha256:string};
+export function packFleetDailyManifestReference(role:FleetDailyManifestRole,manifest:{digest:string}):FleetDailyManifestReference{
+ assert(role==='daily-manifest'||role==='observer-manifest');const value=object(manifest);assert(typeof value.digest==='string'&&/^[a-f0-9]{64}$/u.test(value.digest));
+ return{kind:'cp26-daily-manifest-reference-v1',role,digest:value.digest,sha256:capacityDigest(manifest)};
+}
+/** Reconstructs deterministic input only after exact Git/config/source checks; physical evidence is never inferred. */
+export function resolveFleetDailyManifestReference<T extends {digest:string}>(reference:unknown,expectedRole:FleetDailyManifestRole,rebuilt:T):T{
+ const row=object(reference);keys(row,['kind','role','digest','sha256']);assert.equal(row.kind,'cp26-daily-manifest-reference-v1');assert(expectedRole==='daily-manifest'||expectedRole==='observer-manifest');assert.equal(row.role,expectedRole);
+ for(const key of ['digest','sha256'])assert(typeof row[key]==='string'&&/^[a-f0-9]{64}$/u.test(row[key] as string));assert.equal(row.digest,rebuilt.digest,'deterministic manifest identity differs');assert.equal(row.sha256,capacityDigest(rebuilt),'deterministic manifest body differs');return rebuilt;
 }

@@ -22,6 +22,7 @@ import { assertCapacityManifest, capacityDigest, capacityTime, freezeCapacityVal
 import { assertCapacityHttpEndpoint } from './freshness-capacity-evidence';
 import type { CapacityEvidence, HttpAttempt, OriginObservation, ResourceRead, IntakeEvidence, OutageEvidence } from './freshness-capacity-evidence';
 import { assertCapacityRecoveryManifest, type CapacityRecoveryManifest, type RecoveryEndpointAcceptance } from './freshness-capacity-recovery';
+import { assertCapacityDailyManifest, DAILY_CLOCK, type CapacityDailyManifest, type DailyCatalogTurn, type DailyIntakeEvidence, type DailyQueueSnapshot, type DailyAuxiliaryRead, type DailyAuxiliaryEvidence, type DailyCatalogChoice } from './freshness-capacity-daily';
 import type { CapacitySourceResponse } from './freshness-capacity-transport';
 
 /** Existing restricted SELECT privileges only. This never creates or repairs evidence. */
@@ -97,6 +98,98 @@ const requestSql = `/* cp26:read-observer-intake */ SELECT id,username,seasons,t
   FROM public.public_data_dispatches dispatch JOIN public.public_data_dispatch_outcomes dispatch_result USING(worker_id,generation)
   WHERE dispatch.intake_id=request.id AND dispatch.resource IN ('identity','leagues')) AS discovery_dispatches
  FROM public.public_data_intakes request WHERE id=$1::uuid`;
+export const CAPACITY_DAILY_CATALOG_CLAIM_SQL = `/* projection-store:acquire-job */
+        INSERT INTO projection_jobs (
+          job_key, job_type, scheduled_for, state, payload,
+          lease_owner, lease_until, attempt_count, updated_at
+        ) VALUES (
+          $1, $2, $3, 'running', $4::jsonb,
+          $5, now() + ($6 * interval '1 second'), 1, now()
+        )
+        ON CONFLICT (job_key) DO UPDATE SET
+          job_type = EXCLUDED.job_type,
+          scheduled_for = EXCLUDED.scheduled_for,
+          state = 'running',
+          payload = EXCLUDED.payload,
+          lease_owner = EXCLUDED.lease_owner,
+          lease_until = EXCLUDED.lease_until,
+          attempt_count = projection_jobs.attempt_count + 1,
+          last_error = NULL,
+          completed_at = NULL,
+          updated_at = now()
+        WHERE (projection_jobs.state IN ('pending', 'failed')
+            AND EXCLUDED.scheduled_for >= projection_jobs.scheduled_for)
+          OR (projection_jobs.state = 'running' AND projection_jobs.lease_until < now()
+            AND EXCLUDED.scheduled_for >= projection_jobs.scheduled_for)
+          OR (projection_jobs.state = 'completed'
+            AND EXCLUDED.scheduled_for > projection_jobs.scheduled_for
+            AND ($7::integer IS NULL OR projection_jobs.completed_at
+              <= now() - ($7 * interval '1 second')))
+        RETURNING attempt_count, lease_until::text`;
+export const CAPACITY_DAILY_CATALOG_RESERVE_SQL = `/* league-administration:begin-player-directory */
+        SELECT public.begin_player_directory_attempt($1::uuid,$2::jsonb) AS result`;
+/** Passive, closed result observation after the existing database fetch guard. Never reads headers. */
+export function createCapacityDailyCatalogFetch(next: typeof fetch, record: (choice: DailyCatalogChoice) => void,
+  clock: CapacityObserverClock = realClock): typeof fetch {
+  return async (input, init) => {
+    let selected: { kind: 'claim' | 'reserve'; query: string; params: JsonValue[] } | null = null;
+    try {
+      const raw = typeof init?.body === 'string' ? init.body : input instanceof Request ? await input.clone().text() : null;
+      if (raw) { const body = object(JSON.parse(raw));
+        if (Array.isArray(body.params) && body.query === CAPACITY_DAILY_CATALOG_CLAIM_SQL) {
+          const params = body.params; const payload = typeof params[3] === 'string' ? JSON.parse(params[3]) : params[3];
+          if (params.length === 7 && uuid(params[4]) && typeof params[2] === 'string' && Number.isFinite(Date.parse(params[2]))
+            && params[0] === 'league-administration-public-intake' && params[1] === params[0]
+            && Number(params[5]) === 25 && Number(params[6]) === 60
+            && capacityDigest(payload) === capacityDigest({ policy: 'public-player-directory-v1', mode: 'player-directory' }))
+            selected = { kind: 'claim', query: body.query, params: json(params) as JsonValue[] };
+        } else if (Array.isArray(body.params) && body.params.length === 2 && body.query === CAPACITY_DAILY_CATALOG_RESERVE_SQL) {
+          const owner = typeof body.params[1] === 'string' ? JSON.parse(body.params[1]) : body.params[1];
+          assert.deepEqual(Object.keys(object(owner)).sort(), ['deadlineAt','generation','jobKey','workerId']);
+          assert(uuid(body.params[0]) && uuid(owner.workerId) && Number.isSafeInteger(owner.generation) && owner.generation > 0
+            && typeof owner.deadlineAt === 'string' && Number.isFinite(Date.parse(owner.deadlineAt)));
+          if (owner.jobKey === 'league-administration-public-intake') selected = { kind: 'reserve', query: body.query, params: json(body.params) as JsonValue[] };
+        }
+      }
+    } catch { /* Undeclared or malformed SQL is neither copied nor classified by this observer. */ }
+    if (!selected) return next(input,init);
+    const start = { startedAt: capacityTime(clock.wallNow()), monotonicStartedAt: clock.monotonicNow() };
+    let status: DailyCatalogChoice['status'] = 'failed', result: DailyCatalogChoice['response'] = null;
+    try {
+      const response = await next(input,init);
+      if (response.ok) {
+        status = 'unclassified';
+        try { const body = object(await response.clone().json()); assert(Array.isArray(body.fields) && Array.isArray(body.rows));
+          const fields = body.fields.map(value => String(object(value).name));
+          assert.deepEqual(fields, selected.kind === 'claim' ? ['attempt_count','lease_until'] : ['result']);
+          assert(body.rows.length <= 1); const rows = body.rows.map(value => { assert(Array.isArray(value) && value.length === fields.length); return json(value); });
+          result = { fields,rows }; status = 'success';
+        } catch { /* Preserve the original response and let its ordinary decoder decide. */ }
+      }
+      return response;
+    } finally {
+      record(freezeCapacityValue({ kind:selected.kind,querySha256:createHash('sha256').update(selected.query).digest('hex'),params:selected.params,
+        response:result,status,span:{...start,endedAt:capacityTime(clock.wallNow()),monotonicEndedAt:clock.monotonicNow()} }));
+    }
+  };
+}
+export const CAPACITY_DAILY_EMPTY_SQL = `/* cp26:read-daily-empty-origin */ SELECT
+ (SELECT count(*)::integer FROM public.public_data_intakes) AS requests,
+ (SELECT count(*)::integer FROM public.public_data_dispatches) AS dispatches,
+ (SELECT count(*)::integer FROM public.public_data_refresh_targets) AS targets,
+ (SELECT count(*)::integer FROM public.public_data_refresh_cycles) AS cycles,
+ (SELECT count(*)::integer FROM public.league_player_directory_attempts) AS catalog_attempts`;
+export const CAPACITY_DAILY_QUEUE_SQL = `/* cp26:read-observer-daily-queue */ SELECT
+      (SELECT coalesce(jsonb_agg(to_jsonb(request) ORDER BY created_at,id),'[]'::jsonb) FROM public.public_data_intakes request WHERE resource_occurrence_id IS NULL) AS requests,
+      (SELECT coalesce(jsonb_agg(to_jsonb(cycle) ORDER BY target_id,cycle),'[]'::jsonb) FROM public.public_data_refresh_cycles cycle) AS cycles,
+      (SELECT coalesce(jsonb_agg(jsonb_build_object('target',to_jsonb(target),'configuration',to_jsonb(configuration)) ORDER BY target.id),'[]'::jsonb)
+        FROM public.public_data_refresh_targets target JOIN public.public_data_refresh_configurations configuration
+        ON configuration.target_id=target.id AND configuration.revision=target.configuration_revision) AS configurations,
+      (SELECT coalesce(jsonb_agg(to_jsonb(outcome) ORDER BY target_id,cycle),'[]'::jsonb) FROM public.public_data_refresh_cycle_outcomes outcome) AS outcomes`;
+export const CAPACITY_DAILY_INTAKE_SQL = `/* cp26:read-observer-daily-intake */ SELECT to_jsonb(request) AS request,to_jsonb(cycle) AS cycle
+        FROM public.public_data_intakes request LEFT JOIN public.public_data_refresh_cycles cycle ON cycle.intake_id=request.id
+        WHERE request.id=$1::uuid AND request.resource_occurrence_id IS NULL`;
+export const CAPACITY_INTAKE_REQUEST_SQL = requestSql;
 export type CapacityObserverClock = { wallNow(): number; monotonicNow(): number };
 export type CapacityObserverTransportJournal = { owner: string; coverageStartedAt: number; coverageEndedAt: number;
   attempts: readonly HttpAttempt[]; responses: readonly CapacitySourceResponse[]; rejectedRequests?: readonly unknown[] };
@@ -302,12 +395,43 @@ export function assertCapacityInitialStoredRequest(row: Record<string, unknown>,
 const realClock: CapacityObserverClock = { wallNow: Date.now, monotonicNow: () => performance.now() };
 
 /** Read-only composition for the existing lifecycle owner. There is no acquisition loop or SQL writer here. */
+/** Native roster identities must establish non-vacuous canonical deduplication. */
+export function assertCapacityAuxiliaryTeams(nativeRosterIds: readonly string[], read: unknown) {
+  const roster = object(read); assert.equal(roster.status, 'available'); assert(Array.isArray(roster.teams));
+  const teams = roster.teams.map(object); assert.equal(teams.length, 12); assert.equal(nativeRosterIds.length, 12);
+  assert.deepEqual(teams.map(row => String(row.externalRosterId)).sort(), [...nativeRosterIds].sort());
+  const ids = teams.map(row => uuid(row.seasonTeamId)); assert.equal(new Set(ids).size, 12);
+  teams.forEach(row => assert.deepEqual(row.players, []));
+  return teams.map(row => ({ native: String(row.externalRosterId), id: uuid(row.seasonTeamId) }))
+    .sort((a,b) => a.native.localeCompare(b.native));
+}
+export function capacityAuxiliaryReadOptions(label: 'a' | 'b', afterOrdinal = 0) {
+  assert(Number.isSafeInteger(afterOrdinal) && afterOrdinal >= 0);
+  return { managerEvidenceVersion: 'v2' as const, ...(label === 'a' ? { draftPicksPage: { afterOrdinal, limit: 20 } } : {}) };
+}
+export function assertCapacityAuxiliaryScope(row: unknown, username: string, drafts: boolean) {
+  const stored = object(row); assert.equal(stored.terminal, true); assert.equal(stored.username, username);
+  assert.equal(capacityDigest(stored.seasons), capacityDigest([2026]));
+  assert.equal(stored.draft_picks, drafts ? 'sleeper-2026-draft-picks-v1' : null);
+  for (const key of ['period_inventory','transaction_history','transaction_period','playoff_brackets','submission_capacity','resource_occurrence_id']) assert.equal(stored[key], null);
+  for (const key of ['exact_periods','weekly_reports']) assert.deepEqual(stored[key], []);
+}
 export function createCapacityObserver(manifest: CapacityManifest, options: {
   database: DatabaseClient; startedAt: number; journals(): readonly CapacityObserverTransportJournal[]; clock?: CapacityObserverClock;
-  recovery?: CapacityRecoveryManifest;
+  recovery?: CapacityRecoveryManifest; daily?: CapacityDailyManifest;
 }) {
   assertCapacityManifest(manifest); assert.equal(options.database.enabled, true);
-  const clock = options.clock ?? realClock, startedAt = capacityTime(options.startedAt), recovery = options.recovery;
+  const clock = options.clock ?? realClock, setupStartedAt = capacityTime(options.startedAt), daily = options.daily, recovery = options.recovery ?? daily?.bindingPlan;
+  let startedAt = setupStartedAt, dailyWindowStarted = false;
+  assert(!(options.recovery && daily), 'distinct measurement lanes required');
+  if (daily) assertCapacityDailyManifest(daily);
+  const endpointInventory = daily ? daily.endpoints.map(({ before, after, ...row }) => ({ ...row, versions: [before, after].map(value => ({ ...value, eventIds: [], publication: { kind: 'initial' as const } })) })) : manifest.source.endpointInventory;
+  let publicationAt = startedAt + (daily?.clock.publicationOffsetMs ?? recovery?.clock.outageEndMs ?? 0);
+  let auxiliaryEvidence: DailyAuxiliaryEvidence | null = null, dailyInitialState: JsonValue = null;
+  const auxiliarySubmissions = new Map<string, { label: 'a' | 'b'; requestId: string; submittedAt: number; receiptAt: number; receipt: JsonValue }>();
+  let activeDailyTurn: DailyCatalogTurn | null = null;
+  const dailyTurns: DailyCatalogTurn[] = [], dailyIntakes = new Map<string, DailyIntakeEvidence>(), dailyQueue: DailyQueueSnapshot[] = [];
+  const dailyBoundaries: { scheduledAt: number; startedAt: number; endedAt: number; proofIds: string[] }[] = [];
   if (recovery) { assertCapacityRecoveryManifest(recovery); assert.equal(recovery.source.observerManifestDigest, manifest.digest); }
   const recoverySubmissions = new Map<string, { id: string; requestId: string; plannedAt: number; dispatchedAt: number; receiptAt: number | null; receipt: PublicIntakeSubmissionReceipt | null; completedAt: number | null; completeProof: JsonValue }>();
   const recoveryHeads = { initial: new Map<string, BoundRead>(), before: new Map<string, BoundRead>(), during: new Map<string, BoundRead>(), recovered: new Map<string, BoundRead>() };
@@ -464,7 +588,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     });
     assert.equal(candidates.length, 1, 'receipt needs one unambiguous physical source response');
     const response = candidates[0], physical = attemptIndex.get(response.attemptId)!;
-    const endpoint = manifest.source.endpointInventory.find(row => row.id === response.endpointId);
+    const endpoint = endpointInventory.find(row => row.id === response.endpointId);
     assert(endpoint && endpoint.method === physical.method && new URL(endpoint.url).pathname === physical.path
       && endpoint.resource === resource && endpoint.scope.nativeLeagueId === native.nativeLeagueId, 'wrong frozen endpoint');
     const invocationsForCapture = invocations.filter(invocation => invocation.owner === physical.owner
@@ -486,7 +610,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
       const available = anchor === undefined ? null : manifest.plan.events.filter(event => event.pairId === pairId
         && anchor + event.offsetMs <= response.requestStartedAt).at(-1);
       const recoveryPair = recovery?.pairs.find(row => row.pairId === pairId);
-      const published = recoveryPair ? response.requestStartedAt < startedAt + recovery!.clock.outageEndMs ? recoveryPair.before : recoveryPair.after
+      const published = recoveryPair ? response.requestStartedAt < publicationAt ? recoveryPair.before : recoveryPair.after
         : available ? manifest.events.find(event => event.id === available.id)!.after
           : manifest.events.find(event => event.id === manifest.plan.events.find(event => event.pairId === pairId)!.id)!.before;
       assert.equal(response.version, published.version, 'source version unavailable at request start');
@@ -871,7 +995,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
   }
   function assertDiscovery(row: Record<string, unknown>, nativeIds: readonly string[]) {
     const identity = object(row.identity), identityPayload = object(identity.payload);
-    const endpoint = manifest.source.endpointInventory.find(endpoint => endpoint.resource === 'identity'
+    const endpoint = endpointInventory.find(endpoint => endpoint.resource === 'identity'
       && new URL(endpoint.url).pathname === `/v1/user/${row.username}`); assert(endpoint);
     assert.equal(identityPayload.user_id, endpoint.scope.nativeManagerId);
     const lists = row.lists; assert(Array.isArray(lists) && lists.length === 1);
@@ -885,11 +1009,11 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
         && capacityDigest(JSON.parse(response.rawUtf8)) === capacityDigest(stored.payload));
       assert.equal(responses.length, 1, 'unbound discovery response');
       const response = responses[0], physical = attemptIndex.get(response.attemptId); assert(physical?.outcome === 'success');
-      const declared = manifest.source.endpointInventory.find(item => item.id === response.endpointId);
+      const declared = endpointInventory.find(item => item.id === response.endpointId);
       assert(declared && declared.resource === resource && declared.method === physical.method
         && new URL(declared.url).pathname === physical.path && declared.scope.nativeManagerId === identityPayload.user_id);
-      const recoveryEndpoint = recovery?.endpoints.find(row => row.id === declared.id);
-      const sourceVersion = recoveryEndpoint ? response.requestStartedAt < startedAt + recovery!.clock.outageEndMs ? recoveryEndpoint.before : recoveryEndpoint.after : declared.versions[0];
+      const recoveryEndpoint = (daily?.endpoints ?? recovery?.endpoints)?.find(row => row.id === declared.id);
+      const sourceVersion = recoveryEndpoint ? response.requestStartedAt < publicationAt ? recoveryEndpoint.before : recoveryEndpoint.after : declared.versions[0];
       assert.equal(sourceVersion.sha256, response.rawSha256);
       const acquisitions: Record<string, unknown>[] = row.discovery_dispatches.map(value => object(value)).filter(item => object(item.dispatch).resource === (resource === 'identity' ? 'identity' : 'leagues')
         && object(item.outcome).outcome === 'checkpoint-committed');
@@ -918,13 +1042,13 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     return `${entry.externalLeagueId}/${value.kind}/${entry.externalDraftId ?? '-'}`;
   }
   function draftPayload(endpoint: CapacityManifest['source']['endpointInventory'][number], at: number): JsonValue {
-    const bound = recovery?.endpoints.find(row => row.id === endpoint.id);
-    return JSON.parse(bound ? (at < startedAt + recovery!.clock.outageEndMs ? bound.before : bound.after).utf8 : endpoint.versions[0].utf8);
+    const bound = (daily?.endpoints ?? recovery?.endpoints)?.find(row => row.id === endpoint.id);
+    return JSON.parse(bound ? (at < publicationAt ? bound.before : bound.after).utf8 : endpoint.versions[0].utf8);
   }
   function assertDraftValue(entry: Record<string, unknown>) {
     const resource = object(entry.resource), value = object(resource.value), nativeId = String(entry.externalLeagueId);
-    const native = manifest.source.leagues.find(row => row.nativeLeagueId === nativeId); assert(native);
-    const endpoints = manifest.source.endpointInventory.filter(row => row.scope.nativeLeagueId === nativeId);
+    assert(manifest.source.leagues.some(row => row.nativeLeagueId === nativeId) || daily?.auxiliary.admittedNativeLeagueId === nativeId);
+    const endpoints = endpointInventory.filter(row => row.scope.nativeLeagueId === nativeId);
     const at = recovery ? timestamp(object(resource.provenance).requestStartedAt) : 0;
     const catalog = draftPayload(endpoints.find(row => row.resource === 'draft-catalog')!, at) as Record<string, JsonValue>[];
     const draft = catalog.find(row => row.draft_id === entry.externalDraftId);
@@ -997,10 +1121,10 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
         assert.equal(object(proof.content).external_league_id, candidate.external_league_id); assert.equal(object(proof.dispatch).intake_id, requestId); capacityStoredReceiptNormalization(proof); }
       assert(proofs.directories.some(row => object(row.capture).id === candidate.users_capture_id), 'original directory capture absent');
     }
-    const identityEndpoint = manifest.source.endpointInventory.find(row => row.resource === 'identity' && new URL(row.url).pathname === '/v1/user/' + stored[0].username); assert(identityEndpoint);
+    const identityEndpoint = endpointInventory.find(row => row.resource === 'identity' && new URL(row.url).pathname === '/v1/user/' + stored[0].username); assert(identityEndpoint);
     const initialPlan = proofScope === 'initial' ? recovery!.initialRequests.find(row => row.username === stored[0].username) : undefined;
     if (proofScope === 'initial') { assert(initialPlan); assert.equal(capacityDigest([...initialPlan.nativeLeagueIds].sort()), capacityDigest([...nativeIds].sort())); }
-    const expectedEndpoints = initialPlan ? [...initialPlan.endpointIds].sort() : manifest.source.endpointInventory.filter(row => nativeIds.includes(row.scope.nativeLeagueId ?? '')
+    const expectedEndpoints = initialPlan ? [...initialPlan.endpointIds].sort() : endpointInventory.filter(row => nativeIds.includes(row.scope.nativeLeagueId ?? '')
       || row.id === identityEndpoint.id || row.resource === 'league-list' && row.scope.nativeManagerId === identityEndpoint.scope.nativeManagerId).map(row => row.id).sort();
     const completedEndpoints = [...endpointAcceptances.values()].filter(row => row.requestId === requestId).map(row => row.endpointId).sort();
     assert.equal(capacityDigest(completedEndpoints), capacityDigest(expectedEndpoints), 'full immutable endpoint inventory absent');
@@ -1010,7 +1134,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     const cursors = { periods: 0 as number | null, transactions: 0 as number | null, drafts: 0 as number | null };
     const expectedPeriods = nativeIds.flatMap(id => (proofScope === 'initial' ? [7] : Array.from({ length: 18 }, (_, i) => i + 1)).map(week => `${id}/${week}`)).sort();
     const draftProofs: ReturnType<typeof assertDraftValue>[] = [];
-    const expectedDrafts = proofScope === 'initial' ? [] : manifest.source.endpointInventory.filter(row => nativeIds.includes(row.scope.nativeLeagueId ?? '')
+    const expectedDrafts = proofScope === 'initial' ? [] : endpointInventory.filter(row => nativeIds.includes(row.scope.nativeLeagueId ?? '')
       && ['draft-catalog', 'draft-detail', 'draft-selections', 'draft-trades', 'league-trades'].includes(row.resource)).map(row => {
         const kind = ({ 'draft-catalog': 'catalog', 'draft-detail': 'detail', 'draft-selections': 'selections', 'draft-trades': 'draft', 'league-trades': 'league' } as Record<string, string>)[row.resource];
         return `${row.scope.nativeLeagueId}/${kind}/${row.scope.nativeDraftId ?? '-'}`; }).sort();
@@ -1162,13 +1286,13 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
   }
 
   function retainEndpoint(proof: RecoveryEndpointAcceptance, start: ReturnType<typeof begin>, record: unknown) {
-    const endpoint = manifest.source.endpointInventory.find(row => row.id === proof.endpointId); assert(endpoint);
-    const recoveryEndpoint = recovery?.endpoints.find(row => row.id === proof.endpointId);
+    const endpoint = endpointInventory.find(row => row.id === proof.endpointId); assert(endpoint);
+    const recoveryEndpoint = (daily?.endpoints ?? recovery?.endpoints)?.find(row => row.id === proof.endpointId);
     const versions = recoveryEndpoint ? [recoveryEndpoint.before, recoveryEndpoint.after] : endpoint.versions;
     assert(versions.some(row => row.sha256 === proof.payloadSha256 && row.version === proof.version), 'unbound immutable endpoint value');
     assert(proof.sourceObservedAt <= proof.readAt);
     if (proof.acceptedAt !== null) assert(proof.acceptedAt >= proof.sourceObservedAt && proof.acceptedAt <= proof.readAt);
-    const key = `${proof.requestId ?? 'shared'}/${proof.endpointId}`;
+    const key = `${proof.requestId ?? 'shared'}/${proof.endpointId}${daily && proof.requestId === null ? '/' + proof.proofId : ''}`;
     const recordKey = `${key}/${proof.proofId}`;
     if (!endpointProofs.has(recordKey)) endpointProofs.set(recordKey, freezeCapacityValue({ proofId: proof.proofId, kind: proof.kind,
       endpointId: proof.endpointId, requestId: proof.requestId, attemptId: proof.attemptId, readSpan: end(start), record: json(record) }));
@@ -1188,10 +1312,10 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     const candidates = [...responseIndex.values()].filter(response => response.resource === resource
       && response.nativeLeagueId === content.external_league_id && startAt <= response.requestStartedAt && response.responseCompletedAt <= endAt
       && (['matchups','transactions','weekly_report'].includes(family) ? response.nativeWeek === Number(content.week) : true)
-      && (!draft?.externalDraftId || manifest.source.endpointInventory.find(item => item.id === response.endpointId)?.scope.nativeDraftId === draft.externalDraftId)
+      && (!draft?.externalDraftId || endpointInventory.find(item => item.id === response.endpointId)?.scope.nativeDraftId === draft.externalDraftId)
       && capacityDigest(JSON.parse(response.rawUtf8)) === capacityDigest(nativePayload));
     assert.equal(candidates.length, 1, 'endpoint receipt needs one unambiguous source response');
-    const response = candidates[0], attempt = attemptIndex.get(response.attemptId), endpoint = manifest.source.endpointInventory.find(row => row.id === response.endpointId);
+    const response = candidates[0], attempt = attemptIndex.get(response.attemptId), endpoint = endpointInventory.find(row => row.id === response.endpointId);
     assert(attempt?.outcome === 'success' && endpoint && attempt.origin + attempt.path === endpoint.url && attempt.method === endpoint.method);
     assert.equal(response.rawSha256, attempt.responseSha256); return response;
   }
@@ -1201,8 +1325,12 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
       && endAt <= (row.span.endedAt ?? clock.wallNow()) && timestamp(fence.deadlineAt) === row.span.startedAt + 20_000).length, 1);
   }
   async function proveIntakeEndpoints(requestId: string, nativeIds: readonly string[], signal: AbortSignal) {
-    const start = begin();
-      journal(); const rows = await options.database.query(CAPACITY_ENDPOINT_RECEIPTS_SQL, [requestId], { signal }); assert(rows.length <= 2500);
+    const start = begin(), queries: JsonValue[] = [];
+    const query: DatabaseClient['query'] = (async (sql: string, params: readonly unknown[] = [], queryOptions?: Parameters<DatabaseClient['query']>[2]) => {
+      const at = begin(), rows = await options.database.query(sql, params, queryOptions);
+      queries.push(json({ sql, params, rows, span: end(at) })); return rows;
+    }) as DatabaseClient['query'];
+      journal(); const rows = await query(CAPACITY_ENDPOINT_RECEIPTS_SQL, [requestId], { signal }); assert(rows.length <= 2500);
       for (const row of rows) {
         const receipt = object(row.receipt), acceptance = object(row.acceptance), attempt = object(row.attempt), content = object(row.content), dispatch = object(row.dispatch);
         const provenance = object(receipt.provenance), captureStart = timestamp(provenance.requestStartedAt), captureEnd = timestamp(provenance.requestCompletedAt);
@@ -1224,7 +1352,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
           sourceObservedAt: captureEnd, acceptedAt: timestamp(acceptance.accepted_at), readAt: capacityTime(clock.wallNow()),
           payloadSha256: response.rawSha256, version: response.version }, start, row);
       }
-      const directories = await options.database.query(CAPACITY_ENDPOINT_DIRECTORIES_SQL, [requestId], { signal });
+      const directories = await query(CAPACITY_ENDPOINT_DIRECTORIES_SQL, [requestId], { signal });
       for (const row of directories) {
         const capture = object(row.capture), content = object(row.content), dispatch = object(row.dispatch), outcome = object(row.outcome);
         const captureStart = timestamp(capture.request_started_at), captureEnd = timestamp(capture.request_completed_at);
@@ -1239,10 +1367,10 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
           sourceObservedAt: captureEnd, acceptedAt: timestamp(capture.recorded_at), readAt: capacityTime(clock.wallNow()), payloadSha256: response.rawSha256,
           version: response.version }, start, row);
       }
-      const requests = await options.database.query(requestSql, [requestId], { signal }); assert.equal(requests.length, 1);
+      const requests = await query(requestSql, [requestId], { signal }); assert.equal(requests.length, 1);
       assertDiscovery(requests[0], nativeIds);
       operations.push({ operation: 'intake-endpoints/' + requestId, span: end(start), outcome: json({ retained: [...endpointAcceptances.values()].filter(row => row.requestId === requestId).length }) });
-      return { rows, directories, request: requests[0] };
+      return { rows, directories, request: requests[0], span: end(start), queries };
   }
   async function observeRecoveryEndpoints(requestId: string) {
     assert(recovery); const submission = recovery.submissions.find(row => row.input.id === requestId); assert(submission);
@@ -1289,7 +1417,7 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     const start = begin(), proof = await bounded('recovery-queued-intake/' + requestId, async signal => {
       const rows = await options.database.query(requestSql, [uuid(requestId)], { signal }); assert.equal(rows.length, 1);
       const declared = recovery.submissions.find(row => row.username === rows[0].username
-        || manifest.source.endpointInventory.some(endpoint => endpoint.id === 'identity-native:' + row.id.slice(7)
+        || endpointInventory.some(endpoint => endpoint.id === 'identity-native:' + row.id.slice(7)
           && endpoint.scope.nativeManagerId === rows[0].username)); assert(declared);
       const initial = [...recoverySubmissions.values()].some(row => row.id.startsWith('initial-') && row.requestId === requestId);
       return completeIntake(requestId, declared.nativeLeagueIds, signal, initial ? 'initial' : 'full');
@@ -1400,6 +1528,189 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
     operations.push({ operation: 'recovery-intake/' + id, span, outcome: json(proof) });
     return freezeCapacityValue({ ...recoverySubmissions.get(id)! });
   }
+  async function observeDailyAuxiliarySubmission(label: 'a' | 'b', requestId: string, submit: () => Promise<PublicIntakeSubmissionReceipt>) {
+    assert(daily && !dailyWindowStarted && !auxiliarySubmissions.has(label)); uuid(requestId);
+    if (label === 'a') {
+      assert.equal(auxiliarySubmissions.size, 0); const at = begin(), rows = await options.database.query(CAPACITY_DAILY_EMPTY_SQL, []);
+      assert.equal(rows.length, 1); assert.deepEqual(rows[0], { requests: 0, dispatches: 0, targets: 0, cycles: 0, catalog_attempts: 0 });
+      dailyInitialState = freezeCapacityValue(json({ sql: CAPACITY_DAILY_EMPTY_SQL, params: [], rows, span: end(at) }));
+    } else assert(dailyInitialState !== null);
+    const start = begin(), receipt = await submit(), span = end(start);
+    operations.push({ operation: 'daily-auxiliary-submission/' + label, span, outcome: json(receipt) });
+    assert.equal(receipt.status, 'retained'); assert.equal(receipt.requestId, requestId);
+    assert(span.endedAt - span.startedAt <= 2000);
+    auxiliarySubmissions.set(label, { label, requestId, submittedAt: span.startedAt, receiptAt: span.endedAt, receipt: json(receipt) });
+  }
+  async function observeDailyAuxiliaryIntake(label: 'a' | 'b'): Promise<DailyAuxiliaryRead | null> {
+    assert(daily && !dailyWindowStarted); const submission = auxiliarySubmissions.get(label); assert(submission);
+    const planned = daily.auxiliary.users.find(row => row.label === label)!, requestId = submission.requestId, start = begin();
+    return bounded('daily-auxiliary-intake/' + label, async signal => {
+      const queries: JsonValue[] = [];
+      const database: DatabaseClient = { enabled: true, query: (async (sql: string, params: readonly unknown[] = [], queryOptions?: Parameters<DatabaseClient['query']>[2]) => {
+        const queryStart = begin(), rows = await options.database.query(sql, params, { ...queryOptions, signal });
+        queries.push(json({ sql, params, rows, span: end(queryStart) })); return rows;
+      }) as DatabaseClient['query'] };
+      const requestRows = await database.query(requestSql, [requestId]); assert.equal(requestRows.length, 1);
+      const request = requestRows[0], stored = object(request.stored_request);
+      assertCapacityAuxiliaryScope(stored, planned.username, label === 'a');
+      const original = await proveIntakeEndpoints(requestId, planned.nativeLeagueIds, signal);
+      const candidates = await database.query(CAPACITY_INTAKE_CANDIDATES_SQL, [requestId]);
+      assert.equal(candidates.length, planned.nativeLeagueIds.length);
+      assert.deepEqual(candidates.map(row => String(object(row.candidate).external_league_id)).sort(), [...planned.nativeLeagueIds].sort());
+      for (const row of candidates) {
+        const candidate = object(row.candidate), admitted: boolean = candidate.external_league_id === daily.auxiliary.admittedNativeLeagueId;
+        assert.equal(candidate.stage, admitted ? 'complete' : 'capacity');
+        if (!admitted) assert.equal(candidate.league_season_id, null);
+      }
+      const store = createLeagueAdministrationStore(database), mapping = await store.readSourceMapping(daily.auxiliary.admittedNativeLeagueId); assert(mapping);
+      const read = await readPublicSleeperIntake(database, store, requestId,
+        capacityAuxiliaryReadOptions(label));
+      const value = object(read), additionalPages: JsonValue[] = [];
+      if (label === 'a') {
+        let page: Record<string, unknown> = value, cursor = 0;
+        for (let ordinal = 1; ; ordinal++) {
+          const next = object(object(page.draftPicks).page).nextAfterOrdinal;
+          if (next === null) break;
+          assert(ordinal < 3 && Number.isSafeInteger(next) && Number(next) > cursor, 'auxiliary draft page did not advance'); cursor = Number(next);
+          const subsequent = await readPublicSleeperIntake(database, store, requestId, capacityAuxiliaryReadOptions(label, cursor));
+          page = object(subsequent); additionalPages.push(json(subsequent));
+        }
+      }
+      assert(['partial','available'].includes(String(value.status))); assert(Array.isArray(value.leagues));
+      const admitted = value.leagues.map(object).filter(row => row.externalLeagueId === daily.auxiliary.admittedNativeLeagueId); assert.equal(admitted.length, 1);
+      assert.equal(admitted[0].collection, 'complete'); const resources = object(admitted[0].resources), currentReadProofIds: string[] = [];
+      for (const kind of ['settings','teamManagers','heldRoster'] as const) currentReadProofIds.push(await proveCurrentCore(requestId,
+        daily.auxiliary.admittedNativeLeagueId, kind, capacityCurrentIntakeResource(resources[kind]), signal));
+      assertCapacityAuxiliaryTeams(daily.auxiliary.nativeRosterIds, capacityCurrentIntakeResource(resources.heldRoster));
+      const managers = capacityCurrentIntakeResource(resources.teamManagers); assert(Array.isArray(managers.teams));
+      for (const team of managers.teams.map(object)) assert.equal(object(team.primaryOwner).state, 'unowned');
+      const candidate = object(candidates.find(row => object(row.candidate).external_league_id === daily.auxiliary.admittedNativeLeagueId)!.candidate);
+      const retainedRoster = await store.readRosterPlayerLinks({ rosterReceiptId: uuid(candidate.players_receipt_id), leagueSeasonId: mapping.leagueSeasonId });
+      assert.equal(retainedRoster.status, 'available');
+      const originals = original.rows.filter(row => object(row.content).external_league_id === daily.auxiliary.admittedNativeLeagueId);
+      assert(originals.length >= 3); originals.forEach(row => capacityStoredReceiptNormalization(row));
+      if (label === 'a') {
+        const allDrafts = [value,...additionalPages.map(object)].flatMap(page => { assert(Array.isArray(page.drafts)); return page.drafts.map(object); });
+        assert.equal(allDrafts.length, 43); assert.equal(new Set(allDrafts.map(row => row.ordinal)).size, 43);
+        const admittedDrafts = allDrafts.filter(row => row.externalLeagueId === daily.auxiliary.admittedNativeLeagueId);
+        for (const row of allDrafts.filter(row => row.externalLeagueId !== daily.auxiliary.admittedNativeLeagueId)) {
+          assert.equal(row.collection, 'unavailable'); assert.equal(row.reason, 'bootstrap-capacity');
+        }
+        assert.equal(admittedDrafts.length, 5); admittedDrafts.forEach(row => { assert.equal(row.collection, 'complete'); assertDraftValue(row); });
+      } else assert.equal(value.drafts, undefined);
+      const proof: DailyAuxiliaryRead = { requestId, span: end(start), request: json(request), candidates: json(candidates) as JsonValue[],
+        mapping: json(mapping), read: json(read), additionalPages, queries, currentReadProofIds, retainedRoster: json(retainedRoster),
+        immutableReceiptRead: json({ span: original.span, rows: original.rows, directories: original.directories, queries: original.queries }),
+        immutableProofIds: [...new Set([...endpointProofs.values()].filter(row => row.requestId === requestId).map(row => row.proofId))],
+        completedEndpointIds: [...endpointAcceptances.values()].filter(row => row.requestId === requestId).map(row => row.endpointId) };
+      operations.push({ operation: 'daily-auxiliary-read/' + label, span: proof.span, outcome: json({ requestId, digest: capacityDigest(proof) }) });
+      return freezeCapacityValue(proof);
+    }, start.startedAt + manifest.plan.sampleTimeoutMs);
+  }
+  async function beginDailyWindow(completed: readonly { label: 'a' | 'b'; proof: DailyAuxiliaryRead }[]) {
+    assert(daily && !dailyWindowStarted && recoverySubmissions.size === 0 && dailyTurns.length === 0);
+    assert.equal(completed.length, 2); const a = await observeDailyAuxiliaryIntake('a'), b = await observeDailyAuxiliaryIntake('b'); assert(a && b);
+    const am = object(a.mapping), bm = object(b.mapping); for (const key of ['connectionId','leagueSeasonId','revisionId']) assert.equal(am[key], bm[key]);
+    const teams = (proof: DailyAuxiliaryRead) => { const row = (object(proof.read).leagues as unknown[]).map(object).find(row => row.externalLeagueId === daily.auxiliary.admittedNativeLeagueId)!;
+      return assertCapacityAuxiliaryTeams(daily.auxiliary.nativeRosterIds, capacityCurrentIntakeResource(object(row.resources).heldRoster)); };
+    assert.equal(capacityDigest(teams(a)), capacityDigest(teams(b)));
+    const queue = await observeDailyQueue(); assert.equal(queue.configurations.length, 0); assert.equal(queue.cycles.length, 0);
+    assert.equal(queue.requests.length, 2); assert(queue.requests.every(value => object(value).terminal === true && [...auxiliarySubmissions.values()].some(row => row.requestId === object(value).id)));
+    const requests = completed.map(({ label, proof }) => { const submission = auxiliarySubmissions.get(label); assert(submission && proof.requestId === submission.requestId);
+      return { ...submission, completedAt: proof.span.endedAt, proof }; });
+    assert.equal(new Set(requests.map(row => row.label)).size, 2);
+    auxiliaryEvidence = freezeCapacityValue({ startedAt: setupStartedAt, endedAt: capacityTime(clock.wallNow()), initialState: dailyInitialState, requests, overlap: { a,b }, queueDigest: capacityDigest(queue) });
+    startedAt = capacityTime(clock.wallNow()); publicationAt = startedAt + daily.clock.publicationOffsetMs; dailyWindowStarted = true;
+    operations.push({ operation: 'daily-window-start', span: end(begin()), outcome: json({ startedAt, setupStartedAt, auxiliaryDigest: capacityDigest(auxiliaryEvidence) }) }); return startedAt;
+  }
+  function recordDailyCatalogChoice(choice: DailyCatalogChoice) {
+    if (daily && activeDailyTurn) activeDailyTurn.catalogChoices.push(choice);
+    else operations.push({ operation: 'orphan-daily-catalog-choice', span: choice.span, outcome: json(choice) });
+  }
+  async function observeDailyTurn(ordinal: number, run: () => Promise<unknown>, missed = false) {
+    assert(daily && dailyWindowStarted); assert(Number.isSafeInteger(ordinal) && ordinal >= 0 && ordinal < DAILY_CLOCK.observationMs / 60_000);
+    assert(!dailyTurns.some(row => row.ordinal === ordinal), 'daily turn cannot be replaced');
+    const start = begin(), scheduledAt = startedAt + ordinal * 60_000, before = new Set(journal().requests.attempts.map(row => row.id));
+    const row: DailyCatalogTurn = { ordinal, scheduledAt, startedAt: start.startedAt, endedAt: start.startedAt,
+      state: missed ? 'missed' : 'invoked', catalogChoices: [], read: null, invocationOutcome: null, invocationFailed: null, lastAttemptId: null, retryAt: null, attemptIds: [] };
+    dailyTurns.push(row); const queries: JsonValue[] = [];
+    if (missed) { row.endedAt = end(start).endedAt; return; }
+    try {
+      const database: DatabaseClient = { enabled: true, query: (async (sql: string, params: readonly unknown[] = [], queryOptions?: Parameters<DatabaseClient['query']>[2]) => {
+        const queryStart = begin(), rows = await options.database.query(sql, params, queryOptions);
+        queries.push(json({ sql, params, rows, span: end(queryStart) })); return rows;
+      }) as DatabaseClient['query'] };
+      const read = await createLeagueAdministrationStore(database).readAcceptedPlayerDirectory({ limit: 1 });
+      row.read = json({ value: read, queries });
+      assert(read.status === 'available' || read.status === 'missing'); assert(read.latestAttempt !== undefined);
+      if (read.latestAttempt) { row.lastAttemptId = read.latestAttempt.attemptId; row.retryAt = timestamp(read.latestAttempt.retryAt);
+        assert.equal(row.retryAt - timestamp(read.latestAttempt.reservedAt), DAILY_CLOCK.catalogGuardMs); }
+    } catch { row.state = 'read-failed'; row.read = json({ queries }); }
+    activeDailyTurn = row;
+    try { row.invocationOutcome = json(await run()); row.invocationFailed = false; }
+    catch (error) { row.invocationFailed = true; throw error; }
+    finally {
+      activeDailyTurn = null; row.endedAt = end(start).endedAt;
+      row.attemptIds = journal().requests.attempts.filter(attempt => !before.has(attempt.id) && attempt.owner === 'data-refresh'
+        && attempt.method === 'GET' && attempt.path === '/v1/players/nfl').map(attempt => attempt.id);
+      operations.push({ operation: 'daily-turn/' + ordinal, span: end(start), outcome: json({ state: row.state, attemptIds: row.attemptIds, invocationOutcome: row.invocationOutcome, invocationFailed: row.invocationFailed, catalogChoices: row.catalogChoices }) });
+    }
+    if (row.attemptIds.some(id => attemptIndex.get(id)?.outcome === 'success')) await observeRecoveryPlayerDirectory();
+  }
+  async function observeDailyQueue() {
+    assert(daily); const start = begin();
+    const rows = await options.database.query(CAPACITY_DAILY_QUEUE_SQL);
+    assert.equal(rows.length, 1); const value = rows[0];
+    for (const key of ['requests','cycles','configurations','outcomes']) assert(Array.isArray(value[key]));
+    const body = { requests: json(value.requests) as JsonValue[], cycles: json(value.cycles) as JsonValue[],
+      configurations: json(value.configurations) as JsonValue[], outcomes: json(value.outcomes) as JsonValue[] };
+    const digest = capacityDigest(body), previous = dailyQueue.at(-1);
+    if (!previous || capacityDigest({ requests: previous.requests, cycles: previous.cycles, configurations: previous.configurations, outcomes: previous.outcomes }) !== digest)
+      dailyQueue.push(freezeCapacityValue({ at: end(start).endedAt, ...body }));
+    operations.push({ operation: 'daily-queue', span: end(start), outcome: json({ digest, querySha256: createHash('sha256').update(CAPACITY_DAILY_QUEUE_SQL).digest('hex'), params: [] }) }); return body;
+  }
+  async function observeDailyIntake(requestId: string) {
+    assert(daily); if (dailyIntakes.has(requestId)) return dailyIntakes.get(requestId)!;
+    const start = begin();
+    const result = await bounded('daily-intake/' + requestId, async signal => {
+      const rows = await options.database.query(CAPACITY_DAILY_INTAKE_SQL, [uuid(requestId)], { signal });
+      assert.equal(rows.length, 1); const request = object(rows[0].request); assert.equal(request.terminal, true);
+      const original = [...recoverySubmissions.values()].find(row => row.id.startsWith('initial-') && row.requestId === requestId);
+      const planned = daily.targets.find(row => (original ? row.username : row.nativeUsername) === request.username); assert(planned);
+      const initial = daily.initialRequests.find(row => row.cohort === planned.cohort)!;
+      const proof = await completeIntake(requestId, initial.nativeLeagueIds, signal, original ? 'initial' : 'full');
+      const cycle = original ? null : object(rows[0].cycle); if (cycle) assert(cycle.cycle === 1 || cycle.cycle === 2);
+      operations.push({ operation: 'daily-intake-binding/' + requestId, span: end(start), outcome: json({ ...rows[0], querySha256: createHash('sha256').update(CAPACITY_DAILY_INTAKE_SQL).digest('hex'), params: [requestId] }) });
+      return { requestId, cohort: planned.cohort, kind: original ? 'initial' as const : 'cycle' as const,
+        cycle: cycle ? Number(cycle.cycle) : null, targetId: cycle ? uuid(cycle.target_id) : null,
+        createdAt: timestamp(request.created_at), dueAt: cycle ? timestamp(cycle.due_at) : null,
+        completedAt: end(start).endedAt, proof: proof as import('./freshness-capacity-recovery').RecoveryIntakeProof };
+    }, start.startedAt + manifest.plan.sampleTimeoutMs);
+    operations.push({ operation: 'daily-intake/' + requestId, span: end(start), outcome: result ? json({ requestId, completedAt: result.completedAt, proofDigest: capacityDigest(result.proof) }) : null });
+    if (result) {
+      dailyIntakes.set(requestId, freezeCapacityValue(result));
+      const requests = new Map([...recoverySubmissions.values()].filter(row => row.id.startsWith('initial-')).map(row => [row.id.slice(8), row.requestId]));
+      await observeAncillary(result.completedAt, requests, daily.initialRequests.find(row => row.cohort === result.cohort)!.leagueKeys, true);
+    }
+    return result;
+  }
+  async function observeDailyBoundary(scheduledAt: number) {
+    assert(daily && daily.boundaryOffsets.includes(scheduledAt - startedAt));
+    assert(!dailyBoundaries.some(row => row.scheduledAt === scheduledAt), 'daily boundary cannot be replaced'); const start = begin();
+    const requests = new Map([...recoverySubmissions.values()].filter(row => row.id.startsWith('initial-')).map(row => [row.id.slice(8), row.requestId]));
+    await observeAncillary(scheduledAt, requests, undefined, true);
+    const reads = ancillaryReads.filter(row => row.scheduledAt === scheduledAt);
+    dailyBoundaries.push({ scheduledAt, startedAt: start.startedAt, endedAt: end(start).endedAt,
+      proofIds: reads.flatMap(row => Object.values(row.components).filter((id): id is string => id !== null)) });
+  }
+  function dailySnapshot() {
+    assert(daily && auxiliaryEvidence); return freezeCapacityValue(structuredClone({ auxiliary: auxiliaryEvidence, manifestDigest: daily.digest, startedAt, endedAt: capacityTime(clock.wallNow()),
+      initialSubmissions: [...recoverySubmissions.values()].filter(row => row.id.startsWith('initial-')).map(row => ({ cohort: row.id.slice(8), requestId: row.requestId,
+        submittedAt: row.dispatchedAt, receiptAt: row.receiptAt, receipt: json(row.receipt) })),
+      initialHeadConfirmations: [...recoveryHeads.initial.values()].map(row => ({ pairId: row.pairId, requestId: String(object(row.lineage.dispatch.work).requestId), at: row.read.at, proofId: row.lineage.receiptId })),
+      intakes: [...dailyIntakes.values()], endpointAcceptances: [...endpointAcceptances.values()], catalogTurns: dailyTurns, queue: dailyQueue,
+      boundaries: dailyBoundaries, requests: journal().requests }));
+  }
   function recoverySnapshot() {
     assert(recovery); const convert = (row: BoundRead) => ({ pairId: row.pairId, read: row.read, reader: row.reader,
       retainedHistory: recoveryHistory.get(row.pairId) ?? [], proofId: row.lineage.receiptId });
@@ -1487,6 +1798,6 @@ export function createCapacityObserver(manifest: CapacityManifest, options: {
       coverageEndedAt: Math.min(...rows.map(row => row.coverageEndedAt)),
       ownerTotals: rows.map(row => ({ owner: row.owner, attempts: row.attempts.length })), attempts: rows.flatMap(row => [...row.attempts]) } }, 'not-validated-diagnostic-only');
   }
-  return { observeInvocation, observeDispatches, observeAncillary, ancillaryAnalysis, observeRecoverySubmission, observeRecoveryHeads, observeRecoveryIntake, observeRecoveryEndpoints, observeRecoveryPlayerDirectory, observeRecoveryPrimaryCatalog, observeRecoverySamples, observeRecoveryQueue, observeRecoveryQueuedIntake, recoverySnapshot, firstAcceptance, observeDueSamples, observeEvents, observeSubmission, observeIntake, observeOutage,
+  return { recordDailyCatalogChoice, observeDailyAuxiliarySubmission, observeDailyAuxiliaryIntake, beginDailyWindow, observeDailyTurn, observeDailyQueue, observeDailyIntake, observeDailyBoundary, dailySnapshot, observeInvocation, observeDispatches, observeAncillary, ancillaryAnalysis, observeRecoverySubmission, observeRecoveryHeads, observeRecoveryIntake, observeRecoveryEndpoints, observeRecoveryPlayerDirectory, observeRecoveryPrimaryCatalog, observeRecoverySamples, observeRecoveryQueue, observeRecoveryQueuedIntake, recoverySnapshot, firstAcceptance, observeDueSamples, observeEvents, observeSubmission, observeIntake, observeOutage,
     observeOutageStart, observeRestoration, observeBacklog, snapshot, diagnosticSnapshot, anchors: () => new Map(anchors) };
 }

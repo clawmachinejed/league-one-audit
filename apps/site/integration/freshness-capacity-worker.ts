@@ -9,11 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { FLEET_CONFIG, FLEET_VERSION, parseFleetConfig, parseFleetCommand, fleetStart, fleetEnd, fleetFetch,
   type FleetCommand, type FleetMessage, type FleetSqlAttempt } from './freshness-capacity-protocol';
-import { FLEET_REQUEST_OWNERS, FLEET_HEALTHY_CLOCK, FLEET_RECOVERY_PROFILE, buildFleetHealthyManifest, buildFleetRecoveryManifest, fleetDocumentRows, writeFleetEvidenceChunks } from './freshness-capacity-profile';
+import { FLEET_REQUEST_OWNERS, FLEET_HEALTHY_CLOCK, FLEET_RECOVERY_PROFILE, FLEET_DAILY_PROFILE, buildFleetHealthyManifest, buildFleetRecoveryManifest, buildFleetDailyManifest, fleetDocumentRows, writeFleetEvidenceChunks, packFleetDailySqlAttempts, packFleetDailyRequestLedger, packFleetDailyManifestReference } from './freshness-capacity-profile';
 import { loadCapacityNamedSourceFixture } from './freshness-capacity-fixtures';
 import { capacityDigest, freezeCapacityValue, type JsonValue } from './freshness-capacity-manifest';
 import { evaluateCapacityEvidence, type HttpAttempt } from './freshness-capacity-evidence';
 import { RECOVERY_CLOCK, evaluateCapacityRecovery, type CapacityRecoveryEvidence } from './freshness-capacity-recovery';
+import { DAILY_CLOCK, evaluateCapacityDaily, type CapacityDailyEvidence } from './freshness-capacity-daily';
 import type { DatabaseClient } from '../lib/database';
 import type { ProviderRequestOwner } from '../lib/provider-request-telemetry';
 
@@ -123,13 +124,14 @@ async function main() {
   assert(url && process.send && !process.env.NODE_OPTIONS, 'closed fleet child launch required');
   const rawDirectory = await lstat(config.evidenceDirectory); assert(rawDirectory.isDirectory() && !rawDirectory.isSymbolicLink());
   const buildOptions = { fixtureId: config.fixtureId, gitSha: config.gitSha, plannedPostgresqlVersion: config.plannedPostgresqlVersion };
+  const dailyBuilt = config.profile === FLEET_DAILY_PROFILE ? await buildFleetDailyManifest(buildOptions) : null;
   const recoveryBuilt = config.profile === FLEET_RECOVERY_PROFILE ? await buildFleetRecoveryManifest(buildOptions) : null;
-  const built = recoveryBuilt ? { fixture: recoveryBuilt.fixture, manifest: recoveryBuilt.observerManifest, sourceFiles: recoveryBuilt.sourceFiles } : await buildFleetHealthyManifest(buildOptions);
-  assert.equal(built.fixture.digest, config.fixtureDigest); assert.equal(recoveryBuilt?.recoveryManifest.digest ?? built.manifest.digest, config.manifestDigest);
+  const built = dailyBuilt ? { fixture: dailyBuilt.fixture, manifest: dailyBuilt.observerManifest, sourceFiles: dailyBuilt.sourceFiles } : recoveryBuilt ? { fixture: recoveryBuilt.fixture, manifest: recoveryBuilt.observerManifest, sourceFiles: recoveryBuilt.sourceFiles } : await buildFleetHealthyManifest(buildOptions);
+  assert.equal(built.fixture.digest, config.fixtureDigest); assert.equal(dailyBuilt?.dailyManifest.digest ?? recoveryBuilt?.recoveryManifest.digest ?? built.manifest.digest, config.manifestDigest);
   const coexistence = await fleetCoexistenceFixture(), cache = await installFleetCache(config.evidenceDirectory);
   // Controlled HTTP never delegates provider traffic. This synthetic key reaches no real provider.
   process.env.TANK01_API_KEY = 'cp26-controlled-fixture-key'; delete process.env.ALL_PLAYER_RECURRING_ENABLED;
-  const [{ getDatabase }, { createIndependentPinnedDatabase }, { createCapacityObserver }, { createCapacityFixtureTransport, createCapacityRecoveryTransport }, telemetry,
+  const [{ getDatabase }, { createIndependentPinnedDatabase }, { createCapacityObserver, createCapacityDailyCatalogFetch }, { createCapacityFixtureTransport, createCapacityRecoveryTransport, createCapacityDailyTransport, packCapacityDailyResponses }, telemetry,
     intakeRuntime, intakeContracts, refreshContracts, { createProjectionStore }, { createLeagueAdministrationStore }, { runProductionProjectionSync }] = await Promise.all([
     import('../lib/database'), import('./neon-integration-harness'), import('./freshness-capacity-observer'), import('./freshness-capacity-transport'),
     import('../lib/provider-request-telemetry'), import('../lib/league-administration/public-intake-runtime'), import('../lib/league-administration/public-intake-contracts'),
@@ -193,12 +195,13 @@ async function main() {
     }
   };
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = fleetFetch({ runtimeUrl: url, originalFetch, providerFetch, onSql: row => sqlAttempts.push(row) });
+  globalThis.fetch = fleetFetch({ runtimeUrl: url, originalFetch: dailyBuilt ? createCapacityDailyCatalogFetch(originalFetch, row => { assert(observer); observer.recordDailyCatalogChoice(row); }) : originalFetch, providerFetch, onSql: row => sqlAttempts.push(row) });
   const journals = () => FLEET_REQUEST_OWNERS.map(owner => { const source = sourceTransports.get(owner)!.journal(); return Object.freeze({
     owner, coverageStartedAt, coverageEndedAt: Date.now(), attempts: Object.freeze([...ownerAttempts.get(owner)!]), responses: source.responses,
     rejectedRequests: Object.freeze([...source.rejectedRequests, ...rejected]),
   }); });
   const calls: { action: string; span: ReturnType<typeof fleetEnd>; outcome: JsonValue; failed: boolean }[] = [];
+  let dailyStartedAt: number | null = null;
   const prepared: { leagueKey: string; leagueId: string; leagueSeasonId: string; nativeLeagueId: string }[] = [];
   const setup: Record<string, JsonValue>[] = []; const configuredTargets: { cohort: string; targetId: string; configurationRevision: number; configuredAt: number; configuredCompletedAt: number; input: Record<string, JsonValue> }[] = []; const requestIds = new Map<string, string>(); const configured = new Set<string>();
   let rawWritten = false;
@@ -233,31 +236,39 @@ async function main() {
       const requestId = requestIds.get(user.cohort); if (!requestId || configured.has(user.cohort)) continue;
       if (!user.leagueKeys.every(key => built.manifest.plan.pairs.filter(pair => pair.leagueKey === key).every(pair => observer!.anchors().has(pair.id)))) continue;
       const targetId = randomUUID(), configuredAt = Date.now();
-      const input = { id: targetId, expectedRevision: 0, identityRequestId: requestId, ...fullScope, cadenceSeconds: 86400, expiresAt: new Date(config.workDeadlineAt).toISOString(), paused: false };
+      const input = { id: targetId, expectedRevision: 0, identityRequestId: requestId, ...fullScope, cadenceSeconds: dailyBuilt ? DAILY_CLOCK.cadenceSeconds : 86400, expiresAt: new Date(config.workDeadlineAt).toISOString(), paused: false };
       const result = await intakeRuntime.configurePublicSleeperRefresh(input, selection);
       assert(result.status === 'configured' || result.status === 'replayed');
       const active = await intakeRuntime.configurePublicSleeperResourceSchedule({ targetId, expectedRevision: result.configurationRevision,
-        activePeriods: user.leagueKeys.map(key => { const league = built.fixture.sourceLeagues.find(row => row.key === key)!;
+        activePeriods: user.leagueKeys.filter(key => !dailyBuilt || dailyBuilt.dailyManifest.leagues.find(row => row.key === key)!.status === 'in_season').map(key => { const league = built.fixture.sourceLeagues.find(row => row.key === key)!;
           return { season: 2026 as const, externalLeagueId: league.nativeLeagueId, nativeWeek: Number(league.nativePeriod) }; }) }, selection);
       assert('configurationRevision' in active); configuredTargets.push({ cohort: user.cohort, targetId, configurationRevision: result.configurationRevision, configuredAt, configuredCompletedAt: Date.now(), input: asJson(input) as Record<string, JsonValue> }); setup.push(asJson({ operation: 'configure', cohort: user.cohort, configuredAt, result, active }) as Record<string, JsonValue>); configured.add(user.cohort);
     }
   }
   async function prepare() {
     assert(originalStart === null); originalStart = Date.now();
-    assert(originalStart + (recoveryBuilt ? RECOVERY_CLOCK.workMs - RECOVERY_CLOCK.evidenceReserveMs : FLEET_HEALTHY_CLOCK.workMs - FLEET_HEALTHY_CLOCK.evidenceReserveMs) <= config.workDeadlineAt,
+    assert(originalStart + (dailyBuilt ? DAILY_CLOCK.minimumRemainingWorkMs : recoveryBuilt ? RECOVERY_CLOCK.workMs - RECOVERY_CLOCK.evidenceReserveMs : FLEET_HEALTHY_CLOCK.workMs - FLEET_HEALTHY_CLOCK.evidenceReserveMs) <= config.workDeadlineAt,
       'insufficient original lifecycle budget; no renewed work window');
+    if (dailyBuilt) for (const owner of FLEET_REQUEST_OWNERS) {
+      assert.equal(sourceTransports.get(owner)!.journal().attempts.length, 0);
+      sourceTransports.set(owner, createCapacityDailyTransport(dailyBuilt.dailyManifest, { owner, startedAt: () => dailyStartedAt,
+        purpose: owner === 'independent-measurement' ? 'independent-measurement' : 'refresh',
+        onAttempt(attempt) { const ledger = ownerAttempts.get(owner)!; ledger.push(freezeCapacityValue({ ...attempt, sequence: ledger.length + 1 })); } }));
+    }
     if (recoveryBuilt) for (const owner of FLEET_REQUEST_OWNERS) {
       assert.equal(sourceTransports.get(owner)!.journal().attempts.length, 0);
       sourceTransports.set(owner, createCapacityRecoveryTransport(recoveryBuilt.recoveryManifest, { owner, startedAt: originalStart,
         purpose: owner === 'independent-measurement' ? 'independent-measurement' : 'refresh',
         onAttempt(attempt) { const ledger = ownerAttempts.get(owner)!; ledger.push(freezeCapacityValue({ ...attempt, sequence: ledger.length + 1 })); } }));
     }
-    observer = createCapacityObserver(built.manifest, { database: http, startedAt: recoveryBuilt ? originalStart : originalStart + FLEET_HEALTHY_CLOCK.benchmarkOffsetMs, journals,
-      ...(recoveryBuilt ? { recovery: recoveryBuilt.recoveryManifest } : {}) });
+    observer = createCapacityObserver(built.manifest, { database: http, startedAt: recoveryBuilt || dailyBuilt ? originalStart : originalStart + FLEET_HEALTHY_CLOCK.benchmarkOffsetMs, journals,
+      ...(dailyBuilt ? { daily: dailyBuilt.dailyManifest } : recoveryBuilt ? { recovery: recoveryBuilt.recoveryManifest } : {}) });
+    if (!dailyBuilt) {
     const directory = await observer.observeInvocation('data-refresh', at => telemetry.withProviderRequestOwner('data-refresh',
       () => intakeRuntime.runSelectedPublicDataRefresh(selection, at)));
     setup.push(asJson({ operation: 'initial-shared-directory', at: Date.now(), outcome: directory, cadence: 'First eligible scheduled DATA turn after the existing 24-hour guard; this lane exercises only initial capture.' }) as Record<string, JsonValue>);
     if (recoveryBuilt) await observer.observeRecoveryPlayerDirectory();
+    }
     const jobs = createProjectionStore(http);
     for (const sample of coexistence.named.collections[0].samples) {
       const league = JSON.parse(coexistence.documents.find(row => row.url === 'https://api.sleeper.app/v1/league/' + sample.nativeLeagueId)!.utf8) as NativeRow;
@@ -266,11 +277,11 @@ async function main() {
       assert.equal(result.kind, 'stored'); if (result.kind !== 'stored') throw new Error('Named registration unavailable.');
       prepared.push({ leagueKey: sample.key, leagueId: result.value.leagueId, leagueSeasonId: result.value.leagueSeasonId, nativeLeagueId: sample.nativeLeagueId });
     }
-    for (const user of built.fixture.users.filter(row => row.cohort === 'accepted' || recoveryBuilt && row.cohort !== 'auxiliary')) {
+    for (const user of built.fixture.users.filter(row => !dailyBuilt && (row.cohort === 'accepted' || recoveryBuilt && row.cohort !== 'auxiliary'))) {
       const requestId = randomUUID(); requestIds.set(user.cohort, requestId);
-      const submit = async () => { const result = await intakeRuntime.submitPublicSleeperIntake({ id: requestId, username: user.username, ...(recoveryBuilt ? recoveryBuilt.recoveryManifest.initialScope : fullScope) }, { enabled: true, requestId, managerEvidenceVersion: 'v2' });
+      const submit = async () => { const result = await intakeRuntime.submitPublicSleeperIntake({ id: requestId, username: user.username, ...(dailyBuilt ? dailyBuilt.dailyManifest.initialScope : recoveryBuilt ? recoveryBuilt.recoveryManifest.initialScope : fullScope) }, { enabled: true, requestId, managerEvidenceVersion: 'v2' });
         assert(result.status === 'retained' || result.status === 'capacity'); return result; };
-      if (recoveryBuilt) await observer.observeRecoverySubmission('initial-' + user.cohort, requestId, submit);
+      if (recoveryBuilt || dailyBuilt) await observer.observeRecoverySubmission('initial-' + user.cohort, requestId, submit);
       else { const receipt = await submit(); setup.push(asJson({ operation: 'initial-submit', at: Date.now(), requestId, receipt }) as Record<string, JsonValue>); assert.equal(receipt.status, 'retained'); }
     }
     return { originalStart, prepared, cache, sourceFiles: built.sourceFiles, coexistenceDigest: coexistence.digest };
@@ -431,6 +442,113 @@ async function main() {
     return { inventory, result: { originalStart, endedAt: Date.now(), observerFailures: final.failures.length, offlineChecksPass: analysis?.offlineChecksPass === true && ancillary?.pass === true && evidenceFailures.length === 0, failedLoop, closed,
       checkpoint26Qualified: false, fullElapsedWindowMs: Date.now() - startAt, primaryCalls: calls.length } };
   }
+  async function daily() {
+    assert(dailyBuilt && observer && originalStart !== null && !rawWritten);
+    const observed = observer, dailyManifest = dailyBuilt.dailyManifest;
+    const evidenceFailures: { stage: string; kind: ReturnType<typeof failureKind> }[] = [];
+    const auxiliaryIds = new Set<string>(); let setupSucceeded = false;
+    try {
+      const completedAuxiliary: { label: 'a' | 'b'; proof: NonNullable<Awaited<ReturnType<typeof observed.observeDailyAuxiliaryIntake>>> }[] = [];
+      let nextInvocationAt = Date.now();
+      for (const user of dailyManifest.auxiliary.users) {
+        const requestId = randomUUID(); auxiliaryIds.add(requestId);
+        await observed.observeDailyAuxiliarySubmission(user.label, requestId, async () => {
+          const result = await intakeRuntime.submitPublicSleeperIntake({ id: requestId, username: user.username, ...user.scope },
+            { enabled: true, requestId, managerEvidenceVersion: 'v2' }); assert(result.status === 'retained' || result.status === 'capacity'); return result;
+        });
+        if (nextInvocationAt > Date.now()) await delay(nextInvocationAt - Date.now()); remaining();
+        await observed.observeInvocation('data-refresh', at => { nextInvocationAt = at + 61_000;
+          return telemetry.withProviderRequestOwner('data-refresh', () => intakeRuntime.runSelectedPublicIntakeBatch({
+            enabled: true, requestId, managerEvidenceVersion: 'v2', batchPolicy: 'public-data-batch-v1' }, at)); });
+        await observed.observeDispatches(); const proof = await observed.observeDailyAuxiliaryIntake(user.label); assert(proof);
+        completedAuxiliary.push({ label: user.label, proof });
+      }
+      if (nextInvocationAt > Date.now()) await delay(nextInvocationAt - Date.now()); remaining();
+      dailyStartedAt = await observed.beginDailyWindow(completedAuxiliary);
+      assert(dailyStartedAt + DAILY_CLOCK.minimumRemainingWorkMs <= config.workDeadlineAt, 'auxiliary setup consumed the original work reserve');
+      originalStart = dailyStartedAt;
+      for (const user of built.fixture.users.filter(row => row.cohort !== 'auxiliary')) {
+        const requestId = randomUUID(); requestIds.set(user.cohort, requestId);
+        await observed.observeRecoverySubmission('initial-' + user.cohort, requestId, async () => {
+          const result = await intakeRuntime.submitPublicSleeperIntake({ id: requestId, username: user.username, ...dailyManifest.initialScope },
+            { enabled: true, requestId, managerEvidenceVersion: 'v2' }); assert(result.status === 'retained' || result.status === 'capacity'); return result;
+        });
+      }
+      setupSucceeded = true;
+    } catch (error) { evidenceFailures.push({ stage: 'daily-auxiliary-setup', kind: failureKind(error) }); }
+    const startAt = dailyStartedAt ?? originalStart, endAt = startAt + DAILY_CLOCK.observationMs;
+    const timer = new AbortController(); let stopped = !setupSucceeded; const completed = new Set<string>();
+    const wait = async (at: number) => { if (at > Date.now()) await delay(at - Date.now(), undefined, { signal: timer.signal }); };
+    const active = () => { remaining(); return !stopped && Date.now() < endAt; };
+    const loops: Promise<void>[] = [];
+    loops.push((async () => {
+      for (let ordinal = 0; ordinal < DAILY_CLOCK.observationMs / 60_000 && !stopped; ordinal++) {
+        await wait(startAt + ordinal * 60_000); remaining();
+        const missed = Date.now() >= startAt + (ordinal + 1) * 60_000;
+        try { await observed.observeDailyTurn(ordinal, () => facade('enabled'), missed); }
+        catch { /* The exact failed facade and pre-owner catalog read remain in the journal. */ }
+        await observed.observeDispatches();
+      }
+    })());
+    loops.push((async () => {
+      for (let ordinal = 0; active(); ordinal++) {
+        await wait(startAt + ordinal * 10_000); if (!active()) break;
+        if (Date.now() <= startAt + DAILY_CLOCK.initialHeadsDeadlineMs) { await observed.observeRecoveryHeads('initial'); await configureReady(); }
+        // Ordinary full-history inventory only. Internal occurrences remain in the complete dispatch journal.
+        const queue = await observed.observeDailyQueue();
+        for (const value of queue.requests) {
+          const request = value as Record<string, JsonValue>, id = String(request.id);
+          if (auxiliaryIds.has(id)) { assert.equal(request.terminal, true); continue; }
+          if (request.terminal !== true || completed.has(id)) continue;
+          if (await observed.observeDailyIntake(id)) completed.add(id);
+        }
+      }
+    })());
+    loops.push((async () => { for (const offset of dailyManifest.boundaryOffsets) {
+      if (stopped) break;
+      await wait(startAt + offset); remaining();
+      await telemetry.withProviderRequestOwner('independent-measurement', () => observed.observeDailyBoundary(startAt + offset));
+    } })());
+    const settled = await Promise.allSettled(loops.map(async loop => { try { await loop; } catch (error) { stopped = true; timer.abort(); throw error; } }));
+    try { await observed.observeDispatches(); await observed.observeDailyQueue(); }
+    catch (error) { evidenceFailures.push({ stage: 'daily-final-observation', kind: failureKind(error) }); }
+    let final: ReturnType<typeof observed.snapshot>;
+    try { final = observed.snapshot(); } catch (error) { evidenceFailures.push({ stage: 'daily-observer-snapshot', kind: failureKind(error) }); final = observed.diagnosticSnapshot(); }
+    let rows: ReturnType<typeof observed.dailySnapshot> | null = null;
+    try { rows = observed.dailySnapshot(); } catch (error) { evidenceFailures.push({ stage: 'daily-snapshot', kind: failureKind(error) }); }
+    const evidence: CapacityDailyEvidence | null = rows ? { ...rows, targets: configuredTargets, workDeadlineAt: config.workDeadlineAt, ownerCoverage: final.ownerCoverage } : null;
+    let analysis: ReturnType<typeof evaluateCapacityDaily> | null = null;
+    try { if (evidence && final.journalValidation === 'validated') analysis = evaluateCapacityDaily(dailyManifest, evidence); }
+    catch (error) { evidenceFailures.push({ stage: 'daily-analysis', kind: failureKind(error) }); }
+    let named: JsonValue; try { named = asJson(await namedReadback()); } catch { named = { status: 'unavailable', reason: 'named-stored-read-failed' }; }
+    let jobs: readonly unknown[] | null = null;
+    try { jobs = await http.query('SELECT job_key,state,attempt_count,last_error,completed_at FROM public.projection_jobs ORDER BY job_key'); }
+    catch (error) { evidenceFailures.push({ stage: 'daily-final-jobs', kind: failureKind(error) }); }
+    const primary = { fixture: coexistence, cache, calls, sqlAttempts: packFleetDailySqlAttempts(sqlAttempts), tankAttempts,
+      tankCoverage: { startedAt: coverageStartedAt, endedAt: Date.now(), attempts: tankAttempts.length },
+      secondaryResponses: secondaryResponses.map(({ document, ...row }) => ({ ...row, documentRef: document.sha256 })),
+      rejected, evidenceFailures, setup, server: { version: session.version, versionNum: session.version_num }, jobs };
+    const documents = {
+      'transport-attempts': evidence?.requests ?? final.evidence.requests,
+      'transport-responses': packCapacityDailyResponses(FLEET_REQUEST_OWNERS.map(owner => ({ owner, responses: sourceTransports.get(owner)!.journal().responses }))),
+      'observer-lineage': { ancillaryQueryRows: final.ancillaryQueryRows, ancillaryProofs: final.ancillaryProofs, ancillaryAnchors: final.ancillaryAnchors,
+        ancillaryRequests: final.ancillaryRequests, receiptProofs: final.receiptProofs, endpointProofs: final.endpointProofs, currentIntakeReads: final.currentIntakeReads,
+        dispatchOutcomes: final.dispatchOutcomes, durableDispatches: final.durableDispatches, dispatchObservations: final.dispatchObservations },
+      'observer-reads': { ancillaryReads: final.ancillaryReads, lineage: final.lineage, intakePages: final.intakePages, intakePageReads: final.intakePageReads },
+      'observer-operations': { operations: final.operations, failures: final.failures, invocations: final.invocations, ownerCoverage: final.ownerCoverage,
+        openInvocations: final.openInvocations, dispatchJournalReadAt: final.dispatchJournalReadAt },
+      'capacity-evidence': { manifest: packFleetDailyManifestReference('daily-manifest', dailyManifest),
+        observerManifest: packFleetDailyManifestReference('observer-manifest', built.manifest),
+        evidence: evidence ? { ...evidence, requests: packFleetDailyRequestLedger(evidence.requests) } : null,
+        analysis, journalValidation: final.journalValidation, evidenceFailures },
+      'named-regressions': named, 'primary-coexistence': primary,
+    } as const;
+    const inventory = await writeFleetEvidenceChunks(config.evidenceDirectory, config.manifestDigest,
+      Object.entries(documents).flatMap(([stream, value]) => fleetDocumentRows(stream as keyof typeof documents, value))); rawWritten = true;
+    const closed = final.openInvocations === 0 && final.durableDispatches.every(row => row.outcome !== null) && rejected.length === 0;
+    return { inventory, result: { originalStart, endedAt: Date.now(), offlineChecksPass: analysis?.pass === true && evidenceFailures.length === 0,
+      failedLoop: settled.some(row => row.status === 'rejected'), closed, checkpoint26Qualified: false, activePercentilesQualified: false, primaryCalls: calls.length } };
+  }
   async function recovery() {
     assert(recoveryBuilt && observer && originalStart !== null && !rawWritten);
     const observed = observer, recoveryManifest = recoveryBuilt.recoveryManifest, startAt = originalStart;
@@ -546,7 +664,7 @@ async function main() {
   }
   try {
     await send({ type: 'ready', sequence: 0, action: null, span: fleetEnd(fleetStart()), inventory: null, result: null, error: false });
-    const expected = ['omitted', 'false', 'prepare', recoveryBuilt ? 'run-recovery' : 'run-healthy', 'snapshot', 'stop']; let served = 0;
+    const expected = ['omitted', 'false', 'prepare', dailyBuilt ? 'run-daily' : recoveryBuilt ? 'run-recovery' : 'run-healthy', 'snapshot', 'stop']; let served = 0;
     while (remaining() > 0) {
       while (!commands.length) { remaining(); await delay(25); }
       const command = commands.shift()!; assert.equal(command.action, expected[served++], 'closed worker command sequence changed');
@@ -554,6 +672,7 @@ async function main() {
       const start = fleetStart(); let result: Record<string, unknown> | null = null, inventory: FleetMessage['inventory'] = null, error = false;
       try {
         if (command.action === 'prepare') result = await prepare();
+        else if (command.action === 'run-daily') { const value = await daily(); result = value.result; inventory = value.inventory; }
         else if (command.action === 'run-recovery') { const value = await recovery(); result = value.result; inventory = value.inventory; }
         else if (command.action === 'run-healthy') { const value = await healthy(); result = value.result; inventory = value.inventory; }
         else if (command.action === 'snapshot') result = { rawWritten, calls: calls.length, rejected: rejected.length, sqlAttempts: sqlAttempts.length,

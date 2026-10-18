@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { FLEET_HEALTHY_PROFILE, FLEET_HEALTHY_MODULE, FLEET_HEALTHY_SUITE, FLEET_HEALTHY_FULL_NAMES, FLEET_RECOVERY_PROFILE, FLEET_RECOVERY_MODULE, FLEET_RECOVERY_SUITE, FLEET_RECOVERY_FULL_NAMES } from './freshness-capacity-profile';
+import { FLEET_HEALTHY_PROFILE, FLEET_HEALTHY_MODULE, FLEET_HEALTHY_SUITE, FLEET_HEALTHY_FULL_NAMES, FLEET_RECOVERY_PROFILE, FLEET_RECOVERY_MODULE, FLEET_RECOVERY_SUITE, FLEET_RECOVERY_FULL_NAMES, FLEET_DAILY_PROFILE, FLEET_DAILY_MODULE, FLEET_DAILY_SUITE, FLEET_DAILY_FULL_NAMES } from './freshness-capacity-profile';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
@@ -8,22 +8,25 @@ import { isAbsolute, join, relative } from 'node:path';
 // Closed CP26 fleet candidates. These pins authorize no execution and leave every historical profile unchanged.
 export const FLEET_HEALTHY_SOURCE_DIGEST = 'ec3fbb027bfabf4727aa3dd462b7d7517adfaa56b9b14a49b66c0de45eb039f9';
 export const FLEET_RECOVERY_SOURCE_DIGEST = '9aded11360b6099c5539251a03d272288ae61873618c571c73d6b55bab5d0200';
+export const FLEET_DAILY_SOURCE_DIGEST = 'f774bd97e24c49615856ad68f499080e40b973c9adb7bfd76a839223dd9e3ded';
 export const FLEET_SUPPORT_SOURCES = [
-  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '47910723e5a5469ab1a701b9db30b858a92780c821c57f6256a5819edc8869b3' },
-  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: 'f1bb1cf827e133761bdaa3052b5a63b1e51cc9c121db0c3e5500a7f9cf1f7965' },
-  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: '3844f604be6f7c2edea77e7eec58d15d180898d00c5c112a316505a38c54e765' },
-  { path: 'integration/freshness-capacity-observer.ts', sourceDigest: '7e0287e45c884710e39fe9113c56e6456ad93f81d11f68149460f6b44be214b5' },
+  { path: 'lib/league-administration/neon/player-directory.ts', sourceDigest: '36dd59796c3ce056af531a43cf3672baa2d80a1b6efad73c4c5a2425693666e1' },
+  { path: 'integration/freshness-capacity-daily.ts', sourceDigest: '3f83dd9a7814d1f42058fb4403747e271bf9aaa8c4f0cf290d8b531d98202c73' },
+  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '440082c40bbc5892aad9e71bff46f72d8eeee646155fb9eeac5d280b9890a43d' },
+  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: '87730e9fdeaf390b9455de2a973dcb79bad80afa6dd81ebaf59dbbf79ab2b8e0' },
+  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: 'fa85da604de41cf5dfb313e545b6655ad453403c0a10597b063877b6379f7a3d' },
+  { path: 'integration/freshness-capacity-observer.ts', sourceDigest: '37a173889e1c43ef2d451e468ebd29dda4013b67ea62c964d9a482546e76341f' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
-  { path: 'integration/freshness-capacity-transport.ts', sourceDigest: '35a518df1dc8cb5aea71b732b32756328c980efc00d69b1cd3057fe810227159' },
+  { path: 'integration/freshness-capacity-transport.ts', sourceDigest: '1670c438e997a61b526de34f6dd06174137c442ef70717781ba64adaebc393a7' },
   { path: 'integration/freshness-capacity-evidence.ts', sourceDigest: '2425abac7a8f37428b93479802a8ee399091e59d07a2cff2eb9fbcc958edb71c' },
   { path: 'integration/freshness-capacity-recovery.ts', sourceDigest: 'e01e7847eb81ce5f0883f70c7fb43dcdca5187d43abef596c246d744d8ed31eb' },
   { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
   { path: 'integration/neon-integration-harness.ts', sourceDigest: 'a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783' },
   { path: 'integration/integration-child-process.ts', sourceDigest: 'c53e2e61042e031df57b0c99ddbc019adbbc29ea78a43ff96ca92b964953ab9a' },
   { path: 'integration/integration-database-ownership.ts', sourceDigest: 'cd7bd531f4dd0a649fb8cf8031ec87c09e1a7f63b1169f752758b6a6b57fbd19' },
-  { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: '185b87df7f85813a189675d1cb3c80ee9a7306a7dde075b57f3f64d417954897' },
-  { path: 'integration/disposable-integration.ts', sourceDigest: '6180742ce836b9d97b9afa515e7f1a3902087d72e661dfae7a6be2fc6c750c3a' },
+  { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: 'eb50d2f1ca091c8d0eaa547cb38338951a6501f9cb6f138d6b5641413f4bedc3' },
+  { path: 'integration/disposable-integration.ts', sourceDigest: '61aaa1b7f0ea26ace855470f6b8ae1ee9be03b4d39506ed0ffebca69c99b761d' },
   { path: 'integration/disposable-neon-api.ts', sourceDigest: '6ef0d211273b0df9f08234c9676b8fe9949df67c127feacce356d86b91a15a1c' },
   { path: 'scripts/run-disposable-integration.ts', sourceDigest: '8eb64772c886d175b7e5150b9f7c474168b0a94312cb526e374cca11d52d77e5' },
   { path: 'scripts/provision-runtime-role.sql', sourceDigest: 'c013508197c09bb1b43b91ea530dd4b640da5233c4109af33f9530f7d878e279' },
@@ -129,6 +132,7 @@ export const FLEET_SUPPORT_SOURCES = [
 ] as const;
 function fleetProfile(profile: string) {
   if(profile===FLEET_HEALTHY_PROFILE)return{profile:FLEET_HEALTHY_PROFILE,module:FLEET_HEALTHY_MODULE,suite:FLEET_HEALTHY_SUITE,names:FLEET_HEALTHY_FULL_NAMES,pattern:closedPattern(FLEET_HEALTHY_FULL_NAMES),sourceDigest:FLEET_HEALTHY_SOURCE_DIGEST};
+  if(profile===FLEET_DAILY_PROFILE)return{profile:FLEET_DAILY_PROFILE,module:FLEET_DAILY_MODULE,suite:FLEET_DAILY_SUITE,names:FLEET_DAILY_FULL_NAMES,pattern:closedPattern(FLEET_DAILY_FULL_NAMES),sourceDigest:FLEET_DAILY_SOURCE_DIGEST};
   if(profile===FLEET_RECOVERY_PROFILE)return{profile:FLEET_RECOVERY_PROFILE,module:FLEET_RECOVERY_MODULE,suite:FLEET_RECOVERY_SUITE,names:FLEET_RECOVERY_FULL_NAMES,pattern:closedPattern(FLEET_RECOVERY_FULL_NAMES),sourceDigest:FLEET_RECOVERY_SOURCE_DIGEST};
   return null;
 }
@@ -614,7 +618,7 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+export type QualificationProfile = 'full' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof RUNNER_CYCLES_PROFILE | typeof BACKEND_CONTROLS_PROFILE | typeof COMPETING_WORKERS_PROFILE | typeof PROCESS_RECOVERY_PROFILE | typeof FRESH_INSTALL_PROFILE | typeof WITHIN_SEASON_HISTORY_PROFILE | typeof DRAFT_INTAKE_PROFILE | typeof DRAFT_REFRESH_PROFILE | typeof DRAFT_INTAKE_RECOVERY_PROFILE | typeof TRADED_PICKS_PROFILE | typeof DRAFT_SELECTIONS_PROFILE | typeof DRAFT_METADATA_PROFILE | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
@@ -1006,7 +1010,7 @@ function profileDigest(profile: QualificationProfile) {
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
-  if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
+  if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE,FLEET_DAILY_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
   if (args.length === 1 && args[0] === '--profile=' + BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + BACKEND_CONTROLS_PROFILE) return BACKEND_CONTROLS_PROFILE;
@@ -1769,7 +1773,7 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
   assert.deepEqual(ack, { kind: 'integration-qualification-cleanup-v1', contextDigest: qualificationDigest(binding.context),
     reportDigest: qualificationSourceDigest(raw), globalDatabaseCleanup: 'complete' });
   let companionDigest: string | undefined;
-  if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const {validateFleetCompanion}=await import('./freshness-capacity-profile');await validateFleetCompanion(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
+  if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_DAILY_PROFILE?'cp26-fleet-daily-evidence.json':binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const {validateFleetCompanion}=await import('./freshness-capacity-profile');await validateFleetCompanion(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
   if (binding.context.profile === BATCH_CALIBRATION_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'batch-calibration-evidence.json');
     const companion = await import('./batch-calibration-evidence');
