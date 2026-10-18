@@ -15,6 +15,8 @@ on:
           - data-process-recovery-v1
           - data-runner-cycles-v1
           - data-batch-calibration-v1
+          - data-live-public-batch-v1
+          - data-freshness-capacity-ownership-v1
           - data-freshness-capacity-healthy-v1
           - data-freshness-capacity-recovery-v1
           - data-backend-controls-v1
@@ -114,6 +116,12 @@ jobs:
               ;;
             workflow_dispatch:data-freshness-capacity-recovery-v1)
               pnpm test:integration --profile=data-freshness-capacity-recovery-v1
+              ;;
+            workflow_dispatch:data-live-public-batch-v1)
+              pnpm test:integration --profile=data-live-public-batch-v1
+              ;;
+            workflow_dispatch:data-freshness-capacity-ownership-v1)
+              pnpm test:integration --profile=data-freshness-capacity-ownership-v1
               ;;
             workflow_dispatch:data-batch-calibration-v1)
               pnpm test:integration --profile=data-batch-calibration-v1
@@ -259,5 +267,6 @@ jobs:
           path: |
             test-results/integration/*.json
             test-results/integration/artifacts/**/*.json
+            test-results/integration/artifacts/**/ownership-journal-*.ndjson
           if-no-files-found: warn
           retention-days: 14

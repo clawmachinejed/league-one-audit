@@ -9,14 +9,14 @@ import { isAbsolute, join, relative } from 'node:path';
 export const FLEET_HEALTHY_SOURCE_DIGEST = 'ec3fbb027bfabf4727aa3dd462b7d7517adfaa56b9b14a49b66c0de45eb039f9';
 export const FLEET_RECOVERY_SOURCE_DIGEST = '9aded11360b6099c5539251a03d272288ae61873618c571c73d6b55bab5d0200';
 export const FLEET_DAILY_SOURCE_DIGEST = 'a3fb6878844c6b2a3a50331d6404215fd6034baaf87e9f054627fb7551afb897';
-export const FLEET_LIVE_SOURCE_DIGEST = 'db8c865b1dacfdec942379ae990bfebcf886e483b302542fc0f4c23afae5190f';
+export const FLEET_LIVE_SOURCE_DIGEST = '527c15650eb3619645e409627441134fc32be3c12d9647ba00adcdbeed767e28';
 export const FLEET_OWNERSHIP_SOURCE_DIGEST = '12c486536ef75d28e48d70fcadeafe395f98a1de253779268a8f3490bfcc6d63';
 export const FLEET_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/neon/player-directory.ts', sourceDigest: '36dd59796c3ce056af531a43cf3672baa2d80a1b6efad73c4c5a2425693666e1' },
   { path: 'integration/freshness-capacity-daily.ts', sourceDigest: '3f83dd9a7814d1f42058fb4403747e271bf9aaa8c4f0cf290d8b531d98202c73' },
-  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: '01a7ff4d2745f7d3eb41485c82ac09439a5ac2d52d4e521c884c3a60a943dbb6' },
-  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: '0236b0929e8efb366910099404123e412cd50df60a6ce62faf4c35ceaa84e769' },
-  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: 'e8f3f16c9bd3ff9530abe5e2581dfbdca7fb41e4eda370f87c28d81a48295bed' },
+  { path: 'integration/freshness-capacity-worker.ts', sourceDigest: 'de65b40e11b5da4608816359298a7c2e741a8234e46d93e6e05974f9fc1d3334' },
+  { path: 'integration/freshness-capacity-protocol.ts', sourceDigest: 'b1b3afacd7dde95de36863dca4840cf8a98ad3fb6ba5357398c4248e9ba317ab' },
+  { path: 'integration/freshness-capacity-profile.ts', sourceDigest: '4d2f8a2153a73870d2de065f848f88294b0a37f7c85384d7d0b3510ed36dcd1f' },
   { path: 'integration/freshness-capacity-observer.ts', sourceDigest: '37a173889e1c43ef2d451e468ebd29dda4013b67ea62c964d9a482546e76341f' },
   { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
   { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
@@ -59,8 +59,8 @@ export const FLEET_SUPPORT_SOURCES = [
   { path: 'test-support/fixtures/all-player-foundation/catalog-TE.json', sourceDigest: '37be01b602a39c29b0b2341ff1dbf2809ecf70ba27385eb87ef40edd8cb254a4' },
   { path: 'test-support/fixtures/all-player-foundation/catalog-K.json', sourceDigest: '6d322a549d2f385f7040e01b6fc57a33e210107a79d74d6c296f8e3d00bc4df2' },
   { path: 'test-support/fixtures/all-player-foundation/catalog-DEF.json', sourceDigest: 'a04cc7702edc947ae853ad9690bcbdb4a82e72a74d14008327968e44e092f5ac' },
-  { path: '../../docs/aggregator-backend/data-backend-readiness-contract.md', sourceDigest: 'd334a99678d40e2310d99f577a18b607990a93ae0703937d2675e88ad41ea4df' },
-  { path: '../../docs/aggregator-backend/data-backend-acceptance-baseline.md', sourceDigest: '1ed22aa36e9bc2447c336e1a24413c761c92c5cf93114318ebefed580e034598' },
+  { path: '../../docs/aggregator-backend/data-backend-readiness-contract.md', sourceDigest: 'b6d1707fcfed8afa559a7e7e00026a75e3402213488ffd788e4b33ce34612508' },
+  { path: '../../docs/aggregator-backend/data-backend-acceptance-baseline.md', sourceDigest: 'f2d3e4379c7ce064f720f54b1044c20a451fb6c460d639941510b597d4cd70c1' },
   { path: 'migrations/001_projection_foundation.sql', sourceDigest: 'eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050' },
   { path: 'migrations/002_manager_snapshot_payloads.sql', sourceDigest: '74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d' },
   { path: 'migrations/003_league_period_authority.sql', sourceDigest: '6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e' },
@@ -131,6 +131,8 @@ export const FLEET_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/neon/brackets.ts', sourceDigest: '0d9ef6baf89f15437692f4df82db9f0ee5f83ea44f6aaae2c00a84d24d7c9aa5' },
   { path: 'lib/league-administration/neon/exact-period-context.ts', sourceDigest: '55b96337070b8b040c37f29f87589e5f5d0989d6bc2de83fe845810a77eca48c' },
   { path: 'lib/aggregator/official-results.ts', sourceDigest: '3d30e90cd6386b26234991c92778f2b34e089f1b9bfa3e03a2f34faa6648e8a5' },
+  { path: 'lib/transform.ts', sourceDigest: '2edd33c8745298a06cd88201ee531a84a6c7dadc8be4d9ed8e3d81f78c57e23a' },
+  { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
 ] as const;
 function fleetProfile(profile: string) {
   if(profile===FLEET_LIVE_PROFILE)return{profile:FLEET_LIVE_PROFILE,module:FLEET_LIVE_MODULE,suite:FLEET_LIVE_SUITE,names:FLEET_LIVE_FULL_NAMES,pattern:closedPattern(FLEET_LIVE_FULL_NAMES),sourceDigest:FLEET_LIVE_SOURCE_DIGEST};

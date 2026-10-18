@@ -4257,7 +4257,7 @@ for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capac
  it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
 }
 it('CP26 fleet binds all new support bytes before provisioning and preserves LF portability',async()=>{
- const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile'),sourceRoot=fileURLToPath(new URL('..',import.meta.url));await expect(assertFleetSupportSources(sourceRoot)).resolves.toBeUndefined();expect(FLEET_SUPPORT_SOURCES).toHaveLength(119);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(119);for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
+ const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile'),sourceRoot=fileURLToPath(new URL('..',import.meta.url));await expect(assertFleetSupportSources(sourceRoot)).resolves.toBeUndefined();expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
  const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});await writeFile(join(siteRoot,path),await readFile(join(sourceRoot,path)));}
  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
  for(const path of [fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
@@ -4284,4 +4284,31 @@ it('CP26 fleet stays out of default discovery and freezes each explicit case inv
   const visit=(node:ts.Node)=>{if(ts.isCallExpression(node)){const expression=node.expression.getText(tree);if(expression==='it')cases.push(node.arguments[0].getText(tree));if(expression==='describe.sequential')suites.push(node.arguments[0].getText(tree));if(['beforeAll','afterAll','beforeEach','afterEach'].includes(expression))hooks.push(expression);expect(expression.startsWith('it.')||expression==='describe'||expression.startsWith('describe.')&&expression!=='describe.sequential').toBe(false);}ts.forEachChild(node,visit);};visit(tree);
   expect(cases).toEqual(names.map((_,index)=>symbol+'_TESTS['+index+']'));expect(suites).toEqual([symbol+'_SUITE']);expect(hooks).toEqual(['beforeAll','afterAll']);
  }
+});
+
+it('CP26 short CI choices preserve protected execution and retain ownership journals', async () => {
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  for (const profile of ['data-live-public-batch-v1', 'data-freshness-capacity-ownership-v1'] as const) {
+    expect(parseQualificationArguments(['--profile=' + profile])).toBe(profile);
+    expect(workflow.match(new RegExp('^ {10}- ' + profile + '\\r?$', 'gmu'))).toHaveLength(1);
+    expect(workflow.match(new RegExp('^ {12}workflow_dispatch:' + profile + '\\)\\r?$', 'gmu'))).toHaveLength(1);
+    expect(workflow.match(new RegExp('^ {14}pnpm test:integration --profile=' + profile + '\\r?$', 'gmu'))).toHaveLength(1);
+  }
+  const artifactPaths = workflow.split('      - name: Preserve sanitized integration evidence')[1]
+    .split('          path: |')[1].split('          if-no-files-found:')[0]
+    .trim().split(/\r?\n/u).map(value => value.trim());
+  expect(artifactPaths).toEqual([
+    'test-results/integration/*.json',
+    'test-results/integration/artifacts/**/*.json',
+    'test-results/integration/artifacts/**/ownership-journal-*.ndjson',
+  ]);
+  expect(workflow).toContain("    environment: integration-test");
+  expect(workflow).toContain("  group: integration-test");
+  expect(workflow).toContain("  cancel-in-progress: false");
+  expect(workflow).toContain("          ref: ${{ github.sha }}");
+  expect(workflow).toContain("          persist-credentials: false");
+  expect(workflow).toContain("          NEON_TEST_API_KEY: ${{ secrets.NEON_TEST_API_KEY }}");
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
+  expect(workflow).not.toContain('workflow_dispatch:data-freshness-capacity-daily-v1)');
+  expect(workflow).not.toContain('pull_request_target:');
 });

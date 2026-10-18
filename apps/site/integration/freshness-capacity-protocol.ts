@@ -118,7 +118,7 @@ export type FleetShortEventValue =
   | {kind:'http';ordinal:number;method:'GET';url:string;status:number|null;rawUtf8:string|null;rawSha256:string|null;errorCode:'aborted'|'request'|'body'|'policy'|null}
   | {kind:'boundary';name:typeof FLEET_SHORT_BOUNDARIES[number];scenario:FleetOwnershipScenario;role:FleetOwnershipRole;slot:number;invocationStartedAt:number;work:unknown;fence:unknown;value:unknown}
   | {kind:'invocation';phase:'started'|'completed';scenario:FleetOwnershipScenario|null;role:FleetOwnershipRole|null;slot:number;invocationStartedAt:number;result:unknown}
-  | {kind:'record';name:'submission'|'configuration'|'reader'|'acl'|'session';value:unknown}
+  | {kind:'record';name:'submission'|'configuration'|'reader'|'acl'|'session'|'current-week'|'submission-replay';value:unknown}
   | {kind:'failure';stage:string;failureKind:'assertion'|'aborted'|'operation'};
 export type FleetShortEvent = Omit<FleetMessage,'type'|'sequence'|'action'|'inventory'|'result'|'error'> & {
   type:'short-event';eventSequence:number;commandSequence:number;event:FleetShortEventValue };
@@ -149,7 +149,18 @@ export function parseFleetShortEvent(value:unknown,config:FleetConfig,pid:number
     fleetKeys(data,['kind','phase','scenario','role','slot','invocationStartedAt','result']);assert(['started','completed'].includes(String(data.phase)));assert(Number.isSafeInteger(data.slot)&&Number(data.slot)>=0&&Number(data.slot)<15);assert(Number.isSafeInteger(data.invocationStartedAt)&&Number(data.invocationStartedAt)>0);
     if(config.profile===FLEET_LIVE_PROFILE){assert.equal(data.scenario,null);assert.equal(data.role,null);assert(Number(data.slot)<3);}else parseFleetCommand({version:FLEET_VERSION,nonce:config.nonce,sequence:1,action:'ownership-turn',scenario:data.scenario,role:data.role,slot:data.slot,invocationStartedAt:data.invocationStartedAt},config,1);
     if(data.phase==='started')assert.equal(data.result,null);
-  }else if(data.kind==='record'){fleetKeys(data,['kind','name','value']);assert(['submission','configuration','reader','acl','session'].includes(String(data.name)));}
+  }else if(data.kind==='record'){
+    fleetKeys(data,['kind','name','value']);assert(['submission','configuration','reader','acl','session','current-week','submission-replay'].includes(String(data.name)));
+    if(data.name==='current-week'){
+      assert.equal(config.profile,FLEET_LIVE_PROFILE);const witness=object(data.value);fleetKeys(witness,['sourceEventSequence','season','nativeWeek','discoverySeason']);
+      assert(Number.isSafeInteger(witness.sourceEventSequence)&&Number(witness.sourceEventSequence)>0&&Number(witness.sourceEventSequence)<expectedSequence);
+      assert.equal(witness.season,2026);assert.equal(witness.discoverySeason,'2026');assert(Number.isInteger(witness.nativeWeek)&&Number(witness.nativeWeek)>=1&&Number(witness.nativeWeek)<=18);
+    }else if(data.name==='submission-replay'){
+      assert.equal(config.profile,FLEET_LIVE_PROFILE);const replay=object(data.value);fleetKeys(replay,['input','result','submitSpan','before','after']);assertFleetSpan(replay.submitSpan as FleetSpan);
+      for(const key of ['before','after']){const observation=object(replay[key]);fleetKeys(observation,['rows','queryEventSequences']);assert(Array.isArray(observation.rows)&&Array.isArray(observation.queryEventSequences));
+        assert(observation.queryEventSequences.length>0&&observation.queryEventSequences.every(sequence=>Number.isSafeInteger(sequence)&&sequence>0&&sequence<expectedSequence));}
+    }
+  }
   else {fleetKeys(data,['kind','stage','failureKind']);assert.equal(data.kind,'failure');assert(typeof data.stage==='string'&&/^[a-z][a-z0-9-]{0,63}$/u.test(data.stage));assert(['assertion','aborted','operation'].includes(String(data.failureKind)));}
   return row;
 }

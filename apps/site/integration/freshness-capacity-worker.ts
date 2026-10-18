@@ -704,11 +704,12 @@ async function shortFleetMain(config: import('./freshness-capacity-protocol').Fl
   const ownershipBuilt=live?null:await profile.buildFleetOwnershipPlan(options);
   const built=ownershipBuilt??await profile.buildFleetLivePlan(options);
   assert.equal(built.plan.digest,config.manifestDigest); assert.equal(built.plan.fixtureDigest,config.fixtureDigest);
-  const [{getDatabase},harness,stores,{createProjectionStore},runtime,coordinator,contracts,refreshContracts,reader,queries,sleeper] = await Promise.all([
+  const [{getDatabase,withDatabaseAbortSignal},harness,stores,{createProjectionStore},runtime,coordinator,contracts,refreshContracts,reader,queries,sleeper] = await Promise.all([
     import('../lib/database'),import('./neon-integration-harness'),import('../lib/league-administration/store'),import('../lib/projection-store'),
     import('../lib/league-administration/public-intake-runtime'),import('../lib/league-administration/public-intake'),
     import('../lib/league-administration/public-intake-contracts'),import('../lib/league-administration/public-refresh-contracts'),
     import('../lib/league-administration/public-intake-reader'),import('./freshness-capacity-observer'),import('../lib/sleeper')]);
+  const {sleeperActiveScoringWeek}=await import('../lib/transform');
   const connection=await harness.createIndependentPinnedDatabase(url), configured=getDatabase();assert(configured.enabled);
   const identitySql=`SELECT current_user,session_user,current_database() AS database,current_setting('neon.branch_id',true) AS branch,
     current_setting('server_version') AS version,pg_backend_pid() AS pid,(SELECT backend_start::text FROM pg_stat_activity WHERE pid=pg_backend_pid()) AS backend_start,
@@ -727,6 +728,10 @@ async function shortFleetMain(config: import('./freshness-capacity-protocol').Fl
   const events:import('./freshness-capacity-protocol').FleetShortEvent[]=[],commands:import('./freshness-capacity-protocol').FleetCommand[]=[];
   let received=0,commandSequence=0,invalid=false,disconnected=false,bytes=0,eventSequence=0,httpCount=0,bodyBytes=0,reading=false;
   let requestId:string|null=null,discovered:string[]|null=null,inventory:unknown=null;
+  let liveState:(import('../lib/transform').SleeperState&{league_season:string})|null=null,liveWeek:number|null=null;
+  let journeyStart:ReturnType<typeof protocol.fleetStart>|null=null,submissionStart:ReturnType<typeof protocol.fleetStart>|null=null;
+  let liveInput:import('../lib/league-administration/public-intake-contracts').PublicIntakeInput|null=null;
+  let firstLiveRead:import('./freshness-capacity-protocol').FleetShortEvent|null=null;
   let active:import('./freshness-capacity-protocol').FleetOwnershipCommand|null=null,barrierUsed=false,warmupHeld=false;
   const send=async(value:unknown)=>new Promise<void>((resolve,reject)=>process.send!(value,error=>error?reject(new Error('Short worker IPC failed.')):resolve()));
   const emit=async(event:import('./freshness-capacity-protocol').FleetShortEventValue,start=protocol.fleetStart())=>{
@@ -752,18 +757,28 @@ async function shortFleetMain(config: import('./freshness-capacity-protocol').Fl
     const ordinal=++httpCount;
     try{
       assert.equal(init?.method??value?.method??'GET','GET');assert(init?.body===undefined||init.body===null,'native GET body forbidden');assert(!value?.body,'native Request GET body forbidden');assert.equal(parsed.origin,'https://api.sleeper.app');assert(!parsed.search&&!parsed.hash&&!parsed.username&&!parsed.password);
-      if(live){assert(ordinal<=18);const identityPath='/v1/user/ClawMachineJedi',discoveryPath='/v1/user/862823517857697792/leagues/nfl/2026';
-        if(parsed.pathname!==identityPath&&parsed.pathname!==discoveryPath){assert(discovered,'complete original discovery required before fanout');const match=/^\/v1\/league\/([1-9][0-9]{0,31})(?:\/(rosters|users))?$/u.exec(parsed.pathname);assert(match&&discovered.includes(match[1]));}
+      if(live){assert(ordinal<=27);const identityPath='/v1/user/ClawMachineJedi',discoveryPath='/v1/user/862823517857697792/leagues/nfl/2026';
+        if(parsed.pathname==='/v1/state/nfl')assert(ordinal===1&&liveState===null&&requestId===null,'single pre-submission state witness required');
+        else {assert(liveState&&liveWeek!==null,'current scoring week must be frozen before acquisition');
+          if(parsed.pathname!==identityPath&&parsed.pathname!==discoveryPath){assert(discovered,'complete original discovery required before fanout');const match=/^\/v1\/league\/([1-9][0-9]{0,31})(?:\/(rosters|users|matchups\/([1-9][0-9]?)))?$/u.exec(parsed.pathname);assert(match&&discovered.includes(match[1]));if(match[3])assert.equal(Number(match[3]),liveWeek);}}
       }
       errorCode='request';const warmupBytes=warmup&&parsed.pathname==='/v1/user/'+warmup.username?warmup.identityUtf8:warmup&&parsed.pathname==='/v1/user/'+warmup.nativeManagerId+'/leagues/nfl/2026'?warmup.discoveryUtf8:null;
       const response=live?await originalFetch(input,{...init,redirect:'error'}):warmupBytes!==null?new Response(warmupBytes,{status:200,headers:{'content-type':'application/json'}}):await fixtureTransport!.fetch(input,init);status=response.status;assert(!response.redirected&&response.ok,'native HTTP failed');
       errorCode='body';assert(response.body);const stream=response.body.getReader(),parts:Uint8Array[]=[];let length=0;
       try{for(;;){const part=await stream.read();if(part.done)break;length+=part.value.byteLength;bodyBytes+=part.value.byteLength;assert(length<=1024*1024&&bodyBytes<=18*1024*1024,'native response byte limit');parts.push(part.value);}}catch(error){await stream.cancel().catch(()=>undefined);throw error;}finally{stream.releaseLock();}
       const rawBytes=Buffer.concat(parts);rawUtf8=new TextDecoder('utf-8',{fatal:true}).decode(rawBytes);assert(Buffer.from(rawUtf8,'utf8').equals(rawBytes),'native UTF-8 byte identity changed');const payload:unknown=JSON.parse(rawUtf8);
+      if(live&&parsed.pathname==='/v1/state/nfl'){
+        assert(payload&&typeof payload==='object'&&!Array.isArray(payload));const state=payload as Record<string,unknown>;
+        assert.equal(state.season,'2026');assert.equal(state.league_season,'2026');assert.equal(state.season_type,'regular');
+        const week=state.leg??state.week;assert(typeof week==='number'&&Number.isInteger(week)&&week>=1&&week<=18,'native active scoring week unavailable');
+        liveState=payload as typeof liveState;liveWeek=week;
+      }
       if(live&&parsed.pathname==='/v1/user/ClawMachineJedi')assert.equal(sleeper.normalizeSleeperUserIdentity(payload,'ClawMachineJedi').userId,'862823517857697792');
       if(live&&parsed.pathname==='/v1/user/862823517857697792/leagues/nfl/2026'){
         assert(Array.isArray(payload)&&payload.length>=1&&payload.length<=4);const ids=payload.map(row=>{assert(row&&typeof row==='object'&&typeof row.league_id==='string'&&/^[1-9][0-9]{0,31}$/u.test(row.league_id));return row.league_id as string;});assert.equal(new Set(ids).size,ids.length);
-        const normalized=sleeper.normalizeSleeperUserLeagues(payload,'2026',new Date().toISOString());assert.deepEqual(normalized.map(row=>row.id).sort(),[...ids].sort());assert(discovered===null,'repeated live discovery');discovered=ids.sort();
+        const normalized=sleeper.normalizeSleeperUserLeagues(payload,'2026',new Date().toISOString());assert.deepEqual(normalized.map(row=>row.id).sort(),[...ids].sort());
+        for(const league of payload)assert.equal(sleeperActiveScoringWeek(league as import('../lib/transform').SleeperLeague,liveState),liveWeek,'discovered league does not share the frozen active scoring week');
+        assert(discovered===null,'repeated live discovery');discovered=ids.sort();
       }
       errorCode=null;return new Response(rawUtf8,{status:response.status,headers:{'content-type':'application/json'}});
     }finally{await emit({kind:'http',ordinal,method:'GET',url:address,status,rawUtf8,rawSha256:rawUtf8===null?null:hash(rawUtf8),errorCode},start);}
@@ -792,12 +807,32 @@ async function shortFleetMain(config: import('./freshness-capacity-protocol').Fl
         return intake.completeCore(work,mapping,captured,fence);},
       advanceBatch:async(fence,nextWorkerId)=>{const result=await intake.advanceBatch!(fence,nextWorkerId);if(active?.role==='owner'&&active.scenario==='advance-unknown-ack-death'&&result.kind==='acquired')await barrier('advance-committed',null,fence,result);return result;}},
     administration:{...administration,recordObservation:async(...args)=>{const result=await administration.recordObservation(...args);const accepted=result.teamManagerEvidenceAcceptance,fence=args[1];if(accepted?.status==='accepted'&&fence)managerEvidenceCaptures.set(fence.workerId+':'+fence.generation,{receiptId:accepted.receiptId,externalLeagueId:args[0].envelope.scope.externalLeagueId});return result;}},jobs,refresh:{...refresh,selectResourceWork:async(fence)=>{const selected=await refresh.selectResourceWork!(fence);if(active?.role==='owner'&&active.scenario==='selection-competition-death'&&selected.status==='selected')await barrier('selected',null,fence,selected);return selected;}},managerEvidenceVersion:'v2'};
-  const readback=async(id:string)=>{const start=protocol.fleetStart(),before=events.length;reading=true;try{
-    const options={managerEvidenceVersion:'v2' as const};const store=stores.createLeagueAdministrationStore(live?http:database);
-    const value=await reader.readPublicSleeperIntake(live?http:database,store,id,options);
-    const selected=live?http:database,requestRows=await selected.query(queries.CAPACITY_INTAKE_REQUEST_SQL,[id]),candidates=await selected.query(queries.CAPACITY_INTAKE_CANDIDATES_SQL,[id]),receiptRows=await selected.query(queries.CAPACITY_ENDPOINT_RECEIPTS_SQL,[id]),directoryRows=await selected.query(queries.CAPACITY_ENDPOINT_DIRECTORIES_SQL,[id]),dispatchRows=await selected.query(profile.FLEET_SHORT_DISPATCH_SQL,[id]);
+  const readback=async(id:string,phase:'initial-useful'|'terminal'='terminal')=>{const start=protocol.fleetStart(),before=events.length;reading=true;try{
+    const options=live?{managerEvidenceVersion:'v2' as const,periodContextVersion:'v1' as const,exactMatchupValuesVersion:'v1' as const}:{managerEvidenceVersion:'v2' as const};
+    const deadline=live&&phase==='initial-useful'?Date.parse(journeyStart!.startedAt)+60_000:config.workDeadlineAt;
+    const selected=live?withDatabaseAbortSignal(http,AbortSignal.timeout(Math.max(1,deadline-Date.now()))):database;assert(selected.enabled);
+    const store=stores.createLeagueAdministrationStore(selected),value=await reader.readPublicSleeperIntake(selected,store,id,options);
+    const requestRows=await selected.query(queries.CAPACITY_INTAKE_REQUEST_SQL,[id]),candidates=await selected.query(queries.CAPACITY_INTAKE_CANDIDATES_SQL,[id]),receiptRows=await selected.query(queries.CAPACITY_ENDPOINT_RECEIPTS_SQL,[id]),directoryRows=await selected.query(queries.CAPACITY_ENDPOINT_DIRECTORIES_SQL,[id]),dispatchRows=await selected.query(profile.FLEET_SHORT_DISPATCH_SQL,[id]);
     const retainedRosters=[];for(const row of candidates){const candidate=row.candidate as Record<string,unknown>;if(typeof candidate.players_receipt_id==='string'&&typeof candidate.league_season_id==='string')retainedRosters.push({nativeLeagueId:String(candidate.external_league_id),value:await store.readRosterPlayerLinks({rosterReceiptId:candidate.players_receipt_id,leagueSeasonId:candidate.league_season_id})});}
-    const queryEventSequences=events.slice(before).filter(row=>row.event.kind==='sql').map(row=>row.eventSequence);await emit({kind:'record',name:'reader',value:{requestId:id,options,value,requestRows,candidates,receiptRows,directoryRows,dispatchRows,retainedRosters,queryEventSequences}},start);return value;
+    let liveProof:Record<string,unknown>={};
+    if(live){assert(liveWeek!==null&&discovered&&value.status==='available'&&'request'in value&&value.request.terminal===true);const periodRows=await stores.readPublicPeriodTaskRows(selected,id),current=[],retainedExactValues=[];
+      assert.equal(periodRows.length,discovered.length);assert.equal(candidates.length,discovered.length);assert.equal(value.exactPeriods?.length,discovered.length);
+      for(const nativeLeagueId of discovered){const mapping=await store.readSourceMapping(nativeLeagueId);assert(mapping&&mapping.scope.season===2026);
+        const candidate=candidates.map(row=>row.candidate as Record<string,unknown>).find(row=>row.external_league_id===nativeLeagueId);assert(candidate&&typeof candidate.settings_receipt_id==='string');
+        const task=periodRows.find(row=>row.external_league_id===nativeLeagueId);assert(task&&task.status==='complete'&&Number(task.native_week)===liveWeek&&typeof task.matchups_receipt_id==='string'&&typeof task.settings_receipt_id==='string');
+        const settings=await store.readAcceptedLeagueSettings(mapping),heldRoster=await store.readAcceptedCurrentRoster(mapping,{includeSeasonOverview:true,includePlayerLinks:true}),managers=await store.readAcceptedTeamManagers(mapping),managerEvidence=await store.readAcceptedTeamManagerEvidence!(mapping),exactMatchups=await store.readAcceptedExactMatchups(mapping,liveWeek),exactValues=await store.readExactMatchupValues!(mapping,{nativeWeek:liveWeek}),periodContext=await store.readExactPeriodContext!(mapping,{nativeWeek:liveWeek,matchupsReceiptId:task.matchups_receipt_id,intakeCapture:{intakeId:id,settingsReceiptId:task.settings_receipt_id}});
+        assert(settings.status==='available'&&heldRoster.status==='available'&&managers.status==='available'&&managerEvidence.status==='available'&&exactMatchups.status==='available'&&exactValues.status==='available'&&periodContext.status==='available','required current stored resource unavailable');
+        assert(settings.accepted.observationIds.includes(candidate.settings_receipt_id));assert.equal(exactMatchups.receipt.id,task.matchups_receipt_id);assert.equal(exactValues.matchupsReceiptId,task.matchups_receipt_id);assert.equal(periodContext.capture.matchupsReceiptId,task.matchups_receipt_id);assert.equal(periodContext.capture.settingsReceiptId,task.settings_receipt_id);
+        const retained=await store.readExactMatchupValues!(mapping,{nativeWeek:liveWeek,matchupsReceiptId:task.matchups_receipt_id});assert(retained.status==='available');assert.deepEqual(retained.value,exactValues.value);
+        const aggregate=value.leagues.find(row=>row.externalLeagueId===nativeLeagueId),period=value.exactPeriods!.find(row=>row.externalLeagueId===nativeLeagueId);assert(aggregate?.resources&&period?.resource.status==='available'&&period.exactMatchupValues?.status==='available'&&period.periodContext?.status==='available');
+        for(const resource of [aggregate.resources.settings,aggregate.resources.teamManagers,aggregate.resources.heldRoster,aggregate.resources.directory,aggregate.resources.teamManagerEvidence,aggregate.resources.managerDirectory])assert(resource?.status==='available');
+        current.push({nativeLeagueId,mapping,settings,heldRoster,managers,managerEvidence,exactMatchups,exactValues,periodContext});retainedExactValues.push({nativeLeagueId,value:retained});
+      }
+      liveProof={phase,nativeWeek:liveWeek,periodRows,current,retainedExactValues};
+    }
+    const queryEventSequences=events.slice(before).filter(row=>row.event.kind==='sql').map(row=>row.eventSequence);const observed=await emit({kind:'record',name:'reader',value:{requestId:id,options,value,requestRows,candidates,receiptRows,directoryRows,dispatchRows,retainedRosters,...liveProof,queryEventSequences}},start);
+    if(live&&phase==='initial-useful'){assert(!firstLiveRead&&journeyStart&&submissionStart);firstLiveRead=observed;for(const origin of [journeyStart,submissionStart]){assert(Date.parse(observed.span.endedAt)-Date.parse(origin.startedAt)<=60_000);assert(observed.span.monotonicEndMs-origin.monotonicStartMs<=60_000);}}
+    return value;
   }finally{reading=false;}};
   const runOwnership=async(command:import('./freshness-capacity-protocol').FleetOwnershipCommand)=>{remaining();active=command;barrierUsed=false;warmupHeld=false;await delay(Math.max(0,command.invocationStartedAt-Date.now()));assert(Date.now()-command.invocationStartedAt<=(command.role==='competitor'?5000:1000),'fixed ownership slot missed');await verifySession();
     let targetRequest:string|undefined;
@@ -816,18 +851,35 @@ async function shortFleetMain(config: import('./freshness-capacity-protocol').Fl
     const resourceResult=await refresh.configureResourceSchedule!(resourceInput);await emit({kind:'record',name:'configuration',value:{input:inputConfig,result:configured,resourceInput,resourceResult}});await readback(id);requestId=id;
     return{requestId:id,targetId,configurationRevision:configured.configurationRevision,turns,sourcePlanDigest:built.plan.digest};
   };
-  const runLive=async()=>{assert(requestId&&live);const startedAt=Date.now(),turns=[];for(let slot=0;slot<3;slot++){remaining();const at=startedAt+slot*61_000;await delay(Math.max(0,at-Date.now()));assert(Date.now()-at<=1000,'fixed live slot missed');const start=protocol.fleetStart();
-    await emit({kind:'invocation',phase:'started',scenario:null,role:null,slot,invocationStartedAt:at,result:null},start);const outcome=await runtime.runSelectedPublicIntakeBatch({enabled:true,requestId,managerEvidenceVersion:'v2',batchPolicy:contracts.PUBLIC_DATA_BATCH_POLICY},at);
-    await emit({kind:'invocation',phase:'completed',scenario:null,role:null,slot,invocationStartedAt:at,result:outcome},start);assert(outcome.status!=='unavailable'&&outcome.status!=='disabled'&&outcome.status!=='busy');turns.push({slot,at,outcome});}
-    assert(discovered&&httpCount===2+4*discovered.length,'complete live source inventory required');const read=await readback(requestId);assert.equal(read.status,'available');
-    inventory=await profile.writeFleetShortEvidence(config.evidenceDirectory,config.manifestDigest,events);return{requestId,startedAt,turns,discovered,httpCount,bodyBytes,evidenceInventory:inventory};
+  const runLive=async()=>{assert(requestId&&live&&liveInput&&journeyStart&&submissionStart&&liveWeek!==null);const startedAt=Date.now(),turns=[];let repeated:unknown=null;
+    const inventoryRead=async()=>{const before=events.length,rows=await http.query(profile.FLEET_LIVE_INVENTORY_SQL,[requestId]);return{rows,queryEventSequences:events.slice(before).filter(row=>row.event.kind==='sql').map(row=>row.eventSequence)};};
+    for(let slot=0;slot<3;slot++){remaining();const at=startedAt+slot*61_000;await delay(Math.max(0,at-Date.now()));assert(Date.now()-at<=1000,'fixed live slot missed');const start=protocol.fleetStart(),priorHttp=httpCount;
+      if(slot===0)assert(Date.now()+22_000<=Date.parse(journeyStart.startedAt)+60_000,'original useful-read budget unavailable');
+      await emit({kind:'invocation',phase:'started',scenario:null,role:null,slot,invocationStartedAt:at,result:null},start);const outcome=await runtime.runSelectedPublicIntakeBatch({enabled:true,requestId,managerEvidenceVersion:'v2',batchPolicy:contracts.PUBLIC_DATA_BATCH_POLICY},at);
+      await emit({kind:'invocation',phase:'completed',scenario:null,role:null,slot,invocationStartedAt:at,result:outcome},start);assert(outcome.status==='complete','first import or later terminal state incomplete');turns.push({slot,at,outcome});
+      if(slot===0){assert(discovered&&httpCount===3+6*discovered.length,'complete live source inventory required');await readback(requestId,'initial-useful');
+        const repeatStart=protocol.fleetStart(),before=await inventoryRead(),beforeHttp=httpCount,submitStart=protocol.fleetStart();
+        const result=await runtime.submitPublicSleeperIntake(liveInput,{enabled:true,requestId,managerEvidenceVersion:'v2'}),submitSpan=protocol.fleetEnd(submitStart);assert.deepEqual(result,{status:'retained',requestId});
+        const after=await inventoryRead();assert.deepEqual(after.rows,before.rows,'same-request replay changed stored import inventory');assert.equal(httpCount,beforeHttp,'same-request replay acquired provider data');
+        const event=await emit({kind:'record',name:'submission-replay',value:{input:liveInput,result,submitSpan,before,after}},repeatStart);repeated={eventSequence:event.eventSequence,providerRequests:httpCount-beforeHttp};
+      }else{assert.equal(outcome.providerRequests,0);assert.equal(httpCount,priorHttp,'terminal invocation acquired provider data');}
+    }
+    await readback(requestId,'terminal');assert(firstLiveRead);inventory=await profile.writeFleetShortEvidence(config.evidenceDirectory,config.manifestDigest,events);
+    return{requestId,startedAt,journeyStartedAt:journeyStart.startedAt,submittedAt:submissionStart.startedAt,firstReadEventSequence:firstLiveRead.eventSequence,nativeWeek:liveWeek,turns,discovered,httpCount,bodyBytes,repeated,evidenceInventory:inventory};
   };
   try{
     await emit({kind:'record',name:'session',value:{sql:identitySql,pinned:{row:session,span:pinnedIdentitySpan},http:{row:httpIdentity,span:httpIdentitySpan}}},pinnedIdentityStart);
     await send({...identity,type:'ready',sequence:0,action:null,span:protocol.fleetEnd(protocol.fleetStart()),inventory:null,result:null,error:false});
     for(;;){remaining();while(!commands.length){remaining();await delay(25);}const command=commands.shift()!;commandSequence=command.sequence;const start=protocol.fleetStart();if(command.action==='stop')break;
       let result:Record<string,unknown>|null=null,error=false;
-      try{if(command.action==='prepare-live'){assert(live&&!requestId);requestId=randomUUID();const input={id:requestId,username:'ClawMachineJedi',seasons:[2026]};const submitted=await runtime.submitPublicSleeperIntake(input,{enabled:true,requestId,managerEvidenceVersion:'v2'});await emit({kind:'record',name:'submission',value:{input,result:submitted}});result={requestId,sourcePlanDigest:built.plan.digest};}
+      try{if(command.action==='prepare-live'){assert(live&&!requestId);journeyStart=protocol.fleetStart();
+          const discoverySeason=await sleeper.getSleeperDiscoverySeason(AbortSignal.timeout(Math.max(1,Math.min(config.workDeadlineAt,Date.parse(journeyStart.startedAt)+60_000)-Date.now())));assert.equal(discoverySeason,'2026');assert(liveState&&liveWeek!==null);
+          const physical=events.find(row=>row.event.kind==='http'&&row.event.url==='https://api.sleeper.app/v1/state/nfl');assert(physical);
+          await emit({kind:'record',name:'current-week',value:{sourceEventSequence:physical.eventSequence,season:2026,nativeWeek:liveWeek,discoverySeason}},journeyStart);
+          requestId=randomUUID();liveInput={id:requestId,username:'ClawMachineJedi',seasons:[2026],exactPeriods:[{season:2026,nativeWeek:liveWeek}]};submissionStart=protocol.fleetStart();
+          const submitted=await runtime.submitPublicSleeperIntake(liveInput,{enabled:true,requestId,managerEvidenceVersion:'v2'});assert.deepEqual(submitted,{status:'retained',requestId});const retained=await emit({kind:'record',name:'submission',value:{input:liveInput,result:submitted}},submissionStart);
+          assert(Date.parse(retained.span.endedAt)-Date.parse(retained.span.startedAt)<=2000&&retained.span.monotonicEndMs-retained.span.monotonicStartMs<=2000,'durable submission receipt exceeded original bound');
+          result={requestId,nativeWeek:liveWeek,sourcePlanDigest:built.plan.digest};}
         else if(command.action==='run-live')result=await runLive();else if(command.action==='prepare-ownership')result=await prepareOwnership();
         else if(command.action==='ownership-turn')result=await runOwnership(command);else if(command.action==='ownership-acl')result=await shortOwnershipAcl(database,emit);
         else{assert.equal(command.action,'snapshot');result={eventCount:events.length,httpCount,bodyBytes,evidenceInventory:inventory};}}

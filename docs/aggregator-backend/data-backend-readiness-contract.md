@@ -1,5 +1,7 @@
 # DATA backend readiness and completion contract
 
+**User-approved CP26 amendment — October 18, 2026 (UTC), DATA-CP26-2026-10-18-NARROW-ACCEPTANCE:** CP26 now completes through two short, exact-source checks: (1) complete one-to-four-league 2026 public discovery with official settings, teams/managers, rosters and exact current-week lineups/scores correctly available through stored-only readers within 60 seconds of submission, also including the retained provider-week lookup in the reported/gated journey time; identical-request replay must preserve canonical identities and accepted data; (2) the existing current-batch independent-session/process-interruption ownership and recovery proof. Keep the 40/minute and 1,800/hour DATA-plus-measurement limits and all current safety controls. The earlier 16-league sustained freshness, full-history/backlog throughput, prolonged-outage and daily/endurance measurement requirements are explicitly deferred from CP26 completion, remain unverified and are not represented as passed. Their original numeric targets and historical evidence remain below for future separately authorized work. This revision does not certify the entire backend or authorize production installation, merge, release or activation. The [CP26 plan](data-backend-cp26-plan.md#approved-cp26-completion-scope--october-18-2026-utc) is the current bounded execution and evidence contract.
+
 Revision: data-backend-readiness-v1, October 9, 2026 (America/Indianapolis). This is **checkpoint 1: freeze the completion contract**, read with [the current scope](data-backend-scope.md) and [the evidence record](data-backend-evidence.md). The coverage decisions below define the requested outcome; the numeric operating values are selected engineering acceptance targets, not measured capabilities or new spending/runtime authority.
 
 User-approved amendment, October 17, 2026: the shared player-directory target uses provider-compliant daily scheduling instead of guaranteed successful refresh within 24 hours. All league import, active-data freshness, other daily-resource and recovery targets remain unchanged. This changes acceptance wording only; it does not establish recurring execution, grant spending authority or activate a production schedule.
@@ -110,7 +112,7 @@ Keep all **34 original numbers**. Work proceeds 1, 2, 5 onward; 3–4 are deferr
 | 23 | Prove independent competing workers, fenced ownership, fairness and bounded failure isolation. |
 | 24 | Qualify controlled backend submission, status, configuration and pause entry points; no UI/accounts. |
 | 25 | Qualify ongoing opt-in DATA refresh in the existing runner, repeated cycles and disable behavior; production remains off. |
-| 26 | Measure freshness, acquisition capacity, provider budgets and backlog signals against this contract. |
+| 26 | Prove the approved <=60-second useful current-league import, same-request replay and current-batch restart/ownership safety; sustained fleet/endurance requirements are deferred by the amendment above. |
 | 27 | Measure query/index performance and fix demonstrated defects only. |
 | 28 | Qualify retention and growth policy; destructive cleanup needs separate authority. |
 | 29 | Qualify isolated backup, restore and replay. |

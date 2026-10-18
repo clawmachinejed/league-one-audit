@@ -94,6 +94,13 @@ describe.sequential(FLEET_LIVE_SUITE, () => {
     const acquired=await command('run-live');expect(acquired?.error).toBe(false);assert(acquired?.result);childInventory=acquired.result.evidenceInventory as FleetShortEvidenceInventory;
     const snapshot=await command('snapshot');expect(snapshot?.error).toBe(false);
     const childEvents=await readFleetShortEvidence(childDirectory,childInventory);expect(qualificationDigest(childEvents)).toBe(qualificationDigest(events));
+    const state=childEvents.find(row=>row.event.kind==='record'&&row.event.name==='current-week'),submitted=childEvents.find(row=>row.event.kind==='record'&&row.event.name==='submission');
+    const first=childEvents.find(row=>row.eventSequence===acquired.result!.firstReadEventSequence);assert(state&&submitted&&first&&first.event.kind==='record'&&first.event.name==='reader');
+    assert(first.event.value&&typeof first.event.value==='object'&&'phase'in first.event.value&&first.event.value.phase==='initial-useful');
+    for(const origin of [state,submitted]){expect(Date.parse(first.span.endedAt)-Date.parse(origin.span.startedAt)).toBeLessThanOrEqual(60_000);expect(first.span.monotonicEndMs-origin.span.monotonicStartMs).toBeLessThanOrEqual(60_000);}
+    expect(childEvents.filter(row=>row.event.kind==='record'&&row.event.name==='submission-replay')).toHaveLength(1);
+    const later=childEvents.filter(row=>row.event.kind==='invocation'&&row.event.phase==='completed'&&row.event.slot>0);expect(later).toHaveLength(2);
+    for(const row of later){assert(row.event.kind==='invocation');expect(row.event.result).toMatchObject({status:'complete',providerRequests:0});}
   }),210_000);
   it(FLEET_LIVE_TESTS[1],()=>guarded(1,async()=>{
     assert(ready&&childInventory);const original=await readFleetShortEvidence(childDirectory,childInventory);

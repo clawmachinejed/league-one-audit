@@ -119,3 +119,22 @@ describe('closed current batch ownership and live protocols',()=>{
     expect(()=>parseFleetShortEvent({...event,event:{...event.event,headers:{authorization:'forbidden'}}},live,10,1)).toThrow();
   });
 });
+
+
+describe('closed narrowed live acceptance records',()=>{
+  const live={...config,profile:'data-live-public-batch-v1' as const},ownership={...config,profile:'data-freshness-capacity-ownership-v1' as const};
+  async function recorded(name:'current-week'|'submission-replay',value:unknown){const {parseFleetShortEvent}=await import('./freshness-capacity-protocol');
+    const {type,sequence,action,inventory,result,error,...identity}=message();void type;void sequence;void action;void inventory;void result;void error;
+    const event={...identity,profile:live.profile,type:'short-event',eventSequence:5,commandSequence:1,event:{kind:'record',name,value}};
+    return{event,parse:(candidate:unknown=event)=>parseFleetShortEvent(candidate,live,10,5),parseOwnership:()=>parseFleetShortEvent({...event,profile:ownership.profile},ownership,10,5)};
+  }
+  it('retains one prior physical scoring-week witness and rejects an invented or foreign period',async()=>{
+    const witness={sourceEventSequence:2,season:2026,nativeWeek:7,discoverySeason:'2026'},f=await recorded('current-week',witness);expect(f.parse()).toEqual(f.event);expect(f.parseOwnership).toThrow();
+    for(const change of [{sourceEventSequence:5},{sourceEventSequence:0},{sourceEventSequence:1.5},{season:2025},{nativeWeek:0},{nativeWeek:19},{nativeWeek:'7'},{discoverySeason:'2027'},{displayWeek:8}])expect(()=>f.parse({...f.event,event:{...f.event.event,value:{...witness,...change}}})).toThrow();
+  });
+  it('retains the actual replay span and both SQL inventories without allowing ownership records or omitted proof',async()=>{
+    const value={input:{id:config.fixtureId},result:{status:'retained'},submitSpan:message().span,before:{rows:[{revision:18}],queryEventSequences:[2]},after:{rows:[{revision:18}],queryEventSequences:[4]}},f=await recorded('submission-replay',value);
+    expect(f.parse()).toEqual(f.event);expect(f.parseOwnership).toThrow();
+    for(const change of [{submitSpan:{...value.submitSpan,monotonicEndMs:-1}},{after:{rows:[],queryEventSequences:[]}},{before:{rows:[],queryEventSequences:[5]}},{after:{rows:null,queryEventSequences:[4]}},{before:{rows:[],queryEventSequences:[2],available:true}},{available:true}])expect(()=>f.parse({...f.event,event:{...f.event.event,value:{...value,...change}}})).toThrow();
+  });
+});
