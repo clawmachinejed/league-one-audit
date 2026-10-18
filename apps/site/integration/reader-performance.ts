@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { DatabaseClient, DatabaseRow } from '../lib/database';
+import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../lib/database';
 import type { PublicIntakeReadOptions } from '../lib/league-administration/public-intake-contracts';
 import type { QualificationBinding } from './qualification-profile';
+import { validReaderSnapshotDiagnostic, type ReaderSnapshotDiagnostic } from './reader-performance-snapshot';
 import { createCapacityFleetFixture } from './freshness-capacity-fixtures';
 
 export const READER_PERFORMANCE_PROFILE = 'data-reader-performance-v1';
@@ -90,23 +91,62 @@ export function createReaderSourceDataset() {
 const sourceDataset = createReaderSourceDataset();
 const expectedSourceBindings = Object.freeze(sourceDataset.leagues.map(readerDigest));
 export const READER_SOURCE_DIGEST = readerDigest(sourceDataset);
+const readerFailureCodes = ['53200', '53300', '53400', '57014', '57P01', '57P02', '57P03', '57P04', '57P05',
+  '08000', '08001', '08003', '08004', '08006', '08007', '08P01', '42501', '42P01', '42703',
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENETUNREACH', 'EHOSTUNREACH', 'ENOTFOUND', 'EAI_AGAIN'] as const;
+export type ReaderFailureDiagnostic = { category: 'postgresql' | 'transport' | 'deadline' | 'assertion' | 'unknown';
+  code: typeof readerFailureCodes[number] | 'unknown' };
+export type ReaderSqlFailure = ReaderFailureDiagnostic & { queryDigest: string };
+const correctnessCheckpoints = ['result-status', 'league-identity', 'core-resources', 'held-roster-managers', 'exact-periods',
+  'transactions', 'brackets', 'drafts', 'weekly-reports', 'official-standings', 'season-history', 'inventory', 'stable-digest'] as const;
+export type ReaderCorrectnessCheckpoint = typeof correctnessCheckpoints[number];
+export class ReaderCorrectnessError extends Error {
+  readonly diagnostic: ReaderFailureDiagnostic;
+  constructor(readonly checkpoint: ReaderCorrectnessCheckpoint, error: unknown) {
+    super('CP27 reader correctness check failed at ' + checkpoint + '.'); this.name = 'ReaderCorrectnessError';
+    this.diagnostic = readerFailureDiagnostic(error);
+  }
+}
+function correctnessError(error: unknown): ReaderCorrectnessError | null {
+  try { return error instanceof ReaderCorrectnessError ? error : null; } catch { return null; }
+}
+
+function ownErrorString(error: unknown, key: string): string | undefined {
+  try { const descriptor = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, key) : undefined;
+    return typeof descriptor?.value === 'string' ? descriptor.value : undefined; } catch { return undefined; }
+}
+/** Closed labels only: raw messages, stacks, parameter values and URLs never enter evidence. */
+export function readerFailureDiagnostic(error: unknown, deadline = false): ReaderFailureDiagnostic {
+  const correctness = correctnessError(error); if (correctness) return correctness.diagnostic;
+  const code = ownErrorString(error, 'code');
+  if (readerFailureCodes.some(value => value === code)) return { category: /^[0-9]/u.test(code!) ? 'postgresql' : 'transport', code: code as ReaderFailureDiagnostic['code'] };
+  if (deadline || ['TimeoutError', 'AbortError'].includes(ownErrorString(error, 'name') ?? '')) return { category: 'deadline', code: 'unknown' };
+  if (code === 'ERR_ASSERTION') return { category: 'assertion', code: 'unknown' };
+  return { category: 'unknown', code: 'unknown' };
+}
+function assertFailureDiagnostic(value: ReaderFailureDiagnostic) {
+  assert(value && ['postgresql', 'transport', 'deadline', 'assertion', 'unknown'].includes(value.category));
+  assert(value.code === 'unknown' || readerFailureCodes.some(code => code === value.code));
+  if (value.code !== 'unknown') assert.equal(value.category, /^[0-9]/u.test(value.code) ? 'postgresql' : 'transport');
+}
 export type ReaderSample = ReaderSlot & { lane: number; startedMs: number; elapsedMs: number; status: 'passed' | 'failed' | 'unserved';
   failure: 'none' | 'reader-or-correctness' | 'budget-exhausted'; statements: number; rows: number; decodedBytes: number;
-  statementMs: number; resultDigest: string | null };
+  statementMs: number; resultDigest: string | null; failureDetail: (ReaderFailureDiagnostic & { stage: 'reader' | 'correctness'; checkpoint: ReaderCorrectnessCheckpoint | null }) | null;
+  sqlFailure: ReaderSqlFailure | null };
 export type QueryMeasurement = { digest: string; sql: string; calls: number; failures: number; rows: number; decodedBytes: number;
-  elapsedMs: number; parameters: readonly unknown[] };
+  elapsedMs: number; parameters: readonly unknown[]; firstFailure: ReaderFailureDiagnostic | null };
 export type ReaderPlan = { digest: string; sql: string; parameterDigest: string; explainedRows: number;
   plan: readonly DatabaseRow[] };
 
 /** SELECT-only instrumentation wraps the original client. No row cache or substitute reader. */
 export function measuredReaderDatabase(database: DatabaseClient, queries: Map<string, QueryMeasurement>, sample: ReaderSample): DatabaseClient {
-  return { enabled: true, async query<Row extends DatabaseRow>(sql: string, parameters: readonly unknown[] = [], options = {}) {
+  return { enabled: true, async query<Row extends DatabaseRow>(sql: string, parameters: readonly unknown[] = [], options: DatabaseQueryOptions = {}) {
     assert(/^\s*(?:\/\*[\s\S]*?\*\/\s*)?(?:SELECT|WITH)\b/iu.test(sql), 'Benchmark reader issued a non-SELECT statement.');
     assert(!/\b(?:INSERT|UPDATE|DELETE|MERGE|CALL|COPY|CREATE|ALTER|DROP|TRUNCATE|GRANT|REVOKE|FOR\s+(?:UPDATE|SHARE))\b/iu.test(sql), 'Benchmark reader attempted a write.');
     const digest = readerDigest(sql);
     let entry = queries.get(digest);
     if (!entry) { assert(queries.size < 150, 'Unexpected reader SQL inventory expansion.');
-      entry = { digest, sql, calls: 0, failures: 0, rows: 0, decodedBytes: 0, elapsedMs: 0, parameters: [...parameters] }; queries.set(digest, entry); }
+      entry = { digest, sql, calls: 0, failures: 0, rows: 0, decodedBytes: 0, elapsedMs: 0, parameters: [...parameters], firstFailure: null }; queries.set(digest, entry); }
     entry.calls++; sample.statements++;
     const started = performance.now();
     try {
@@ -114,7 +154,8 @@ export function measuredReaderDatabase(database: DatabaseClient, queries: Map<st
       const bytes = Buffer.byteLength(JSON.stringify(rows));
       entry.rows += rows.length; sample.rows += rows.length; entry.decodedBytes += bytes; sample.decodedBytes += bytes;
       return rows;
-    } catch (error) { entry.failures++; throw error; }
+    } catch (error) { entry.failures++; const diagnostic = readerFailureDiagnostic(error, options.signal?.aborted);
+      entry.firstFailure ??= diagnostic; sample.sqlFailure ??= { ...diagnostic, queryDigest: digest }; throw error; }
     finally { const elapsed = performance.now() - started; entry.elapsedMs += elapsed; sample.statementMs += elapsed; }
   } };
 }
@@ -126,7 +167,7 @@ export async function runReaderSchedule(input: { database: DatabaseClient; queri
   const start = performance.now(), deadline = start + (input.maximumMs ?? 280_000);
   const samples: ReaderSample[] = READER_PERFORMANCE_SCHEDULE.map(slot => ({ ...slot, lane: slot.index % 10,
     startedMs: 0, elapsedMs: 0, status: 'unserved', failure: 'budget-exhausted', statements: 0,
-    rows: 0, decodedBytes: 0, statementMs: 0, resultDigest: null }));
+    rows: 0, decodedBytes: 0, statementMs: 0, resultDigest: null, failureDetail: null, sqlFailure: null }));
   let active = 0, maximumActive = 0;
   await Promise.all(Array.from({ length: 10 }, async (_, lane) => {
     for (let index = lane; index < samples.length; index += 10) {
@@ -138,12 +179,18 @@ export async function runReaderSchedule(input: { database: DatabaseClient; queri
       const signal = AbortSignal.timeout(Math.max(1, Math.min(10_000, Math.floor(deadline - performance.now()))));
       const bounded: DatabaseClient = { enabled: true, query: (sql, values, options) => measured.query(sql, values,
         { signal: options?.signal ? AbortSignal.any([signal, options.signal]) : signal }) };
+      let stage: 'reader' | 'correctness' = 'reader';
       try {
         const result = await input.read(sample, bounded);
         // Timer includes original SQL, installed driver decoding, and full reader composition.
         sample.elapsedMs = performance.now() - start - sample.startedMs;
-        sample.resultDigest = input.verify(sample, result); sample.status = 'passed'; sample.failure = 'none';
-      } catch { sample.elapsedMs = performance.now() - start - sample.startedMs; sample.status = 'failed'; sample.failure = 'reader-or-correctness'; }
+        stage = 'correctness'; sample.resultDigest = input.verify(sample, result);
+        // A resource fallback cannot turn an observed SQL failure into a passing read.
+        if (sample.sqlFailure) { sample.status = 'failed'; sample.failure = 'reader-or-correctness'; sample.resultDigest = null;
+          sample.failureDetail = { stage: 'reader', checkpoint: null, category: sample.sqlFailure.category, code: sample.sqlFailure.code }; }
+        else { sample.status = 'passed'; sample.failure = 'none'; }
+      } catch (error) { sample.elapsedMs = performance.now() - start - sample.startedMs; sample.status = 'failed'; sample.failure = 'reader-or-correctness';
+        sample.failureDetail = { ...readerFailureDiagnostic(error, stage === 'reader' && signal.aborted), stage, checkpoint: stage === 'correctness' ? correctnessError(error)?.checkpoint ?? null : null }; }
       finally { active--; }
     }
   }));
@@ -174,11 +221,14 @@ export type ReaderPerformanceEvidence = { kind: 'data-reader-performance-evidenc
   samples: ReaderSample[]; maximumActive: number; elapsedMs: number; lists: { kind: 'period-task-list' | 'player-directory'; elapsedMs: number; rows: number; bound: number; digest: string;
     statements: number; statementRows: number; decodedBytes: number }[];
   queries: Omit<QueryMeasurement, 'parameters'>[]; plans: ReaderPlan[]; tableCounts: { table: string; rows: number; totalBytes: number }[];
-  beforeDigest: string | null; afterDigest: string | null; providerRequests: number; blockedFetches: number; cleanupComplete: boolean };
+  beforeDigest: string | null; afterDigest: string | null; snapshotFailure: ReaderSnapshotDiagnostic | null; snapshotCleanupFailures: ReaderSnapshotDiagnostic[]; providerRequests: number; blockedFetches: number; cleanupComplete: boolean };
 function assertReaderEvidence(value: ReaderPerformanceEvidence, binding: QualificationBinding) {
   assert(Buffer.byteLength(JSON.stringify(value)) <= 4 * 1024 * 1024, 'Reader evidence exceeds fixed budget.');
   assert.equal(value.kind, 'data-reader-performance-evidence-v1'); assert.equal(value.contextDigest, readerDigest(binding.context));
   assert.equal(value.gitSha, binding.context.gitSha); assert.equal(binding.context.profile, READER_PERFORMANCE_PROFILE);
+  assert(value.snapshotFailure === null || validReaderSnapshotDiagnostic(value.snapshotFailure));
+  assert(Array.isArray(value.snapshotCleanupFailures) && value.snapshotCleanupFailures.length <= 2 && value.snapshotCleanupFailures.every(validReaderSnapshotDiagnostic));
+  if (value.snapshotCleanupFailures.length) assert(value.snapshotFailure);
   assert.equal(value.profile, READER_PERFORMANCE_PROFILE); assert.equal(value.runId, binding.context.runId);
   assert.match(value.serverVersionNum, /^\d{5,6}$/u); assert(typeof value.serverVersion === 'string' && value.serverVersion.length < 100);
   assert.equal(value.runtimeLogin, 'league_one_runtime'); assert.equal(value.transport, 'production-neon-http');
@@ -194,10 +244,23 @@ function assertReaderEvidence(value: ReaderPerformanceEvidence, binding: Qualifi
     const slot = READER_PERFORMANCE_SCHEDULE[index]; for (const key of ['index', 'league', 'kind', 'temperature'] as const) assert.equal(sample[key], slot[key]);
     assert.equal(sample.lane, index % 10); assert(['passed', 'failed', 'unserved'].includes(sample.status));
     for (const key of ['elapsedMs', 'startedMs', 'statements', 'rows', 'decodedBytes', 'statementMs'] as const) assert(Number.isFinite(sample[key]) && sample[key] >= 0);
-    if (sample.status === 'passed') { assert.equal(sample.failure, 'none'); assert.match(sample.resultDigest!, /^[a-f0-9]{64}$/u); assert(sample.statements > 0 && sample.rows > 0); }
+    if (sample.failureDetail !== null) { assertFailureDiagnostic(sample.failureDetail);
+      assert.deepEqual(Object.keys(sample.failureDetail).sort(), ['category', 'checkpoint', 'code', 'stage']);
+      assert(['reader', 'correctness'].includes(sample.failureDetail.stage));
+      assert(sample.failureDetail.checkpoint === null || sample.failureDetail.stage === 'correctness' && correctnessCheckpoints.includes(sample.failureDetail.checkpoint)); }
+    if (sample.sqlFailure !== null) { assertFailureDiagnostic(sample.sqlFailure);
+      assert.deepEqual(Object.keys(sample.sqlFailure).sort(), ['category', 'code', 'queryDigest']);
+      assert.match(sample.sqlFailure.queryDigest, /^[a-f0-9]{64}$/u); }
+    if (sample.status === 'failed') { assert(sample.failureDetail); assert.equal(sample.failure, 'reader-or-correctness'); }
+    else assert.equal(sample.failureDetail, null);
+    if (sample.status === 'unserved') assert.equal(sample.sqlFailure, null);
+    if (sample.status === 'passed') { assert.equal(sample.sqlFailure, null); assert.equal(sample.failure, 'none'); assert.match(sample.resultDigest!, /^[a-f0-9]{64}$/u); assert(sample.statements > 0 && sample.rows > 0); }
   }
   assert.equal(new Set(value.queries.map(query => query.digest)).size, value.queries.length);
   for (const query of value.queries) { assert.equal(query.digest, readerDigest(query.sql)); assert(query.calls > 0);
+    assert(query.failures <= query.calls);
+    if (query.failures > 0) { assertFailureDiagnostic(query.firstFailure!); assert.deepEqual(Object.keys(query.firstFailure!).sort(), ['category', 'code']); }
+    else assert.equal(query.firstFailure, null);
     for (const key of ['calls', 'failures', 'rows', 'decodedBytes', 'elapsedMs'] as const) assert(Number.isFinite(query[key]) && query[key] >= 0); }
   for (const plan of value.plans) { assert.equal(plan.digest, readerDigest(plan.sql)); assert.match(plan.parameterDigest, /^[a-f0-9]{64}$/u); assert(plan.plan.length === 1);
     assert(Number.isFinite(plan.explainedRows) && plan.explainedRows >= 0); }
@@ -213,6 +276,7 @@ export function assertCompleteReaderPerformanceEvidence(input: unknown, binding:
   assertReaderTarget(value.samples);
   for (const kind of ['current', 'history'] as const) { const samples = value.samples.filter(sample => sample.kind === kind); assert.equal(samples.length, 500); assertReaderTarget(samples); }
   assert.equal(value.providerRequests, 0); assert.equal(value.blockedFetches, 0);
+  assert.equal(value.snapshotFailure, null);
   assert.equal(value.beforeDigest, value.afterDigest); assert.match(value.beforeDigest!, /^[a-f0-9]{64}$/u);
   assert(value.queries.length > 0); assert.equal(value.plans.length, value.queries.length); assert.deepEqual(value.plans.map(plan => plan.digest).sort(), value.queries.map(query => query.digest).sort());
   // Every executed statement belongs to exactly one composed sample or separate list read.

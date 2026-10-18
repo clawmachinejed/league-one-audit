@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import { measuredReaderDatabase, readerPercentiles, runReaderSchedule, READER_PERFORMANCE_SCHEDULE,
+import { measuredReaderDatabase, readerFailureDiagnostic, ReaderCorrectnessError, readerPercentiles, runReaderSchedule, READER_PERFORMANCE_SCHEDULE,
   assertCompleteReaderPerformanceEvidence, createReaderSourceDataset, readerDigest, READER_SOURCE_DIGEST,
   READER_PERFORMANCE_PROFILE, READER_PERFORMANCE_MODULE, READER_PERFORMANCE_TESTS,
   type ReaderPerformanceEvidence, type QueryMeasurement, type ReaderSample } from './reader-performance';
@@ -19,7 +19,7 @@ import type { AdministrationFamily, JsonValue } from '../lib/league-administrati
 const sample = (index: number, elapsedMs: number, status: ReaderSample['status'] = 'passed'): ReaderSample => ({
   ...READER_PERFORMANCE_SCHEDULE[index], lane: index % 10, startedMs: 0, elapsedMs, status,
   failure: status === 'passed' ? 'none' : 'reader-or-correctness', statements: 1, rows: 1,
-  decodedBytes: 2, statementMs: 1, resultDigest: 'a'.repeat(64),
+  decodedBytes: 2, statementMs: 1, resultDigest: 'a'.repeat(64), failureDetail: status === 'failed' ? { stage: 'reader', checkpoint: null, category: 'unknown', code: 'unknown' } : null, sqlFailure: null,
 });
 describe('CP27 bounded reader measurement without SQL qualification', () => {
   const binding: QualificationBinding = { directory: '/not-executed', context: { kind: 'integration-qualification-context-v1',
@@ -40,10 +40,10 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
       samples: READER_PERFORMANCE_SCHEDULE.map((_, i) => sample(i, 100)), maximumActive: 10, elapsedMs: 10_000,
       lists: Array.from({ length: 32 }, (_, i) => ({ kind: i % 2 ? 'player-directory' : 'period-task-list', elapsedMs: 100, rows: i % 2 ? 160 : 18,
         bound: i % 2 ? 200 : 360, digest: 'd'.repeat(64), statements: 1, statementRows: 1, decodedBytes: 2 })),
-      queries: [{ digest, sql, calls: 1032, failures: 0, rows: 1032, decodedBytes: 2064, elapsedMs: 1032 }],
+      queries: [{ digest, sql, calls: 1032, failures: 0, rows: 1032, decodedBytes: 2064, elapsedMs: 1032, firstFailure: null }],
       plans: [{ digest, sql, parameterDigest: readerDigest([]), explainedRows: 1, plan: [{ 'QUERY PLAN': [{ Plan: { 'Actual Rows': 1 } }] }] }],
       tableCounts: [{ table: 'league_roster_capture_receipts', rows: 700, totalBytes: 8192 }], beforeDigest: 'e'.repeat(64), afterDigest: 'e'.repeat(64),
-      providerRequests: 0, blockedFetches: 0, cleanupComplete: true };
+      snapshotFailure: null, snapshotCleanupFailures: [], providerRequests: 0, blockedFetches: 0, cleanupComplete: true };
   }, 30_000);
   it('freezes all slots both500-read classes and sixteen single-league identities', () => {
     expect(READER_PERFORMANCE_SCHEDULE).toHaveLength(1_000);
@@ -88,6 +88,42 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
     await expect(database.query('WITH changed AS (DELETE FROM public.test) SELECT 1')).rejects.toThrow('attempted a write');
     expect(calls).toBe(2); expect(measurement.statements).toBe(2); expect(measurement.rows).toBe(1);
     expect([...queries.values()][0]).toMatchObject({ calls: 2, failures: 1, rows: 1, parameters: ['one'] });
+  });
+  it('retains distinct SQL, reader and correctness failure stages without leaking raw errors', async () => {
+    const secret = 'postgres://private-user:secret@private-host/database';
+    const queries = new Map<string, QueryMeasurement>();
+    const result = await runReaderSchedule({ database: { enabled: true, query: async () => { throw Object.assign(new Error(secret), { code: '53200' }); } }, queries,
+      read: async (slot, database) => { if (slot.index % 3 === 0) return database.query('SELECT 1');
+        if (slot.index % 3 === 1) throw Object.assign(new Error(secret), { code: 'ECONNRESET' }); return {}; },
+      verify: () => { throw new ReaderCorrectnessError('exact-periods', Object.assign(new Error(secret), { code: 'ERR_ASSERTION' })); } });
+    expect(result.samples.every(row => row.status === 'failed')).toBe(true);
+    expect(result.samples[0]).toMatchObject({ failureDetail: { stage: 'reader', category: 'postgresql', code: '53200' },
+      sqlFailure: { queryDigest: readerDigest('SELECT 1'), category: 'postgresql', code: '53200' } });
+    expect(result.samples[1]).toMatchObject({ failureDetail: { stage: 'reader', category: 'transport', code: 'ECONNRESET' }, sqlFailure: null });
+    expect(result.samples[2]).toMatchObject({ failureDetail: { stage: 'correctness', checkpoint: 'exact-periods', category: 'assertion', code: 'unknown' }, sqlFailure: null });
+    expect([...queries.values()][0].firstFailure).toEqual({ category: 'postgresql', code: '53200' });
+    expect(JSON.stringify({ samples: result.samples, queries: [...queries.values()] })).not.toContain(secret);
+  });
+  it('retains the first SQL failure even if the reader converts it to an unavailable resource', async () => {
+    const measurement = sample(0, 1), queries = new Map<string, QueryMeasurement>(); let calls = 0;
+    const database = measuredReaderDatabase({ enabled: true, query: async () => { calls++;
+      throw Object.assign(new Error('private'), { code: calls === 1 ? '53200' : '57014' }); } }, queries, measurement);
+    await database.query('SELECT 1').catch(() => undefined); await database.query('SELECT 2').catch(() => undefined);
+    expect(measurement.sqlFailure).toEqual({ queryDigest: readerDigest('SELECT 1'), category: 'postgresql', code: '53200' });
+    expect([...queries.values()].map(row => row.firstFailure?.code)).toEqual(['53200', '57014']);
+  });
+  it('does not pass a SQL failure hidden by a reader fallback even when the oracle accepts its result', async () => {
+    const result = await runReaderSchedule({ database: { enabled: true, query: async () => { throw { code: '53200' }; } }, queries: new Map(),
+      read: async (_slot, database) => { await database.query('SELECT 1').catch(() => undefined); return {}; }, verify: () => 'a'.repeat(64) });
+    expect(result.samples.every(row => row.status === 'failed' && row.resultDigest === null && row.failureDetail?.stage === 'reader')).toBe(true);
+    expect(readerPercentiles(result.samples).p95Ms).toBeNull();
+  });
+  it('uses closed failure labels without invoking hostile getters or serializing arbitrary fields', () => {
+    const hostile = Object.defineProperty({}, 'code', { get() { throw Error('do not invoke'); } });
+    for (const error of [hostile, new Proxy({}, { getOwnPropertyDescriptor() { throw Error('private'); } }), { code: 'secret', message: 'secret' }, 'secret'])
+      expect(readerFailureDiagnostic(error)).toEqual({ category: 'unknown', code: 'unknown' });
+    expect(readerFailureDiagnostic(new Error('private'), true)).toEqual({ category: 'deadline', code: 'unknown' });
+    expect(readerFailureDiagnostic({ code: '53200' }, true)).toEqual({ category: 'postgresql', code: '53200' });
   });
   it('permits the actual maintained official-standings read-only WITH query', async () => {
     const database = measuredReaderDatabase({ enabled: true, query: async () => [] }, new Map(), sample(0, 1));
@@ -148,6 +184,9 @@ describe('CP27 bounded reader measurement without SQL qualification', () => {
     ['failed latency target', value => { value.samples.forEach(row => { row.elapsedMs = 501; }); }],
     ['incorrect roster count', value => { value.dataset.rosters = 20; }],
     ['changed stored state', value => { value.beforeDigest = 'f'.repeat(64); }],
+    ['unrecognized diagnostic code', value => { value.queries[0].failures = 1; value.queries[0].firstFailure = { category: 'postgresql', code: 'private' as '53200' }; }],
+    ['raw diagnostic fields', value => { value.samples[0].failureDetail = { stage: 'reader', category: 'unknown', code: 'unknown', message: 'private' } as never; }],
+    ['failed snapshot', value => { value.snapshotFailure = { stage: 'fetch', table: 'leagues', code: '53200' }; }],
     ['provider request', value => { value.providerRequests = 1; }],
   ];
   it.each(mutations)('rejects an offline evidence specimen with %s', (_name, mutate) => {

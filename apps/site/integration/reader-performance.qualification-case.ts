@@ -12,14 +12,16 @@ import { projectExactMatchupValues } from '../lib/aggregator/exact-matchup-value
 import { projectOfficialStandings } from '../lib/aggregator/official-standings';
 import { projectPlayoffBracket } from '../lib/aggregator/playoff-brackets';
 import { projectWeeklyReport } from '../lib/aggregator/weekly-reports';
+import { assertReaderJsonEqual } from './reader-performance-oracle';
 import type { AdministrationFamily, JsonValue } from '../lib/league-administration/contracts';
 import { createBackendControlsDatabaseFetchGuard } from './backend-controls-fetch';
-import { createIndependentDatabase, integrationEnvironment, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
+import { createIndependentDatabase, createPinnedIntegrationDatabase, integrationEnvironment, ownerQuery, type IndependentDatabase } from './neon-integration-harness';
 import { exactMatchupClockInstant } from './exact-matchup-clock';
+import { readReaderStateSnapshot, ReaderStateSnapshotError } from './reader-performance-snapshot';
 import { qualificationBinding, qualificationDigest, type QualificationBinding } from './qualification-profile';
 import { createReaderSourceDataset, readerDigest, runReaderSchedule, measuredReaderDatabase, assertReaderTarget,
   READER_PERFORMANCE_OPTIONS, READER_PERFORMANCE_SUITE, READER_PERFORMANCE_TESTS, READER_PERFORMANCE_LIMITS,
-  READER_PERFORMANCE_PROFILE, READER_SOURCE_DIGEST, writeReaderPerformanceEvidence,
+  READER_PERFORMANCE_PROFILE, READER_SOURCE_DIGEST, writeReaderPerformanceEvidence, ReaderCorrectnessError, type ReaderCorrectnessCheckpoint,
   type ReaderPerformanceEvidence, type ReaderSlot, type ReaderSample, type QueryMeasurement } from './reader-performance';
 
 const source = createReaderSourceDataset();
@@ -39,7 +41,7 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
   let connection: IndependentDatabase, database: DatabaseClient, binding: QualificationBinding, evidence: ReaderPerformanceEvidence;
   let administration: ReturnType<typeof createLeagueAdministrationStore>, intake: ReturnType<typeof createPublicIntakeStore>;
   let dependencies: PublicIntakeDependencies, restoreFetch: (() => void) | undefined;
-  let setup = true, setupFetches = 0;
+  let setup = true, setupFetches = 0, caseDeadline = 0;
   const workers: string[] = [], fixtures: StoredFixture[] = [], ownedRequests = new Set<string>(), queries = new Map<string, QueryMeasurement>();
   const expectedDigests = new Map<string, string>(), routes = new Map<string, unknown>();
   const base = 'https://api.sleeper.app/v1'; routes.set(base + '/players/nfl', source.players);
@@ -78,7 +80,7 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
       serverVersion: String(identity.version), serverVersionNum: String(identity.version_num), runtimeLogin: String(identity.session_user), transport: 'production-neon-http',
       sourceDigest: READER_SOURCE_DIGEST, dataset: { leagues: 0, rosters: 0, weeks: 0, players: 0, requestIds: [], receiptCount: 0, sourceBindings: [] },
       cases: READER_PERFORMANCE_TESTS.map(name => ({ name, state: 'unserved', startedAt: null, endedAt: null })), samples: [], maximumActive: 0, elapsedMs: 0,
-      lists: [], queries: [], plans: [], tableCounts: [], beforeDigest: null, afterDigest: null, providerRequests: 0, blockedFetches: 0, cleanupComplete: false };
+      lists: [], queries: [], plans: [], tableCounts: [], beforeDigest: null, afterDigest: null, snapshotFailure: null, snapshotCleanupFailures: [], providerRequests: 0, blockedFetches: 0, cleanupComplete: false };
     const jobs = createProjectionStore(connection.database);
     dependencies = { administration, managerEvidenceVersion: 'v2', intake: { ...intake, admit: async (work, fence) => {
       assert(setup && ownedRequests.has(work.requestId)); assert(workers.includes(fence.workerId));
@@ -100,13 +102,20 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
   }, 90_000);
   afterAll(async () => {
     try {
-      if (workers.length) await ownerQuery(`UPDATE public.projection_jobs SET state='failed',lease_owner=NULL,lease_until=NULL,
+      try { if (workers.length) await ownerQuery(`UPDATE public.projection_jobs SET state='failed',lease_owner=NULL,lease_until=NULL,
         completed_at=clock_timestamp() WHERE job_key=$1 AND lease_owner=ANY($2::text[])`, [PUBLIC_INTAKE_JOB, workers]);
-      if (connection) await connection.close();
-      if (evidence) { evidence.cleanupComplete = true; await writeReaderPerformanceEvidence(evidence, binding); }
-    } finally { restoreFetch?.(); }
+      } finally { if (connection) await connection.close(); }
+      if (evidence) evidence.cleanupComplete = true;
+    } finally {
+      try {
+        // Preserve measured failures even when a separate plan or snapshot fails.
+        if (evidence) { evidence.queries = [...queries.values()].map(({ parameters: _parameters, ...query }) => { void _parameters; return query; });
+          await writeReaderPerformanceEvidence(evidence, binding); }
+      } finally { restoreFetch?.(); }
+    }
   }, 90_000);
   async function caseBody(index: number, body: () => Promise<void>) {
+    caseDeadline = performance.now() + READER_PERFORMANCE_LIMITS[index];
     const entry = evidence.cases[index]; entry.state = 'running'; entry.startedAt = new Date().toISOString();
     try { await body(); entry.state = 'passed'; } catch (error) { entry.state = 'failed'; throw error; } finally { entry.endedAt = new Date().toISOString(); }
   }
@@ -120,14 +129,19 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
       provenance: { origin: 'bootstrap', checkedAt: '2026-10-18T00:00:00.000Z', requestStartedAt: null, requestCompletedAt: null, sourceObservedAt: null }, payload: payload as JsonValue });
   }
   function verify(slot: ReaderSlot, input: unknown) {
+    let checkpoint: ReaderCorrectnessCheckpoint = 'result-status';
+    try {
     const value = object(input), fixture = fixtures[slot.league], league = fixture.source;
     assert.equal(value.status, slot.kind === 'current' ? 'partial' : 'available');
+    checkpoint = 'league-identity';
     const candidates = array(value.leagues); assert.equal(candidates.length, 1); assert.equal(candidates[0].externalLeagueId, league.native);
     assert.equal(candidates[0].leagueSeasonId, fixture.leagueSeasonId); assert.equal(candidates[0].collection, 'complete');
+    checkpoint = 'core-resources';
     const resources = object(candidates[0].resources), settings = available(resources.settings), held = available(resources.heldRoster), managers = available(resources.teamManagers);
     available(resources.teamManagerEvidence); available(resources.managerDirectory);
     assert.deepEqual(object(available(resources.directory).envelope).payload, league.users);
     assert.deepEqual(settings.value, normalized(fixture, 'league', league.payload, null).leagueSettings?.value);
+    checkpoint = 'held-roster-managers';
     const teams = array(held.teams); assert.equal(teams.length, 20); assert.equal(array(managers.teams).length, 20);
     for (const roster of league.rosters) {
       const team = teams.find(row => row.externalRosterId === String(roster.roster_id)); assert(team);
@@ -138,20 +152,24 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
       assert.equal(object(object(object(manager.primaryOwner).manager).sourceManager).nativeId, roster.owner_id);
       assert.deepEqual(array(object(manager.coManagers).managers).map(row => object(row.sourceManager).nativeId), roster.co_owners);
     }
+    checkpoint = 'exact-periods';
     const periods = array(value.exactPeriods); assert.equal(periods.length, slot.kind === 'current' ? 1 : 18);
     assert.deepEqual(periods.map(row => row.nativeWeek), slot.kind === 'current' ? [7] : Array.from({ length: 18 }, (_, i) => i + 1));
     for (const period of periods) {
       available(period.resource); available(period.periodContext); const values = available(period.exactMatchupValues);
       const teamIds = array(object(values.value).teams).map(row => ({ seasonTeamId: String(row.seasonTeamId), externalRosterId: String(row.externalRosterId) }));
       assert.equal(teamIds.length, 20); for (const team of teamIds) assert.equal(team.seasonTeamId, teams.find(held => held.externalRosterId === team.externalRosterId)?.seasonTeamId);
-      assert.deepEqual(values.value, projectExactMatchupValues(normalized(fixture, 'matchups', league.matchups[Number(period.nativeWeek) - 1], Number(period.nativeWeek)), teamIds));
+      assertReaderJsonEqual(values.value, projectExactMatchupValues(normalized(fixture, 'matchups', league.matchups[Number(period.nativeWeek) - 1], Number(period.nativeWeek)), teamIds));
       assert.equal(values.matchupsReceiptId, object(period.acquisition).matchupsReceiptId);
     }
+    checkpoint = 'transactions';
     const transaction = array(value.transactions); assert.equal(transaction.length, 1); const tx = available(transaction[0].resource);
     assert.equal(array(object(tx.value).events).length, 20); assert.deepEqual(object(object(tx.capture).envelope).payload, league.transactions);
+    checkpoint = 'brackets';
     const brackets = array(value.brackets); assert.equal(brackets.length, 1); const paired = available(brackets[0].resource);
     for (const [family, payload] of [['winners_bracket', league.winners], ['losers_bracket', league.losers]] as const)
       assert.deepEqual(available(paired[family]).value, projectPlayoffBracket(normalized(fixture, family, payload, null)).value);
+    checkpoint = 'drafts';
     const drafts = array(value.drafts); assert.equal(drafts.length, 5); for (const draft of drafts) available(draft.resource);
     for (const draft of drafts) {
       const item = object(available(draft.resource).value);
@@ -165,6 +183,7 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
     }
     const selections = drafts.find(row => object(object(row.resource).value).kind === 'selections'); assert(selections);
     assert.deepEqual(array(object(available(selections.resource).value).entries).map(row => row.raw), league.picks);
+    checkpoint = 'weekly-reports';
     const reports = array(value.weeklyReports); assert.equal(reports.length, 1);
     const report = object(available(reports[0].resource).value), reportTeams = array(report.teams);
     assert.equal(reportTeams.length, 20);
@@ -172,6 +191,7 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
       assert.equal(seasonTeamId, teams.find(held => held.externalRosterId === team.externalRosterId)?.seasonTeamId); return team;
     });
     assert.deepEqual({ ...report, teams: nativeReportTeams }, projectWeeklyReport(normalized(fixture, 'weekly_report', league.report, 7)).value);
+    checkpoint = 'official-standings';
     const official = array(value.officialResults); assert.equal(official.length, 1);
     const standings = available(available(official[0].resource).standings), standingsTeams = array(standings.teams);
     assert.equal(standingsTeams.length, 20);
@@ -179,24 +199,20 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
       assert.equal(seasonTeamId, teams.find(held => held.externalRosterId === team.externalRosterId)?.seasonTeamId); return team;
     });
     assert.deepEqual(nativeStandingsTeams, projectOfficialStandings(normalized(fixture, 'rosters', league.rosters, null)).teams);
+    checkpoint = 'season-history';
     const history = available(value.seasonHistory); assert.equal(array(history.leagues).length, 1); available(array(history.leagues)[0].resource);
+    checkpoint = 'inventory';
     const inventory = object(value.periodInventory); assert.equal(array(inventory.tasks).length, 18);
     assert.equal(inventory.collection, 'complete'); assert.equal(inventory.readCoverage, slot.kind === 'current' ? 'page' : 'complete');
+    checkpoint = 'stable-digest';
     const { readAt: _readAt, ...stable } = value; void _readAt;
     const digest = readerDigest(stable), key = slot.league + ':' + slot.kind, previous = expectedDigests.get(key);
     if (previous) assert.equal(digest, previous, 'Stored result changed during measurement.'); else expectedDigests.set(key, digest); return digest;
+    } catch (error) { throw new ReaderCorrectnessError(checkpoint, error); }
   }
   async function stateSnapshot() {
-    const names = await ownerQuery(`SELECT tablename FROM pg_tables WHERE schemaname='public'
-      AND (tablename LIKE 'league_%' OR tablename LIKE 'public_data_%' OR tablename IN ('leagues','projection_jobs')) ORDER BY tablename`);
-    const records: unknown[] = [], counts: ReaderPerformanceEvidence['tableCounts'] = [];
-    for (const name of names) {
-      const table = String(name.tablename); assert(/^[a-z][a-z0-9_]+$/u.test(table));
-      const [row] = await ownerQuery(`SELECT count(*)::integer AS rows, md5(COALESCE(string_agg(md5(to_jsonb(row)::text),'' ORDER BY md5(to_jsonb(row)::text)),'')) AS digest FROM public.${table} row`);
-      const [size] = await ownerQuery('SELECT pg_total_relation_size($1::regclass)::text AS bytes', ['public.' + table]);
-      records.push({ table, rows: row.rows, digest: row.digest }); counts.push({ table, rows: Number(row.rows), totalBytes: Number(size.bytes) });
-    }
-    return { digest: readerDigest(records), counts };
+    try { return await readReaderStateSnapshot(() => createPinnedIntegrationDatabase('owner'), caseDeadline - performance.now()); }
+    catch (error) { if (error instanceof ReaderStateSnapshotError) { evidence.snapshotFailure = error.diagnostic; evidence.snapshotCleanupFailures = error.cleanupFailures; } throw error; }
   }
   it(READER_PERFORMANCE_TESTS[0], () => caseBody(0, async () => {
     const directory = await runPublicPlayerDirectoryStep(dependencies, AbortSignal.timeout(20_000)); assert.equal(directory.status, 'progress'); assert.equal(directory.providerRequests, 1);
@@ -234,7 +250,7 @@ describe.sequential(READER_PERFORMANCE_SUITE, () => {
     assert.equal(setup, false); assert.equal(fixtures.length, 16);
     for (const fixture of fixtures) for (const kind of ['period-task-list', 'player-directory'] as const) {
       const sample: ReaderSample = { index: 0, league: 0, kind: 'current', temperature: 'repeat-reader-call', lane: 0, startedMs: 0, elapsedMs: 0,
-        status: 'passed', failure: 'none', statements: 0, rows: 0, decodedBytes: 0, statementMs: 0, resultDigest: null };
+        status: 'passed', failure: 'none', statements: 0, rows: 0, decodedBytes: 0, statementMs: 0, resultDigest: null, failureDetail: null, sqlFailure: null };
       const measured = measuredReaderDatabase(database, queries, sample), start = performance.now();
       const value = kind === 'period-task-list' ? await readPublicPeriodTaskRows(measured, fixture.requestId, true)
         : await createLeagueAdministrationStore(measured).readAcceptedPlayerDirectory({ limit: 200 });

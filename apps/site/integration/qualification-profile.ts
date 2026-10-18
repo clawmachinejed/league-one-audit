@@ -192,7 +192,7 @@ export const FRESH_INSTALL_PATTERN = closedPattern(FRESH_INSTALL_FULL_NAMES);
 // CP27 measurement uses the existing guarded supervisor and no enlarged execution budget.
 export const READER_PERFORMANCE_PROFILE = 'data-reader-performance-v1';
 export const READER_PERFORMANCE_MODULE = 'integration/reader-performance.qualification-case.ts';
-export const READER_PERFORMANCE_SOURCE_DIGEST = 'a4e6aa063f32790a917acf906940dff3e38ac6bfea006131436270033dc40ed5';
+export const READER_PERFORMANCE_SOURCE_DIGEST = '4049bf8ba503fa08a2d3630db947ed99115c0b8d737833c1289f0687f0248ec4';
 export const READER_PERFORMANCE_SUITE = 'bounded stored DATA reader performance through the existing PostgreSQL composition';
 export const READER_PERFORMANCE_TESTS = [
   'stores the fixed sixteen league 2026 dataset through existing typed acceptance',
@@ -210,9 +210,9 @@ export const READER_PERFORMANCE_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/public-intake.ts', sourceDigest: '46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd' },
   { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479' },
   { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
-  { path: 'integration/reader-performance.ts', sourceDigest: '60059f50b141a3009f7d9cef7653a35d9677a6a86ee2699629fda44f9bd290fc' },
+  { path: 'integration/reader-performance.ts', sourceDigest: '876da0752e80097152e90dd127606039712c238ee166c7541d55b03b4399d83a' },
   { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
-  { path: 'integration/neon-integration-harness.ts', sourceDigest: 'a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783' },
+  { path: 'integration/neon-integration-harness.ts', sourceDigest: '1ea7875c3cae6785ae94572144391a0bce0206ebb575e11dfa4fb4cec3eb7933' },
   { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },
   { path: 'lib/league-administration/normalize.ts', sourceDigest: '72e26189a07659d43fcd9163bff2fc2e65bec14c172c87f256373e6fae437d11' },
   { path: 'lib/league-administration/store.ts', sourceDigest: '7bb8b073118ee762abee0f4ceb50e68771566e0384b6e9de4fa9cd66b27e9b64' },
@@ -227,6 +227,8 @@ export const READER_PERFORMANCE_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/public-weekly-report-reader.ts', sourceDigest: '0b7e07dc82a189a07f6808803921e05a3254be91093345101863854979d72c95' },
   { path: 'lib/aggregator/within-season-history.ts', sourceDigest: '050bc1ff4c8f2e579dbe6d040f9a0dc6222b53e04ae5dc078a77532a17d0dd55' },
   { path: 'lib/aggregator/official-results.ts', sourceDigest: '3d30e90cd6386b26234991c92778f2b34e089f1b9bfa3e03a2f34faa6648e8a5' },
+  { path: 'integration/reader-performance-snapshot.ts', sourceDigest: '6139318e6a6d8e748ee0ac29f9995fd6924c7f112beb8f77993189f7df298e00' },
+  { path: 'integration/reader-performance-oracle.ts', sourceDigest: '31da717fa4438e7df73c28d841ee92f0afd2614c98bbc2af827dd25fedd00626' },
 ] as const;
 export const BATCH_CALIBRATION_PROFILE = 'data-batch-calibration-v1';
 export const BATCH_CALIBRATION_MODULE = 'integration/batch-calibration.qualification-case.ts';

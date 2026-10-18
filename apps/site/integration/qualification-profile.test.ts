@@ -98,6 +98,15 @@ import { BACKEND_CONTROLS_EVIDENCE_FILE, BACKEND_CONTROLS_LIMITS, BACKEND_CONTRO
 
 const directories: string[] = [];
 const exitCode = process.exitCode;
+// Source-only historical fixtures; current shared-harness drift must still fail.
+let frozenHarness: Promise<string> | undefined;
+function historicalHarnessSource() {
+  return frozenHarness ??= promisify(execFile)('git', ['show', 'b8abdb576d2f10cafd238908d201d9ee5a462f00:apps/site/integration/neon-integration-harness.ts'],
+    { cwd: fileURLToPath(new URL('..', import.meta.url)), encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 }).then(result => {
+    expect(qualificationSourceDigest(result.stdout)).toBe('a4f2f15362da075160f0a187c4da35ee72902c37ebcf49de1842a92f50942783'); return result.stdout;
+  });
+}
+
 afterEach(async () => { process.exitCode = exitCode; await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 async function fixture(selected: boolean | typeof INGESTION_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE | typeof CLOSEOUT_PROFILES[number]['profile'] = false): Promise<QualificationBinding> {
   const directory = await mkdtemp(join(tmpdir(), 'qualification-profile-')); directories.push(directory);
@@ -3303,7 +3312,12 @@ it('checks the actual CP22 draft-reader assertion against supplied status and ad
 
 async function competingWorkersFixture(): Promise<{ binding: QualificationBinding; evidence: QualificationReport }> {
   const previous = await officialResultsEvidenceFixture();
-  const context = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
+  const historicalRoot = await mkdtemp(join(tmpdir(), 'cp23-historical-report-')); directories.push(historicalRoot);
+  await mkdir(join(historicalRoot, 'integration'));
+  for (const path of [COMPETING_WORKERS_MODULE, ...COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)])
+    await writeFile(join(historicalRoot, path), path === 'integration/neon-integration-harness.ts'
+      ? await historicalHarnessSource() : await readFile(new URL('../' + path, import.meta.url), 'utf8'));
+  const context = await createQualificationContext(historicalRoot, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
   const evidence = structuredClone(previous.evidence);
   evidence.contextDigest = qualificationDigest(context);
   evidence.specifications = [{ path: COMPETING_WORKERS_MODULE, pattern: COMPETING_WORKERS_PATTERN, otherFilters: false }];
@@ -3423,14 +3437,17 @@ it('independently inventories CP23 source names hooks allowance and fixed manual
 
 it('binds CP23 worker, protocol and pinned harness source independently from the five collected cases', async () => {
   const siteRoot = fileURLToPath(new URL('..', import.meta.url));
-  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
+  const drift = [];
+  for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) drift.push(entry.path);
+  expect(drift).toEqual(['integration/neon-integration-harness.ts']);
   const directory = await mkdtemp(join(tmpdir(), 'competing-workers-support-')); directories.push(directory);
   await mkdir(join(directory, 'integration'));
   const source = await readFile(new URL('../' + COMPETING_WORKERS_MODULE, import.meta.url), 'utf8');
   await writeFile(join(directory, COMPETING_WORKERS_MODULE), source);
   await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE)).rejects.toThrow();
   for (const entry of COMPETING_WORKERS_SUPPORT_SOURCES) await writeFile(join(directory, entry.path),
-    await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
+    entry.path === 'integration/neon-integration-harness.ts' ? await historicalHarnessSource() : await readFile(new URL('../' + entry.path, import.meta.url), 'utf8'));
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), COMPETING_WORKERS_PROFILE);
   expect(context.modules).toEqual([{ path: COMPETING_WORKERS_MODULE, sourceDigest: COMPETING_WORKERS_SOURCE_DIGEST }]);
   expect(COMPETING_WORKERS_SUPPORT_SOURCES.map(entry => entry.path)).toEqual([
@@ -4100,10 +4117,10 @@ it('binds every CP25 support source independently without changing historical so
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'lib/projections/runtime/projection-dispatch.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
-  await expect(assertCompetingWorkersSupportSources(siteRoot)).resolves.toBeUndefined();
+  await expect(assertCompetingWorkersSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
 });
 
@@ -4217,7 +4234,7 @@ it('CP26 calibration preserves historical source pins and rejects current schedu
   for (const entry of BATCH_CALIBRATION_SUPPORT_SOURCES) {
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'lib/league-administration/neon/public-intake.ts',
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/league-administration/public-intake-contracts.ts', 'lib/league-administration/public-intake-reader.ts',
     'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'scripts/provision-runtime-role.sql']);
   // Read the actual reviewed historical bytes from local Git objects. The verify
@@ -4266,9 +4283,9 @@ for(const profile of ['data-freshness-capacity-healthy-v1','data-freshness-capac
  it('CP26 fleet rejects incomplete reordered retried filtered or unhooked cases '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);for(const mutate of [(row:QualificationReport)=>{row.modules[0].cases.pop();},(row:QualificationReport)=>{row.modules[0].cases.reverse();},(row:QualificationReport)=>{row.modules[0].cases[1].diagnostic!.startTime=0;},(row:QualificationReport)=>{row.modules[0].cases[0].diagnostic!.retryCount=1;},(row:QualificationReport)=>{row.modules[0].cases[0].state='skipped';},(row:QualificationReport)=>{row.hooks.pop();}]){const changed=structuredClone(evidence);mutate(changed);expect(()=>validateQualificationReport(binding.context,changed)).toThrow();}});
  it('CP26 fleet requires the semantic chunk companion after report and cleanup '+profile,async()=>{const{binding,evidence}=await fleetReportFixture(profile);await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);await expect(validateQualificationArtifacts(binding)).rejects.toThrow();await writeFile(join(binding.directory,profile==='data-live-public-batch-v1'?'cp26-fleet-live-evidence.json':profile==='data-freshness-capacity-ownership-v1'?'cp26-fleet-ownership-evidence.json':profile.endsWith('daily-v1')?'cp26-fleet-daily-evidence.json':profile.endsWith('healthy-v1')?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json'),JSON.stringify({kind:'forged',pass:true,cleanup:true}));await expect(validateQualificationArtifacts(binding)).rejects.toThrow();});
 }
-it('CP26 fleet binds its frozen support bytes rejects current supervisor drift and preserves LF portability',async()=>{
+it('CP26 fleet binds frozen support bytes rejects current harness and supervisor drift and preserves LF portability',async()=>{
  const {FLEET_SUPPORT_SOURCES,assertFleetSupportSources}=await import('./qualification-profile'),fleet=await import('./freshness-capacity-profile');
- const sourceRoot=fileURLToPath(new URL('..',import.meta.url)),supervisorPath='integration/disposable-integration.ts';
+ const sourceRoot=fileURLToPath(new URL('..',import.meta.url)),supervisorPath='integration/disposable-integration.ts',harnessPath='integration/neon-integration-harness.ts';
  expect(FLEET_SUPPORT_SOURCES).toHaveLength(121);expect(new Set(FLEET_SUPPORT_SOURCES.map(row=>row.path)).size).toBe(121);
  for(const path of fleet.FLEET_QUERY_SOURCE_PATHS)expect(FLEET_SUPPORT_SOURCES.some(row=>row.path===path)).toBe(true);
  expect(FLEET_SUPPORT_SOURCES.filter(row=>row.path.startsWith('migrations/'))).toHaveLength(62);
@@ -4279,7 +4296,7 @@ it('CP26 fleet binds its frozen support bytes rejects current supervisor drift a
   try{return(await git('git',['show',historicalSha+':apps/site/'+path],{cwd:sourceRoot,encoding:'utf8',maxBuffer:2*1024*1024})).stdout;}
   catch{throw new Error('Historical CP26 source object required locally: '+historicalSha+':apps/site/'+path);}
  };
- const [historicalSupervisor,historicalProfiles,currentProfiles]=await Promise.all([historicalSource(supervisorPath),
+ const [historicalSupervisor,historicalHarness,historicalProfiles,currentProfiles]=await Promise.all([historicalSource(supervisorPath),historicalSource(harnessPath),
   historicalSource('integration/qualification-profile.ts'),readFile(join(sourceRoot,'integration/qualification-profile.ts'),'utf8')]);
  const supportPattern=/export const FLEET_SUPPORT_SOURCES = \[[\s\S]*?\] as const;/u;
  const frozenSupport=historicalProfiles.match(supportPattern)?.[0],currentSupport=currentProfiles.match(supportPattern)?.[0];
@@ -4293,17 +4310,18 @@ it('CP26 fleet binds its frozen support bytes rejects current supervisor drift a
  const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
   if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
  }
- expect(changed).toEqual([supervisorPath]);
- await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+supervisorPath);
+ expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath].sort());
+ expect(qualificationSourceDigest(historicalHarness)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===harnessPath)!.sourceDigest);
+ await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+changed[0]);
  await expect(createQualificationContext(sourceRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE))
-  .rejects.toThrow('reviewed LF digest: '+supervisorPath);
+  .rejects.toThrow('reviewed LF digest: '+changed[0]);
  const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');
  const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];
  for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});
-  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:await readFile(join(sourceRoot,path)));}
+  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:path===harnessPath?historicalHarness:await readFile(join(sourceRoot,path)));}
  await expect(assertFleetSupportSources(siteRoot)).resolves.toBeUndefined();
  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
- for(const path of [supervisorPath,fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
+ for(const path of [supervisorPath,harnessPath,fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
  for(const [profile,modulePath]of [[fleet.FLEET_LIVE_PROFILE,fleet.FLEET_LIVE_MODULE],[fleet.FLEET_OWNERSHIP_PROFILE,fleet.FLEET_OWNERSHIP_MODULE]] as const){
   const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile),file=join(siteRoot,modulePath),original=await readFile(file,'utf8');
   await writeFile(file,original+'\n// altered short profile\n');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),profile)).rejects.toThrow('reviewed LF digest');
@@ -4480,8 +4498,8 @@ it.each(['missing', 'forged', 'oversized'] as const)('CP27 rejects a %s semantic
 it('CP27 source pins bind its module helper and existing reader dependencies without changing old pins', async () => {
   const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
   await expect(assertReaderPerformanceSupportSources(sourceRoot)).resolves.toBeUndefined();
-  expect(READER_PERFORMANCE_SUPPORT_SOURCES).toHaveLength(24);
-  expect(new Set(READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)).size).toBe(24);
+  expect(READER_PERFORMANCE_SUPPORT_SOURCES).toHaveLength(26);
+  expect(new Set(READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)).size).toBe(26);
   const source = await readFile(join(sourceRoot, READER_PERFORMANCE_MODULE), 'utf8');
   expect(qualificationSourceDigest(source)).toBe(READER_PERFORMANCE_SOURCE_DIGEST);
   const companion = await import('./reader-performance');
@@ -4504,6 +4522,7 @@ it('CP27 fails closed on module or helper drift while normalizing only checkout 
   }
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE);
   for (const path of [READER_PERFORMANCE_MODULE, 'integration/reader-performance.ts',
+    'integration/reader-performance-snapshot.ts', 'integration/reader-performance-oracle.ts', 'integration/neon-integration-harness.ts',
     'integration/disposable-integration.ts', 'integration/integration-owner-loss-diagnostics.ts',
     'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-transaction-reader.ts']) {
     const target = join(directory, path), original = await readFile(target, 'utf8');

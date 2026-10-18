@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocked = vi.hoisted(() => ({ neon: vi.fn(), httpQuery: vi.fn(), transaction: vi.fn(), pool: vi.fn(), query: vi.fn(), end: vi.fn(),
@@ -79,11 +80,19 @@ beforeEach(() => {
   mocked.connect.mockResolvedValue({ query: mocked.sessionQuery, release: mocked.release });
   mocked.pool.mockImplementation(function (configuration: { connectionString: string }) {
     const user = decodeURIComponent(new URL(configuration.connectionString).username);
-    return {
-      query: (statement: string) => mocked.query(statement, user),
-      connect: mocked.connect,
-      end: mocked.end,
-    };
+    const pool = new EventEmitter(), client = new EventEmitter(), clients: EventEmitter[] = [];
+    let connected = false;
+    return Object.assign(pool, {
+      query: (statement: string) => {
+        if (!connected) { connected = true; clients.push(client); pool.emit('connect', client); }
+        return mocked.query(statement, user);
+      },
+      connect: async () => {
+        const session = Object.assign(new EventEmitter(), await mocked.connect());
+        clients.push(session); pool.emit('connect', session); return session;
+      },
+      end: async () => { await mocked.end(); for (const session of clients) session.emit('end'); },
+    });
   });
   mocked.query.mockImplementation(async (statement: string, user: string) => ({ rows: [statement.includes('AS has_memberships') ? {
     rolcanlogin: true, rolsuper: false, rolcreatedb: false, rolcreaterole: false,
@@ -1030,5 +1039,155 @@ describe('explicit pinned worker session boundaries', () => {
     mocked.connect.mockRejectedValueOnce(new Error('synthetic connection failure'));
     await expect(createIndependentPinnedDatabase(runtimeUrl)).rejects.toThrow('synthetic connection failure');
     expect(mocked.end).toHaveBeenCalledOnce();expect(mocked.release).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('preflight probe connection closure acknowledgment', () => {
+  function controlledProbes() {
+    const probes: { pool: EventEmitter; client: EventEmitter; user: string; end: ReturnType<typeof vi.fn> }[] = [];
+    mocked.pool.mockImplementation(function (configuration: { connectionString: string }) {
+      const user = decodeURIComponent(new URL(configuration.connectionString).username);
+      const pool = new EventEmitter(), client = new EventEmitter();
+      let connected = false;
+      const end = vi.fn().mockResolvedValue(undefined);
+      probes.push({ pool, client, user, end });
+      return Object.assign(pool, {
+        query: (statement: string) => {
+          if (!connected) { connected = true; pool.emit('connect', client); }
+          return mocked.query(statement, user);
+        },
+        end,
+      });
+    });
+    const closing = async () => {
+      await vi.waitFor(() => expect(probes.length > 0 && probes.every(probe => probe.end.mock.calls.length === 1)).toBe(true));
+    };
+    return { probes, closing, endClients: () => { for (const probe of probes) probe.client.emit('end'); } };
+  }
+  it('waits for all four actual client ends after every pool end has resolved', async () => {
+    vi.stubEnv('AUTH_RESET_INTEGRATION_DATABASE_URL', authUrl);
+    vi.stubEnv('ACCOUNT_FRESH_INSTALL_DATABASE_URL', runtimeUrl.replace('league_one_runtime', 'league_one_account'));
+    const f = controlledProbes(); let settled = false;
+    const pending = assertSafeIntegrationDatabase().then(() => { settled = true; });
+    await f.closing(); expect(f.probes).toHaveLength(4); expect(settled).toBe(false);
+    for (const probe of f.probes.slice(0, -1)) probe.client.emit('end');
+    await Promise.resolve(); expect(settled).toBe(false);
+    f.probes.at(-1)!.client.emit('end'); await pending; expect(settled).toBe(true);
+    expect(mocked.query.mock.calls.every(([sql]) => sql.includes('shobj_description') || sql.includes('AS has_memberships'))).toBe(true);
+  });
+  it.each(['pool', 'client'] as const)('retains a late %s error until end and reports only safe closure failure', async source => {
+    const f = controlledProbes();
+    const outcome = assertSafeIntegrationDatabase().catch(error => error);
+    await f.closing();
+    expect(() => f.probes[0][source].emit('error', new Error('fictional private URL ' + ownerUrl))).not.toThrow();
+    f.endClients(); const error = await outcome;
+    expect(error).toBeInstanceOf(Error); expect(error.message).toContain('did not close cleanly');
+    expect(error.message).not.toContain(ownerUrl); expect(error).not.toHaveProperty('cause');
+    expect(() => f.probes[0][source].emit('error', new Error('fictional late error'))).not.toThrow();
+  });
+  it('enforces the twenty-second close bound for a missing client-end acknowledgment', async () => {
+    vi.useFakeTimers(); const f = controlledProbes();
+    let settled = false;
+    const outcome = assertSafeIntegrationDatabase().catch(error => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(0); expect(f.probes.every(probe => probe.end.mock.calls.length === 1)).toBe(true);
+    await vi.advanceTimersByTimeAsync(19_999); expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1); expect((await outcome).message).toContain('did not close cleanly');
+    expect(() => f.probes[0].pool.emit('error', new Error('fictional late transport failure'))).not.toThrow();
+    f.endClients(); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('closes every other pool when one pool end rejects and never retains its raw error', async () => {
+    const f = controlledProbes(); let settled = false;
+    const outcome = assertSafeIntegrationDatabase().catch(error => { settled = true; return error; });
+    f.probes[0].end.mockRejectedValue(new Error('fictional private URL ' + ownerUrl));
+    await f.closing(); expect(settled).toBe(false); f.endClients(); const error = await outcome;
+    expect(error.message).toContain('did not close cleanly'); expect(error.message).not.toContain(ownerUrl);
+    expect(f.probes.every(probe => probe.end.mock.calls.length === 1)).toBe(true);
+  });
+  it('preserves the sanitized primary probe failure alongside a closure failure', async () => {
+    const f = controlledProbes();
+    mocked.query.mockRejectedValueOnce(new Error('fictional private URL ' + ownerUrl));
+    const outcome = assertSafeIntegrationDatabase().catch(error => error);
+    await f.closing(); f.probes[0].pool.emit('error', new Error(ownerUrl)); f.endClients();
+    const error = await outcome;
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.errors.map((entry: Error) => entry.message)).toEqual([
+      'The owner connection could not verify the isolated database identity.',
+      'The isolated database preflight connections did not close cleanly.',
+    ]);
+    expect(error.errors.every((entry: Error) => !entry.message.includes(ownerUrl) && !('cause' in entry))).toBe(true);
+  });
+  it('keeps closing after cancellation instead of acknowledging sockets early', async () => {
+    const f = controlledProbes(), controller = new AbortController();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement, user) => {
+      const result = await original(statement, user); controller.abort(new Error('probe deadline')); return result;
+    });
+    let settled = false;
+    const outcome = assertSafeIntegrationDatabase(fixture, controller.signal).catch(error => { settled = true; return error; });
+    await f.closing(); expect(settled).toBe(false); f.endClients();
+    expect((await outcome).message).toBe('probe deadline'); expect(mocked.acquireOwnership).not.toHaveBeenCalled();
+  });
+  it('tracks a client connected during pool shutdown before accepting closure', async () => {
+    const f = controlledProbes(); let settled = false;
+    const pending = assertSafeIntegrationDatabase().then(() => { settled = true; });
+    const extra = new EventEmitter();
+    f.probes[0].end.mockImplementation(async () => { f.probes[0].pool.emit('connect', extra); });
+    await f.closing(); f.endClients(); await Promise.resolve(); expect(settled).toBe(false);
+    extra.emit('end'); await pending; expect(settled).toBe(true);
+  });
+  it('accepts client ends that were observed before pool shutdown', async () => {
+    const f = controlledProbes();
+    const original = mocked.query.getMockImplementation()!;
+    mocked.query.mockImplementation(async (statement, user) => {
+      const result = await original(statement, user);
+      f.probes.find(probe => probe.user === user)!.client.emit('end'); return result;
+    });
+    await expect(assertSafeIntegrationDatabase()).resolves.toBeUndefined();
+    expect(f.probes.every(probe => probe.end.mock.calls.length === 1)).toBe(true);
+  });
+});
+
+
+describe('pinned integration connection closure acknowledgment', () => {
+  function controlledPinned() {
+    const pool = new EventEmitter(), release = vi.fn(), end = vi.fn().mockResolvedValue(undefined);
+    const client = Object.assign(new EventEmitter(), { query: mocked.sessionQuery, release });
+    mocked.pool.mockImplementation(function () {
+      return Object.assign(pool, { connect: async () => { pool.emit('connect', client); return client; }, end });
+    });
+    return { pool, client, release, end };
+  }
+  it.each(['owner', 'runtime', 'explicit'] as const)('awaits the actual %s pinned client end and closes only once', async role => {
+    const f = controlledPinned();
+    const session = role === 'explicit' ? await createIndependentPinnedDatabase(runtimeUrl) : await createPinnedIntegrationDatabase(role);
+    await session.database.query('BEGIN'); await session.database.query('ROLLBACK');
+    let settled = false;
+    const pending = session.close().then(() => { settled = true; });
+    await Promise.resolve(); expect(f.end).toHaveBeenCalledOnce(); expect(settled).toBe(false);
+    f.client.emit('end'); await pending; await session.close();
+    expect(f.release).toHaveBeenCalledOnce(); expect(f.end).toHaveBeenCalledOnce();
+    expect(mocked.sessionQuery.mock.calls.map(([sql]) => sql)).toEqual(['BEGIN', 'ROLLBACK']);
+  });
+  it.each(['pool', 'client'] as const)('keeps a late pinned %s error sticky across repeated close calls', async source => {
+    const f = controlledPinned(), session = await createPinnedIntegrationDatabase('owner');
+    const outcome = session.close().catch(error => error);
+    await Promise.resolve(); expect(() => f[source].emit('error', new Error(ownerUrl))).not.toThrow();
+    f.client.emit('end'); const error = await outcome;
+    expect(error.message).toBe('The isolated pinned connection did not close cleanly.');
+    expect(error).not.toHaveProperty('cause'); expect(error.message).not.toContain(ownerUrl);
+    await expect(session.close()).rejects.toBe(error);
+    expect(f.release).toHaveBeenCalledOnce(); expect(f.end).toHaveBeenCalledOnce();
+  });
+  it('bounds an unacknowledged pinned close without reconnecting or retrying', async () => {
+    vi.useFakeTimers(); const f = controlledPinned(), session = await createPinnedIntegrationDatabase('owner');
+    let settled = false;
+    const outcome = session.close().catch(error => { settled = true; return error; });
+    await vi.advanceTimersByTimeAsync(19_999); expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1); const error = await outcome;
+    expect(error.message).toContain('pinned connection did not close cleanly');
+    await expect(session.close()).rejects.toBe(error); expect(mocked.pool).toHaveBeenCalledOnce();
+    expect(f.release).toHaveBeenCalledOnce(); expect(f.end).toHaveBeenCalledOnce();
+    expect(() => f.client.emit('error', new Error('late transport error'))).not.toThrow(); f.client.emit('end');
   });
 });

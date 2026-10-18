@@ -272,6 +272,45 @@ function productionUrlIdentities(): readonly UrlIdentity[] {
   return identities;
 }
 
+/** Pool.end acknowledges removal from the pool before Neon emits client end.
+ * Keep probe errors sticky and await actual client closure before qualification
+ * may acknowledge the identity check. Listeners intentionally remain attached
+ * after a failed close so a late socket error cannot escape as an uncaught event.
+ * The new twenty-second close cap stays inside the existing caller stage and
+ * lifecycle budgets; it never extends those outer deadlines. */
+function trackIntegrationPoolClosure(pool: Pool, purpose: 'preflight' | 'pinned'): () => Promise<void> {
+  let failed = false;
+  const clients = new Map<PoolClient, Promise<void>>();
+  const recordFailure = () => { failed = true; };
+  pool.on('error', recordFailure);
+  pool.on('connect', (client: PoolClient) => {
+    if (clients.has(client)) return;
+    client.on('error', recordFailure);
+    clients.set(client, new Promise<void>(resolve => { client.once('end', resolve); }));
+  });
+  return async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        (async () => {
+          try { await pool.end(); } catch { failed = true; }
+          // A pending connection can complete during pool.end. Read the tracked
+          // set only after it resolves, when the pool can accept no new client.
+          await Promise.all(clients.values());
+        })(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Integration connection close deadline exceeded.')), 20_000);
+        }),
+      ]);
+    } catch {
+      failed = true;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (failed) throw new Error('The isolated ' + purpose + ' connection did not close cleanly.');
+  };
+}
+
 export async function assertSafeIntegrationDatabase(
   env = integrationEnvironment(),
   signal?: AbortSignal,
@@ -340,6 +379,9 @@ export async function assertSafeIntegrationDatabase(
   const runtimePool = new Pool({ connectionString: env.runtimeDatabaseUrl, ...preflightLimits });
   const authPool = authDatabaseUrl ? new Pool({ connectionString: authDatabaseUrl, ...preflightLimits }) : undefined;
   const accountPool = accountDatabaseUrl ? new Pool({ connectionString: accountDatabaseUrl, ...preflightLimits }) : undefined;
+  const closeProbes = [ownerPool, runtimePool, authPool, accountPool]
+    .filter((pool): pool is Pool => pool !== undefined).map(pool => trackIntegrationPoolClosure(pool, 'preflight'));
+  let probeFailure: { error: unknown } | undefined;
   try {
     const [ownerIdentity, runtimeIdentity, authIdentity, accountIdentity] = await Promise.all([
       connectionIdentity(ownerPool, 'The owner connection', signal),
@@ -377,9 +419,19 @@ export async function assertSafeIntegrationDatabase(
       // CP21 generates the extra account credential only with its new-role proof.
       await assertRestrictedAuthRole(runtimePool, signal, 'runtime');
     }
+  } catch (error) {
+    probeFailure = { error };
   } finally {
-    await Promise.allSettled([ownerPool.end(), runtimePool.end(), authPool?.end(), accountPool?.end()]);
+    // Cancellation stops further probes, but cannot bypass bounded socket close.
+    const closures = await Promise.allSettled(closeProbes.map(close => close()));
+    if (closures.some(result => result.status === 'rejected')) {
+      const closureFailure = new Error('The isolated database preflight connections did not close cleanly.');
+      if (probeFailure) throw new AggregateError([probeFailure.error, closureFailure],
+        'The isolated database preflight and connection closure failed.');
+      throw closureFailure;
+    }
   }
+  if (probeFailure) throw probeFailure.error;
   signal?.throwIfAborted();
 }
 
@@ -723,11 +775,12 @@ export async function createIndependentPinnedDatabase(databaseUrl: string): Prom
 
 async function pinIntegrationSession(connectionString: string): Promise<IndependentDatabase> {
   const pool = new Pool({ connectionString, max: 1 });
+  const closePool = trackIntegrationPoolClosure(pool, 'pinned');
   const client = await pool.connect().catch(async (error: unknown) => {
-    await pool.end();
+    await closePool();
     throw error;
   });
-  let closed = false;
+  let closing: Promise<void> | undefined;
   let inTransaction = false;
   let savepointSequence = 0;
   return {
@@ -750,10 +803,8 @@ async function pinIntegrationSession(connectionString: string): Promise<Independ
       },
     },
     async close() {
-      if (closed) return;
-      closed = true;
-      client.release();
-      await pool.end();
+      closing ??= (async () => { client.release(); await closePool(); })();
+      await closing;
     },
   };
 }
