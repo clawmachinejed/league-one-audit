@@ -1,3 +1,6 @@
+import { READER_PERFORMANCE_PROFILE, READER_PERFORMANCE_MODULE, READER_PERFORMANCE_SOURCE_DIGEST,
+  READER_PERFORMANCE_SUITE, READER_PERFORMANCE_TESTS, READER_PERFORMANCE_FULL_NAMES,
+  READER_PERFORMANCE_PATTERN, READER_PERFORMANCE_SUPPORT_SOURCES, assertReaderPerformanceSupportSources } from './qualification-profile';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -4344,6 +4347,165 @@ it('CP26 short live profile loads the actual integration config with its emitted
     timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
   });
   expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [modulePath], environment: 'node',
+    globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
+    hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
+    serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
+});
+
+
+async function readerPerformanceReportFixture() {
+  const previous = await officialResultsEvidenceFixture();
+  const context: QualificationBinding['context'] = { ...previous.binding.context, nonce: randomUUID(),
+    profile: READER_PERFORMANCE_PROFILE,
+    modules: [{ path: READER_PERFORMANCE_MODULE, sourceDigest: READER_PERFORMANCE_SOURCE_DIGEST }],
+    profileDigest: qualificationDigest({ version: 1, profile: READER_PERFORMANCE_PROFILE,
+      module: READER_PERFORMANCE_MODULE, pattern: READER_PERFORMANCE_PATTERN, sourceDigest: READER_PERFORMANCE_SOURCE_DIGEST,
+      inventory: READER_PERFORMANCE_FULL_NAMES, supportSources: READER_PERFORMANCE_SUPPORT_SOURCES }) };
+  const evidence = structuredClone(previous.evidence);
+  evidence.contextDigest = qualificationDigest(context);
+  evidence.specifications = [{ path: READER_PERFORMANCE_MODULE, pattern: READER_PERFORMANCE_PATTERN, otherFilters: false }];
+  evidence.collected = [READER_PERFORMANCE_MODULE];
+  evidence.modules = [{ ...evidence.modules[0], path: READER_PERFORMANCE_MODULE,
+    suites: [{ id: 'suite', name: READER_PERFORMANCE_SUITE, mode: 'run', errors: 0 }],
+    cases: READER_PERFORMANCE_FULL_NAMES.map((name, index) => ({ ...previous.evidence.modules[0].cases[0],
+      id: 'case-' + index, name,
+      diagnostic: { retryCount: 0, repeatCount: 0, flaky: false, duration: 1, startTime: 1234 + index * 2 } })) }];
+  return { binding: { context, directory: previous.binding.directory }, evidence };
+}
+
+it('CP27 selects only the three fixed reader cases and one protected manual workflow arm', async () => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  expect(parseQualificationArguments(['--profile=' + READER_PERFORMANCE_PROFILE])).toBe(READER_PERFORMANCE_PROFILE);
+  expect(qualificationArguments(READER_PERFORMANCE_PROFILE, '/reporter')).toEqual([
+    '--reporter', 'verbose', '--reporter', '/reporter', '--configLoader', 'runner', READER_PERFORMANCE_MODULE, '--testNamePattern', READER_PERFORMANCE_PATTERN]);
+  expect(qualificationIncludes({ [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context),
+    PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory })).toEqual([READER_PERFORMANCE_MODULE]);
+  expect(() => validateQualificationReport(binding.context, evidence)).not.toThrow();
+  const full = await createQualificationContext(fileURLToPath(new URL('..', import.meta.url)), 'a'.repeat(40), randomUUID());
+  expect(full.modules).toHaveLength(70);
+  expect(full.modules.some(module => module.path === READER_PERFORMANCE_MODULE)).toBe(false);
+  const pattern = new RegExp(READER_PERFORMANCE_PATTERN);
+  for (const name of READER_PERFORMANCE_FULL_NAMES) {
+    const selectorName = name.replaceAll(' > ', ' ');
+    expect(pattern.test(selectorName)).toBe(true); expect(pattern.test(selectorName + ' extra')).toBe(false);
+    expect(pattern.test('prefix ' + selectorName)).toBe(false);
+  }
+  const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
+  expect(workflow.match(/^\s+- data-reader-performance-v1$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+workflow_dispatch:data-reader-performance-v1\)$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^\s+pnpm test:integration --profile=data-reader-performance-v1$/gmu)).toHaveLength(1);
+  expect(workflow).toContain("timeout-minutes: ${{ inputs.profile == 'data-freshness-capacity-recovery-v1' && 360 || inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50 }}");
+  expect(workflow).toContain('cancel-in-progress: false');
+  for (const args of [['--profile=data-reader-performance-v2'], ['--profile', READER_PERFORMANCE_PROFILE],
+    ...['--retry=1', '--repeat=2', '--testNamePattern=one', READER_PERFORMANCE_MODULE,
+      '--profile=' + BATCH_CALIBRATION_PROFILE].map(extra => ['--profile=' + READER_PERFORMANCE_PROFILE, extra])]) {
+    expect(() => parseQualificationArguments(args)).toThrow();
+  }
+});
+
+it('CP27 rejects missing reordered retried skipped and malformed report execution', async () => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  const mutations: ((value: QualificationReport) => void)[] = [
+    value => { value.modules[0].cases.pop(); },
+    value => { value.modules[0].cases.reverse(); },
+    value => { value.modules[0].cases[0].configuredRepeats = 1; },
+    value => { value.modules[0].cases[0].configuredRetries = true; },
+    value => { value.modules[0].cases[0].state = 'skipped'; },
+    value => { value.modules[0].cases[0].diagnostic = null; },
+    value => { value.modules[0].cases[1].diagnostic!.startTime = 1; },
+    value => { value.modules[0].cases[1].diagnostic!.retryCount = 1; },
+    value => { value.modules[0].cases[1].errors = 1; },
+    value => { value.hooks.pop(); },
+    value => { value.hooks[0].starts = 2; },
+    value => { value.specifications[0].otherFilters = true; },
+    value => { value.specifications[0].pattern = '.*'; },
+    value => { value.contextDigest = '0'.repeat(64); },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(evidence); mutate(changed);
+    expect(() => validateQualificationReport(binding.context, changed)).toThrow();
+  }
+});
+
+it('CP27 requires a bounded valid semantic companion after report and acknowledged cleanup', async () => {
+  const { binding, evidence } = await readerPerformanceReportFixture();
+  await writeQualificationArtifact(binding, 'report', evidence);
+  await qualificationCleanup(async () => {}, binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  const companion = join(binding.directory, 'reader-performance-evidence.json');
+  await writeFile(companion, JSON.stringify({ kind: 'forged', pass: true, cleanup: true }));
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+  await writeFile(companion, ' '.repeat(QUALIFICATION_MAX_BYTES + 1));
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+
+it('CP27 source pins bind its module helper and existing reader dependencies without changing old pins', async () => {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  await expect(assertReaderPerformanceSupportSources(sourceRoot)).resolves.toBeUndefined();
+  const source = await readFile(join(sourceRoot, READER_PERFORMANCE_MODULE), 'utf8');
+  expect(qualificationSourceDigest(source)).toBe(READER_PERFORMANCE_SOURCE_DIGEST);
+  const companion = await import('./reader-performance');
+  expect(companion.READER_PERFORMANCE_PROFILE).toBe(READER_PERFORMANCE_PROFILE);
+  expect(companion.READER_PERFORMANCE_MODULE).toBe(READER_PERFORMANCE_MODULE);
+  expect(companion.READER_PERFORMANCE_SUITE).toBe(READER_PERFORMANCE_SUITE);
+  expect(companion.READER_PERFORMANCE_TESTS).toEqual(READER_PERFORMANCE_TESTS);
+  expect(companion.READER_PERFORMANCE_FULL_NAMES).toEqual(READER_PERFORMANCE_FULL_NAMES);
+  expect(BATCH_CALIBRATION_SOURCE_DIGEST).toBe('305c24f10fd8c7b7ddf3e1915904885e15e7ba537661a7cb9323d9d62867c284');
+  expect(RUNNER_CYCLES_SOURCE_DIGEST).toBe('07cbe0462988ce9fca97cfd89f34db76e22857422adaa98acc53a203cbd3e896');
+  expect(WITHIN_SEASON_HISTORY_SOURCE_DIGEST).toBe('19c770060a21ae6d6c56316cffbee799309ac71f946518d079b8deded709c10d');
+});
+
+it('CP27 fails closed on module or helper drift while normalizing only checkout line endings', async () => {
+  const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
+  const directory = await mkdtemp(join(tmpdir(), 'reader-performance-source-')); directories.push(directory);
+  for (const path of [READER_PERFORMANCE_MODULE, ...READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)]) {
+    const target = join(directory, path); await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, await readFile(join(sourceRoot, path), 'utf8'));
+  }
+  const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE);
+  for (const path of [READER_PERFORMANCE_MODULE, 'integration/reader-performance.ts',
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-transaction-reader.ts']) {
+    const target = join(directory, path), original = await readFile(target, 'utf8');
+    await writeFile(target, original + '\n ');
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');
+    await writeFile(target, original.replace(/\r?\n/gu, '\r\n'));
+    await expect(createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE))
+      .resolves.toMatchObject({ modules: context.modules, profileDigest: context.profileDigest });
+    await writeFile(target, original);
+  }
+});
+
+
+it('CP27 reader performance profile loads the actual integration config with its emitted loader', async () => {
+  const { binding } = await readerPerformanceReportFixture();
+  const args = qualificationArguments(READER_PERFORMANCE_PROFILE, '/reporter');
+  const script = `
+    import net from 'node:net';
+    import path from 'node:path';
+    import { createRequire } from 'node:module';
+    import { pathToFileURL } from 'node:url';
+    net.Socket.prototype.connect = function () { throw new Error('Config-only regression forbids network'); };
+    const require = createRequire(path.join(process.cwd(), 'package.json'));
+    const vitestRequire = createRequire(require.resolve('vitest/package.json'));
+    const { loadConfigFromFile } = await import(pathToFileURL(vitestRequire.resolve('vite')).href);
+    const args = JSON.parse(process.argv[1]);
+    const index = args.indexOf('--configLoader');
+    const loader = index < 0 ? undefined : args[index + 1];
+    const loaded = await loadConfigFromFile({ command: 'serve', mode: 'test' },
+      path.resolve('vitest.integration.config.ts'), process.cwd(), 'silent', undefined, loader);
+    const { test, resolve } = loaded.config;
+    console.log(JSON.stringify({ loader, include: test.include, environment: test.environment,
+      globalSetup: test.globalSetup, fileParallelism: test.fileParallelism, maxWorkers: test.maxWorkers,
+      hookTimeout: test.hookTimeout, testTimeout: test.testTimeout, includeTaskLocation: test.includeTaskLocation,
+      serverOnlyAlias: resolve.alias['server-only'] }));
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script, JSON.stringify(args)], {
+    cwd: fileURLToPath(new URL('..', import.meta.url)),
+    env: { NODE_ENV: 'test', SystemRoot: process.env.SystemRoot, WINDIR: process.env.WINDIR, TEMP: process.env.TEMP, TMP: process.env.TMP,
+      [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(binding.context), PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: binding.directory },
+    timeout: 4_000, maxBuffer: 64 * 1024, windowsHide: true, encoding: 'utf8',
+  });
+  expect(JSON.parse(stdout)).toEqual({ loader: 'runner', include: [READER_PERFORMANCE_MODULE], environment: 'node',
     globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
     hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
     serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
