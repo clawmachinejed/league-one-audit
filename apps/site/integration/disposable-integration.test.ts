@@ -324,7 +324,7 @@ describe('original supervisor deadline in the actual child environment', () => {
     return runInNewContext('let childEnvironment; ' + code + '; childEnvironment;', {
       options: { profile, environment: { [INTEGRATION_WORK_DEADLINE_ENV]: '9999999999999' } },
       receipt: { artifactDirectory: resolve('test-results/integration/artifacts/owned-run') }, generated: {},
-      integrationChildEnvironment, INTEGRATION_WORK_DEADLINE_ENV, lifecycleProfile, budget,
+      integrationChildEnvironment, INTEGRATION_WORK_DEADLINE_ENV, STORAGE_MEASUREMENT_PROFILE, lifecycleProfile, budget,
       INTEGRATION_OWNER_ENV: 'owner', proof: 'owned', QUALIFICATION_CONTEXT_ENV: 'context', qualification: { context: {} },
       Date: { now: () => wallNow }, performance: { now: () => budget.started + elapsedMs }, Math,
     }) as Record<string, string | undefined>;
@@ -344,4 +344,17 @@ describe('original supervisor deadline in the actual child environment', () => {
     expect(fleetSupervisedWorkDeadline(environment(HEALTHY_FLEET_LIFECYCLE_PROFILE, 7 * 60_000, now),
       HEALTHY_FLEET_LIFECYCLE_PROFILE)).toBe(now + 233 * 60_000);
   });
+});
+
+import { assertLocalDailyQualification, assertStorageMeasurementPreflight } from './disposable-integration';
+import { STORAGE_MEASUREMENT_PROFILE } from './qualification-profile';
+it('CP28 remains local-only and uses the unchanged default lifecycle',()=>{
+  expect(integrationLifecycleForQualification(STORAGE_MEASUREMENT_PROFILE)).toBe('default');
+  expect(()=>assertLocalDailyQualification({},STORAGE_MEASUREMENT_PROFILE)).not.toThrow();
+  for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])expect(()=>assertLocalDailyQualification({[key]:'true'},STORAGE_MEASUREMENT_PROFILE)).toThrow('local-only');
+});
+it('CP28 fixture preflight precedes configuration and any child creation',()=>{
+  const source=readFileSync(new URL('./disposable-integration.ts',import.meta.url),'utf8'),body=source.slice(source.indexOf('export async function runDisposableIntegration'));
+  expect(body.indexOf('await assertStorageMeasurementPreflight()')).toBeLessThan(body.indexOf('disposableConfiguration(options.environment)'));
+  expect(typeof assertStorageMeasurementPreflight).toBe('function');
 });

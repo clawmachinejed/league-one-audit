@@ -118,3 +118,43 @@ describe('CP27 bounded full-state snapshot, offline query mocks only', () => {
     for (const value of [{ stage: 'secret', table: null, code: null }, { stage: 'fetch', table: 'sql;secret', code: null }, { stage: 'fetch', table: null, code: 'secret' }, { stage: 'fetch', table: null, code: null, message: 'secret' }]) expect(validReaderSnapshotDiagnostic(value)).toBe(false);
   });
 });
+import { STORAGE_RELATIONS, STORAGE_INVENTORY_SQL, STORAGE_SIZE_SQL, assertStorageHistory } from './reader-performance-snapshot';
+function storageMock(change?: (sql:string,rows:DatabaseRow[])=>DatabaseRow[]){
+  let table='',offset=0;const contents=new Map(STORAGE_RELATIONS.map(row=>[row.schema+'.'+row.table,[] as string[]]));
+  const close=vi.fn(async()=>{}),calls:string[]=[];
+  const query=async <Row extends DatabaseRow>(sql:string,parameters:readonly unknown[]=[]):Promise<readonly Row[]>=>{
+    calls.push(sql);let rows:DatabaseRow[]=[];
+    if(sql===STORAGE_INVENTORY_SQL)rows=STORAGE_RELATIONS.map((row,index)=>({schemaname:row.schema,tablename:row.table,oid:String(index+1),relkind:'r',owner:'test_owner',database_bytes:'2000000',dependencies:[],columns:['id:uuid:true:::'],constraints:['pk:PRIMARY KEY (id):true:false:false'],indexes:[]}));
+    else if(sql.startsWith('SELECT count')){table=sql.split('FROM ')[1].replaceAll('"','');rows=[{rows:String(contents.get(table)!.length)}];}
+    else if(sql.startsWith('DECLARE'))offset=0;
+    else if(sql.startsWith('FETCH')){rows=contents.get(table)!.slice(offset,offset+512).map(digest=>({digest,tuple_bytes:'100',json_bytes:'120'}));offset+=rows.length;}
+    else if(sql===STORAGE_SIZE_SQL){void parameters;rows=[{bytes:'8192',table_bytes:'8192',index_bytes:'0',main_bytes:'8192',fsm_bytes:'0',vm_bytes:'0',init_bytes:'0'}];}
+    return(change?change(sql,rows):rows)as Row[];
+  };return{contents,close,calls,connect:async()=>({database:{query},close})};
+}
+describe('CP28 complete attribution and append history, offline query doubles only',()=>{
+  it('inventories all154 relations including website auth and canonical dependencies without double counting',async()=>{
+    const mock=storageMock(),history=new Map<string,string[]>();mock.contents.set('public.scoring_entities',[md5('player')]);
+    const first=await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});expect(first.storage?.relations).toHaveLength(154);expect(first.storage?.allocatedBytes).toBe(154*8192);
+    expect(first.storage?.relations.find(row=>row.table==='scoring_entities')).toMatchObject({group:'shared',tupleBytes:100,jsonBytes:120,rows:1});
+    expect(first.storage?.relations.find(row=>row.table==='rateLimit')).toMatchObject({schema:'website_auth',group:'non-data',immutable:false});
+    expect(first.storage?.relations.every(row=>row.metadata?.kind==='r')).toBe(true);expect(mock.calls).toContain("SET LOCAL lock_timeout = '2000ms'");
+    mock.contents.set('public.league_roster_capture_receipts',[md5('new')]);const second=await readReaderStateSnapshot(mock.connect,30_000,{name:'S1-catalog',history});
+    expect(second.storage?.metadataDigest).toBe(first.storage?.metadataDigest);expect(second.storage?.relations.every(row=>row.metadata===undefined)).toBe(true);expect(mock.close).toHaveBeenCalledTimes(2);
+  });
+  it.each(['missing','kind','fk','allocation','non-data','immutable'] as const)('rejects %s drift and closes without accepting a history baseline',async fault=>{
+    let changed=false;const mock=storageMock((sql,rows)=>{
+      if(!changed)return rows;if(sql===STORAGE_INVENTORY_SQL&&fault==='missing')return rows.slice(1);
+      if(sql===STORAGE_INVENTORY_SQL&&fault==='kind')return rows.map((row,index)=>index?row:{...row,relkind:'S'});
+      if(sql===STORAGE_INVENTORY_SQL&&fault==='fk')return rows.map((row,index)=>index?row:{...row,constraints:['dropped']});
+      if(sql===STORAGE_SIZE_SQL&&fault==='allocation')return[{...rows[0],bytes:'16384'}];return rows;});
+    const history=new Map<string,string[]>();mock.contents.set('public.league_roster_capture_receipts',[md5('old')]);await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});changed=true;
+    if(fault==='non-data')mock.contents.set('website_auth.user',[md5('new')]);if(fault==='immutable')mock.contents.set('public.league_roster_capture_receipts',[md5('changed')]);
+    await expect(readReaderStateSnapshot(mock.connect,30_000,{name:'S1-catalog',history})).rejects.toBeInstanceOf(ReaderStateSnapshotError);
+    expect(history.get('public.league_roster_capture_receipts')).toEqual([md5('old')]);expect(mock.close).toHaveBeenCalledTimes(2);
+  });
+  it('retains multiset duplicate history and distinguishes immutable subsets from unchanged baseline',()=>{
+    expect(()=>assertStorageHistory(['a','a','b'],['a','a','b','c'])).not.toThrow();expect(()=>assertStorageHistory(['a','a'],['a'])).toThrow();
+    expect(()=>assertStorageHistory(['a'],['a','b'],true)).toThrow();
+  });
+});

@@ -13,7 +13,7 @@ import { createIntegrationArtifactDirectory, INTEGRATION_ARTIFACT_DIRECTORY_ENV 
 import { IntegrationDeadlineError, IntegrationLifecycleBudget, integrationLifecycleForQualification, INTEGRATION_WORK_DEADLINE_ENV,
   INTEGRATION_TEARDOWN_RESERVE_MS, DAILY_FLEET_LIFECYCLE_PROFILE } from './integration-lifecycle-budget';
 
-import { FRESH_INSTALL_PROFILE, createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
+import { STORAGE_MEASUREMENT_PROFILE, FRESH_INSTALL_PROFILE, createQualificationContext, qualificationArguments, qualificationDigest, validateQualificationArtifacts, QUALIFICATION_CONTEXT_ENV,
   type QualificationBinding, type QualificationContext, type QualificationProfile } from './qualification-profile';
 import { createFreshInstallEmptyEvidence, assertFreshInstallEmptyEvidence, readFreshInstallEvidence,
   writeFreshInstallInitialEvidence, FRESH_INSTALL_INITIAL_DIGEST_ENV,
@@ -317,14 +317,19 @@ export async function runIntegrationLifecycle(runtime: Runtime, receipt: Integra
 
 /** The daily lane has no hosted CI envelope; reject CI before configuration or provisioning. */
 export function assertLocalDailyQualification(environment:Record<string,string|undefined>,profile:unknown){
-  if(profile!==DAILY_FLEET_LIFECYCLE_PROFILE)return;
+  if(profile!==DAILY_FLEET_LIFECYCLE_PROFILE && profile!==STORAGE_MEASUREMENT_PROFILE)return;
   for(const key of ['CI','GITHUB_ACTIONS','GITLAB_CI','TF_BUILD','BUILDKITE','CIRCLECI','VERCEL'])
     assert(environment[key]===undefined,'Daily qualification is local-only: '+key);
+}
+export async function assertStorageMeasurementPreflight() {
+  const { loadStorageFixture } = await import('./reader-performance');
+  await loadStorageFixture(fileURLToPath(new URL('../../..', import.meta.url)));
 }
 export async function runDisposableIntegration(options: { environment: NodeJS.ProcessEnv; gitSha: string;
   journal: (receipt: IntegrationRunReceipt, signal: AbortSignal) => Promise<void>; signal: AbortSignal;
   output: (text: string) => void; budget?: IntegrationLifecycleBudget; profile?: QualificationProfile }) {
   assertLocalDailyQualification(options.environment,options.profile);
+  if (options.profile === STORAGE_MEASUREMENT_PROFILE) await assertStorageMeasurementPreflight();
   const lifecycleProfile = integrationLifecycleForQualification(options.profile);
   const budget = options.budget ?? new IntegrationLifecycleBudget(lifecycleProfile);
   assert.equal(budget.envelope.profile, lifecycleProfile, 'Lifecycle envelope must match the selected closed profile');
@@ -498,7 +503,7 @@ export async function runDisposableIntegration(options: { environment: NodeJS.Pr
       await save(); // Acknowledged immutable evidence is required before child launch.
       childEnvironment = { ...integrationChildEnvironment(options.environment, receipt.artifactDirectory), ...generated, [INTEGRATION_OWNER_ENV]: proof,
         [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(qualification.context),
-        ...(lifecycleProfile !== 'default' || options.profile === 'data-live-public-batch-v1' || options.profile === 'data-freshness-capacity-ownership-v1' ? { [INTEGRATION_WORK_DEADLINE_ENV]: String(Date.now() + Math.max(0, Math.floor(budget.workDeadline - performance.now()))) } : {}) };
+        ...(lifecycleProfile !== 'default' || options.profile === 'data-live-public-batch-v1' || options.profile === 'data-freshness-capacity-ownership-v1' || options.profile === STORAGE_MEASUREMENT_PROFILE ? { [INTEGRATION_WORK_DEADLINE_ENV]: String(Date.now() + Math.max(0, Math.floor(budget.workDeadline - performance.now()))) } : {}) };
       receipt.provisionStep = 'complete';
     },
     async execute(signal) {

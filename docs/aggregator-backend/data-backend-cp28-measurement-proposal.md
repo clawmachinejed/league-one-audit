@@ -1,6 +1,6 @@
 # CP28 bounded two-league storage measurement proposal
 
-**LOCAL PROPOSAL — NOT EXECUTABLE; SQL/SPEND APPROVAL: NONE ($0).** Prepared October 18, 2026, America/Indianapolis. This document specifies a later storage experiment and its gates. It implements no measurement, changes no runtime, and creates no dispatchable SHA, run allowance, scheduled work, publication or DATA activation authority. CP26 remains **STOPPED / INCOMPLETE**; CP27 remains **DEFERRED / UNQUALIFIED**.
+**LOCAL IMPLEMENTATION VALIDATED; SQL/SPEND APPROVAL: NONE ($0).** Updated October 18, 2026, America/Indianapolis. The user has directly authorized building and locally validating the focused two-league test and one bounded read-only public Sleeper catalog fetch. No SQL, paid run, provisioning, credential retrieval, publication, merge, deployment or DATA activation is authorized. Sections 1–9 retain the independently reviewed proposal at `18549907e26f85e764a174b91370fab10e5f2d29`; their proposal-only status and unimplemented wording are historical. [Section 10 is the current implementation record](#10-authorized-local-implementation--current-record) and supersedes those statuses and any explicitly revised limits. CP26 remains **STOPPED / INCOMPLETE**; CP27 remains **DEFERRED / UNQUALIFIED**.
 
 ## 1. Authority, immutable source and scope
 
@@ -209,3 +209,66 @@ Only this proposal is added relative to the planning commit; no `apps/site`, cal
 | Merge / production deployment | Not performed; fresh identity observation remains the main/production SHA above. |
 | SQL / provisioning / spend / provider acquisition / scheduling / DATA activation | Not performed; approved allowance remains NONE / $0. |
 | Retention, capacity, CP26/CP27, CP29/CP30 qualification | Unchanged; no qualification inferred from this proposal. |
+
+## 10. Authorized local implementation — current record
+
+The direct human authorization in this chat is **“Authorize local implementation and catalog fetch”**, answering the explicit question that excluded SQL, a paid run, publishing, merge and deployment. One implementation owner built the test in the existing isolated CP28 worktree; `/root/proposal_review` independently reviewed the final test-only diff. No paid attempt is consumed or authorized. The executable source is frozen by the local implementation commit; the following documentation-only closeout records its immutable commit/tree without a self-referential hash.
+
+Immediately before implementation, primary `main`, `origin/main`, freshly queried GitHub `main`, and Vercel Ready production `8C3YSnXRCbmPETftQgRtirfyck5e` all identified `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Vercel Git settings confirmed `clawmachinejed/league-one-audit`; build settings confirmed `apps/site`, outside-root files enabled and Node 24.x. Recent GitHub runs were complete; existing DATA PRs and protected worktree refs were unchanged. **No competing owner observed** on those checked surfaces. No database/worker lease or production cron state was queried, and this is not an exclusive release claim.
+
+### Frozen catalog preparation
+
+The single authorized public GET to `https://api.sleeper.app/v1/players/nfl` completed at `2026-10-18T21:09:02.281Z`. It used the existing `readBoundedSleeperJson` helper, the runtime's **16 MiB**, 2,000,000-value and depth-64 bounds, a 20-second deadline, no redirect and no retry. This corrects the historical proposal's looser 32 MiB raw allowance. No database attempt, witness or measurement was manufactured for the preparation request.
+
+| Bound item | Value |
+| --- | --- |
+| Ignored local raw path | `test-results/cp28-fixture/sleeper-players-nfl.raw.json` |
+| Raw UTF-8 bytes | 14,661,343 |
+| Raw SHA-256 | `6fd6e946996b97612619ab41db6476a0c054be1293c52b4692452b59fffed2ef` |
+| Native entries | 12,229; all 12,229 passed the existing row identity normalizer |
+| Tracked manifest | [data-backend-cp28-measurement-fixture.json](data-backend-cp28-measurement-fixture.json) |
+| Fixture digest | `1da88e54b8a058b5bffffd4b5daa08dcf687ef5c46a34af4a0ecfc1e5e72c440` |
+| Mapping/source bindings | 160 distinct native IDs, 40 each QB/RB/WR/TE, sorted and interleaved; 12 league/roster payload bindings |
+
+The full raw bytes remain local and ignored; only provenance, hashes, counts, mapping and source-body bindings are tracked. The loader recomputes and compares the entire manifest. A missing or changed raw file blocks a future run; another fetch cannot silently replace it. The proposed measurement still makes exactly 85 fixture GET responses and **zero live provider requests**. The one preparation GET is reported separately.
+
+An offline pass through `normalizePlayerDirectoryCapture` returned `complete` with all 12,229 rows. Its compact serialized capture is **37,450,276 bytes**, below 64 MiB. The input used explicit synthetic UUIDs solely for the pure normalizer; they are not database-issued attempts or acquisition evidence. This check made no SQL or network call. Local Node serialization is not PostgreSQL JSONB memory, latency, allocation or 0.25-CU fit evidence.
+
+### Source-derived inventory corrections
+
+Independent migration review found **154 expected installed base tables**: 149 public tables, including the harness migration ledger, and five `website_auth` tables. There are no migration-defined sequences. Attribution is 62 per-league DATA, 11 shared DATA, 36 controls, and 45 unchanged non-DATA baseline tables. Unexpected tables or sequences must fail reconciliation. Runtime FK catalog evidence must include ALTER-added edges and retain column/action/deferral details; copied fences and mapping JSON are additional logical dependencies.
+
+The catalog writer does not create canonical player identities. The first accepted held roster creates the 160 shared identities/mappings; the second league reuses them. Existing registered-source setup needs **zero collection reservations**, correcting the proposal's possible two. Expected counts remain source predictions until an authorized isolated SQL run observes them.
+
+Final source review also separates the manager tables precisely: `league_administration_manager_entries` remains **0**, because this case never captures the users family; `league_team_manager_entries` is **400** and `league_team_manager_memberships` is **416**, including both typed manager normalizers. The separate legacy `league_administration_memberships` table adds **208** rows. These supersede any combined-manager wording in section 4; the 416 typed memberships are not the grand total across legacy and typed membership tables.
+
+The focused implementation retains **17 full snapshots**. For each league's unchanged phase, it measures the allocation change over 16 captures and divides by 16 to report a **batch average per refresh**. It does not measure each individual unchanged capture's allocation step, superseding section 5's proposed compact per-capture allocation probes. Per-capture receipts, readback correctness and timing remain separate evidence. Adjacent phase differences keep per-league DATA, shared DATA, synthetic controls and unchanged baseline separate; catalog and setup allocation are not silently charged to each refresh. Page allocation can be lumpy or flat, so a short batch average is not a long-term retention slope.
+
+The planned reader inventory is **172 resource reads** and **62 catalog pages**, with limits of 200 and 100 respectively. The existing observer includes immutable row preservation, exact installed-relation and schema reconciliation, and separate logical-byte/allocation accounting. It emits one bounded `cp28-storage-evidence.json` companion, independently recomputed by the qualification validator, plus the existing qualification/supervisor artifacts. This supersedes section 8's proposed seven separate measurement files. Full relation metadata is retained once at S0; later snapshots verify and retain its digest. The supervisor's acknowledged terminal cleanup receipt remains mandatory and cannot be replaced by this companion.
+
+### Limits and remaining run decision
+
+The implementation reuses the existing supervisor's 30-minute work, 40-minute lifecycle, 10-minute cleanup reserve and one-hour child expiry. Serial fixture work, bounded responses, readers, observation statements, relation/row inventory, allocation observations and sanitized evidence are test controls. The 40,000-call test-client counter excludes supervisor, migration, cleanup and driver-internal statements; the 17 snapshot rollback statements are separately reconciled. These controls do not establish a hard cloud billing, history or transfer quota. The proposed six-backend-session limit is also unproved: one application operation does not imply one backend connection. No billing-control platform or backend redesign is in scope.
+
+The $1 amount in the historical proposal is a **proposed future allowance**, not an approved or enforceable hard spending cap. Largest-row PostgreSQL memory fit, actual allocation headroom, backend session maximum, remote cancellation and eventual cleanup are unverified until execution. Local/offline validation cannot establish those properties. Any later request to run must identify the reviewed immutable executable candidate, this exact fixture, the existing isolated target and operator, one attempt with no retries, the proposed 0.25-CU/time envelope, and the budget's actual limitations. There is no permission to provision or run SQL now.
+
+### Offline validation and delivery
+
+Independent reviewer `/root/proposal_review` (**gpt-6-astra, ultra**) accepted **DATA-CP28-2026-10-18-FOCUSED-STORAGE-SOURCE-REVIEW** with no blocking source finding. The reviewer checked all 13 intended paths against the prior proposal commit, recomputed all **106 CP28 support pins** with zero mismatches, confirmed unchanged historical CP27 pins, and reviewed the exact replay, fixture preflight, observer attribution and shared supervisor/profile changes. The selected case LF SHA-256 is `f43d0932da8961ce5d44869373b7579e5f916784edfbdf98910ec331bd68376b`; its helper is `5880ce8575bf669816bc53c2a3af0c68548ff841be308e9e4101fb375ddee7fd`. This is local source acceptance only, with all SQL/cost/session/memory limits above retained.
+
+Using Node **24.19.0**, exact pnpm **11.19.0**, and locked dependencies installed offline, the final focused run passed **376/376 tests in four files**, zero failed, skipped or todo, in 22.50 seconds. The JSON reporter counts 14 nested suites; four is the file count. Full `next typegen && tsc --noEmit`, ESLint on all nine changed TypeScript files, dependency peer/auth checks, required DATA scope validation and `git diff --check` passed. Scope totals are 306 reviewed extensions, five governance paths and 43 DATA paths across the entire historical baseline; these are not new-file totals.
+
+The first four-file run was **FAILED: 373 passed, two failed**. The supervisor test's extracted VM lacked the newly referenced profile constant, and the fixture builder repeatedly regenerated the entire sixteen-league weekly source graph. The fixes supply the VM binding and clone only the two core bodies from the existing module-bound source. The timeout was not increased; an isolation assertion checks that mutating one result cannot affect the next. A new missing/raw-byte/manifest-drift test accounts for the final total increasing from 375 to 376. Earlier TypeScript errors in the new case/tests were corrected before the final full check. The failed focused report and final logs remain in ignored `test-results/cp28-local-validation/`; they are local evidence, not remote backup.
+
+Actual path review is limited to nine integration TypeScript files, the integration README, the narrow DATA scope declarations, this record and the fixture manifest. No application runtime library, migration, package, lockfile, workflow, provider configuration, schedule or public API was changed. Final preservation checks confirmed clean primary `main`, analysis and CP27 worktrees at their recorded heads; all six pre-existing CP26 dirty file hashes are unchanged. Historical CP27 case/support declarations remain unchanged and intentionally reject the modified current checkout.
+
+| Delivery state | Current local implementation |
+| --- | --- |
+| Local implementation and catalog preparation | Complete; frozen manifest and single public GET recorded above. |
+| Offline tests | 376 passed, zero failed/skipped/todo in the final run; earlier failures retained. |
+| Full release workflow / build / browser / SQL integration | Not run; these are not skipped passes. Complete release validation is required before any future merge. |
+| Branch publication / PR / CI | Not performed. |
+| Vercel preview readiness | No new preview created or verified. |
+| Merge / production deployment | Not performed. |
+| SQL / provisioning / credentials / paid attempt / scheduling / DATA activation | Not performed or authorized; approved allowance remains $0. |
+| Storage, capacity and later-checkpoint qualification | No measured storage bytes or SQL qualification; CP26/CP27 and CP29–34 remain unchanged. |

@@ -230,6 +230,122 @@ export const READER_PERFORMANCE_SUPPORT_SOURCES = [
   { path: 'integration/reader-performance-snapshot.ts', sourceDigest: '6139318e6a6d8e748ee0ac29f9995fd6924c7f112beb8f77993189f7df298e00' },
   { path: 'integration/reader-performance-oracle.ts', sourceDigest: '31da717fa4438e7df73c28d841ee92f0afd2614c98bbc2af827dd25fedd00626' },
 ] as const;
+// CP28 local-only selector. Historical CP27 source pins above deliberately remain unchanged.
+export const STORAGE_MEASUREMENT_PROFILE = 'data-storage-measurement-v1';
+export const STORAGE_MEASUREMENT_MODULE = 'integration/reader-performance.qualification-case.ts';
+export const STORAGE_MEASUREMENT_SOURCE_DIGEST = 'f43d0932da8961ce5d44869373b7579e5f916784edfbdf98910ec331bd68376b';
+export const STORAGE_MEASUREMENT_SUITE = 'bounded two league DATA storage measurement through witnessed core acceptance';
+export const STORAGE_MEASUREMENT_TESTS = ['measures the frozen catalog forty two cores four corrections and exact pre acknowledgment replays'] as const;
+export const STORAGE_MEASUREMENT_FULL_NAMES = STORAGE_MEASUREMENT_TESTS.map(name => STORAGE_MEASUREMENT_SUITE + ' > ' + name);
+export const STORAGE_MEASUREMENT_PATTERN = closedPattern(STORAGE_MEASUREMENT_FULL_NAMES);
+export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
+  { path: 'integration/disposable-integration.ts', sourceDigest: '09b9f1e28c46c9831a3868a36baedcfba7c804aa5ed8b9b4c864965e5cae54e2' },
+  { path: 'integration/integration-owner-loss-diagnostics.ts', sourceDigest: '9d37cd5993e3fd324c1472ba6a81ac93d7e253ba81116a5503fd7c73e41747c9' },
+  { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
+  { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
+  { path: 'lib/league-administration/public-intake.ts', sourceDigest: '46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd' },
+  { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479' },
+  { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
+  { path: 'integration/reader-performance.ts', sourceDigest: '5880ce8575bf669816bc53c2a3af0c68548ff841be308e9e4101fb375ddee7fd' },
+  { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
+  { path: 'integration/neon-integration-harness.ts', sourceDigest: '1ea7875c3cae6785ae94572144391a0bce0206ebb575e11dfa4fb4cec3eb7933' },
+  { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },
+  { path: 'lib/league-administration/normalize.ts', sourceDigest: '72e26189a07659d43fcd9163bff2fc2e65bec14c172c87f256373e6fae437d11' },
+  { path: 'lib/league-administration/store.ts', sourceDigest: '7bb8b073118ee762abee0f4ceb50e68771566e0384b6e9de4fa9cd66b27e9b64' },
+  { path: 'lib/league-administration/store-contracts.ts', sourceDigest: 'bfc744ba9aa9a57eaa1abb42fb06440f610223eb639f760fe9b13e0a729c5015' },
+  { path: 'lib/league-administration/public-intake-contracts.ts', sourceDigest: 'cff45b306cca1998a9ae4b4678a98d1b4e9829a8c0220c01664b7f3fc817a4f2' },
+  { path: 'lib/league-administration/public-intake-reader.ts', sourceDigest: '830f347f54325cb9e638f543c1ee01e0475386857d097357f87f3ba3834ab7c1' },
+  { path: 'lib/league-administration/public-season-history-reader.ts', sourceDigest: 'b881bbd75a76100bcfedb4f0a365e8af73c9617fd7caf61a4b25f3ead90a8ae5' },
+  { path: 'lib/league-administration/public-official-results-reader.ts', sourceDigest: '8930e2208144038637a589bb733ec0065a2d63e56631cfcde8669f16081dda12' },
+  { path: 'lib/league-administration/public-transaction-reader.ts', sourceDigest: '7dfd220809f08c90abcb2391e83ef161777cffa80fa31fcae173759d5ae77c49' },
+  { path: 'lib/league-administration/public-draft-reader.ts', sourceDigest: '6a3f66295408cb13205cb86a9abea8370d1d3b86e06dcdfae889167559af8e73' },
+  { path: 'lib/league-administration/public-bracket-reader.ts', sourceDigest: '15b082618120e796cb4f336b8df3f002ef58e698e0462203341ef879407dab15' },
+  { path: 'lib/league-administration/public-weekly-report-reader.ts', sourceDigest: '0b7e07dc82a189a07f6808803921e05a3254be91093345101863854979d72c95' },
+  { path: 'lib/aggregator/within-season-history.ts', sourceDigest: '050bc1ff4c8f2e579dbe6d040f9a0dc6222b53e04ae5dc078a77532a17d0dd55' },
+  { path: 'lib/aggregator/official-results.ts', sourceDigest: '3d30e90cd6386b26234991c92778f2b34e089f1b9bfa3e03a2f34faa6648e8a5' },
+  { path: 'integration/reader-performance-snapshot.ts', sourceDigest: '638a2ae5ba2e573c6adbe2e72d9ec930d54d5c9dde6cb84a38fd8ad327618f71' },
+  { path: 'integration/reader-performance-oracle.ts', sourceDigest: '31da717fa4438e7df73c28d841ee92f0afd2614c98bbc2af827dd25fedd00626' },
+  { path: 'lib/league-administration/runtime.ts', sourceDigest: 'e4ff88d3d46741a89cc3f457ec0583663cc08a251a06818ce353127beb35a1c5' },
+  { path: 'lib/league-administration/player-directory.ts', sourceDigest: '5299aca54138176724c3e25319ee89ebe80d0fbbea17ad699ab434535c7df4fe' },
+  { path: 'lib/league-administration/player-directory-contracts.ts', sourceDigest: 'afcedae0f0a8928b5f22b46375edbed76b1589781a4888c018bcef03bb1b89e4' },
+  { path: 'lib/league-administration/neon/administration.ts', sourceDigest: 'c50e9c498e22ffaac06d773229f56de4b90875f681aebcc85cc2412b8e7657d6' },
+  { path: 'lib/league-administration/neon/current-roster.ts', sourceDigest: 'ee13b0846158d4503414f295473d30cc90d02101a3f89602d7506f9bf2569db9' },
+  { path: 'lib/league-administration/neon/roster-player-links.ts', sourceDigest: '678edcd89859a7c9f31a54ae7a6abf21b3a1e1eda67a3dd9a4ead643facf2048' },
+  { path: 'lib/aggregator/roster-player-links.ts', sourceDigest: 'c89487c6a393c84cbbfe469073c6f75453b76f67f0bf30b7c6fc16af20f2386b' },
+  { path: 'lib/aggregator/official-standings.ts', sourceDigest: '63a4c1055b4a9cfc331d7482b6e7b90ca0a90bdf0f622addea9a215969182b85' },
+  { path: 'lib/projections/adapters/neon/identities.ts', sourceDigest: '02d1f57fc4a9154fbb8edb4d47e7e2f6d270f3997849adde04626f3420d18c26' },
+  { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: 'eb50d2f1ca091c8d0eaa547cb38338951a6501f9cb6f138d6b5641413f4bedc3' },
+  { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'd7a8ee8b3dc5bc0c73e40d54947a0ce0d4456234b3ffa9d95c4366b9abe35480' },
+  { path: 'migrations/001_projection_foundation.sql', sourceDigest: 'eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050' },
+  { path: 'migrations/002_manager_snapshot_payloads.sql', sourceDigest: '74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d' },
+  { path: 'migrations/003_league_period_authority.sql', sourceDigest: '6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e' },
+  { path: 'migrations/004_durable_projection_slates.sql', sourceDigest: '8ad48c22dea0d942a0a14027dcb240cda18f1bd728403e41aafa6b76f42f95b9' },
+  { path: 'migrations/005_future_projection_refresh.sql', sourceDigest: '02bb6a3c6a183e7074fbea156b5f393d5772619098ab7c07be9dcc5528003c75' },
+  { path: 'migrations/006_flexed_kickoff_candidate_index.sql', sourceDigest: 'd2c54c4e17439d3773cfab8db8ed68bf332abd1073fe793f62138efa89e1a3b0' },
+  { path: 'migrations/007_lineup_freshness.sql', sourceDigest: '1a92f9517294fe289bd25d74923dd042d0cb394d143b5c89d33ed017963c3e47' },
+  { path: 'migrations/008_additive_write_guards.sql', sourceDigest: '2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814' },
+  { path: 'migrations/009_game_clock_plausibility.sql', sourceDigest: '86df8afd868bb4fd589a76bf1e1693cdc546037cfc61b54ae972e660fbda056a' },
+  { path: 'migrations/010_all_player_statistics.sql', sourceDigest: 'f9f2aa0c4dc7a0a3097bf770a7f08ef0719ed7f019307dcf629fa17058af31b4' },
+  { path: 'migrations/011_all_player_foundation_guards.sql', sourceDigest: '0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6' },
+  { path: 'migrations/012_all_player_provider_participation.sql', sourceDigest: 'bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed' },
+  { path: 'migrations/013_all_player_participation_assumption.sql', sourceDigest: '4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80' },
+  { path: 'migrations/014_all_player_hourly_collection.sql', sourceDigest: '3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3' },
+  { path: 'migrations/015_all_player_dynasty_publication.sql', sourceDigest: 'f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a' },
+  { path: 'migrations/016_portable_league_administration.sql', sourceDigest: 'd662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c' },
+  { path: 'migrations/017_enrolled_all_player_publication.sql', sourceDigest: '1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361' },
+  { path: 'migrations/018_all_player_partial_context.sql', sourceDigest: 'd8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc' },
+  { path: 'migrations/019_live_defense_weekly_statistics.sql', sourceDigest: 'e4ab682773a2441000d9403a762b21f917abab59f840a979713418d2b865c77d' },
+  { path: 'migrations/020_account_foundation.sql', sourceDigest: '10260342c3ea679b02f99df442c2b9e38d7a20d810b2c720744ef4a57755a918' },
+  { path: 'migrations/021_website_auth.sql', sourceDigest: 'ad13e3cb1d6f6b60fbbf08cb161f2f4128ae760b9522a568979b43cf5f34b1e9' },
+  { path: 'migrations/022_sleeper_actual_scoring_events.sql', sourceDigest: 'c7b72bb4bd3275744a65722f36d516f54af7fe28532dd1656f63f3e1524340a9' },
+  { path: 'migrations/023_all_player_league_acceptance.sql', sourceDigest: 'ce1e15f1bc6891b84bca34b1eb63c446fe3246e5a76baaf646c22e624d73712a' },
+  { path: 'migrations/024_all_player_scoped_completion.sql', sourceDigest: 'b03fd10c692f982f712488ecc6b4eaccc5fd483bd544d3275c9ec74ade8ec892' },
+  { path: 'migrations/025_account_league_enrollment.sql', sourceDigest: 'fb2dcb87c9b8f437e4c873515b9b9bede6e7b34b683cb59d3a38469e968d241b' },
+  { path: 'migrations/026_source_mapping_revisions.sql', sourceDigest: '0785d8d1ddb10c3dfd298edaeb429a88411391fc8f71964000c79a4242bf193e' },
+  { path: 'migrations/027_current_roster_acceptance.sql', sourceDigest: 'aa531ad9bbc9b6f6aa137e17294e105ee2ea7120e51e7bc98b72040d1ff687ec' },
+  { path: 'migrations/028_team_manager_relationships.sql', sourceDigest: '39d9f939474ce5df41b458bca590fdbeb73162de12fe80909113e5930d7567c5' },
+  { path: 'migrations/029_league_season_settings.sql', sourceDigest: '0e2ea29e60fe80bd28d8f275764276683585ce237a653e045b983d3b759f51bd' },
+  { path: 'migrations/030_exact_period_matchups.sql', sourceDigest: 'b7345a1a64a639bf7aa9b9bffcd6f0e4676dab0cf1f48919c07a1107e5586b2a' },
+  { path: 'migrations/031_native_period_mapping_evidence.sql', sourceDigest: '5c5a95a2788fbc543058fa841af3463cb0354740ba6373eb4773ea16c43ce9f0' },
+  { path: 'migrations/032_calculation_source_history.sql', sourceDigest: '5373dbf2451e9a6b33fefbdc3dc835fea8d2d2f9ad69f8ce8848765bd480f042' },
+  { path: 'migrations/033_transaction_capture_acceptance.sql', sourceDigest: '0f5d8bf7c2192e46c038d1a232f41f9ad60eba7736a66d0d9230b78c7a299fcd' },
+  { path: 'migrations/034_public_data_intake.sql', sourceDigest: '75a80dfe271dae678982cf6c7619e3683ced8711dce21c5895a055c7e4bf9e92' },
+  { path: 'migrations/035_team_manager_evidence_v2.sql', sourceDigest: '77c1cb79c9dea2b41e70cc9aff74780c7eed794a68f3b537a0aefced34e74144' },
+  { path: 'migrations/036_public_data_refresh.sql', sourceDigest: '1bc1ee30e0244b732fe0b58b6c7586c2a0bd80c0c1b95e39f77504fc901cbd06' },
+  { path: 'migrations/037_official_data_registration.sql', sourceDigest: '9a046d2f84af1c705be088b1eff31fab0fcec0e4ecd8c3ce8c306bd94fb5d189' },
+  { path: 'migrations/038_public_data_exact_periods.sql', sourceDigest: '0fd9c8415e993714e7f7b01f7da52bf17d81ce6de0b086b3dc4954e4962dcaf8' },
+  { path: 'migrations/039_public_data_capture_witness.sql', sourceDigest: '5fd67b14ef40612122beb6e6ffbc5847cd3e89e6c7f085b4451bc18e74cf029a' },
+  { path: 'migrations/040_legacy_all_player_data_membership.sql', sourceDigest: 'f3ca03630b786a26242ba881c9f59ea9145a2629369d8a025f5a3324c6ae060c' },
+  { path: 'migrations/041_shared_player_directory.sql', sourceDigest: 'f8e2a34fa0bee75094b8afb276c72e6630f3a3cdc155e6dafd2cbe8e4ff0cdbf' },
+  { path: 'migrations/042_roster_player_links.sql', sourceDigest: '73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c' },
+  { path: 'migrations/043_manager_directory_facts.sql', sourceDigest: '0fa81e8c9a61df7716cfbcc723c4b269fe8f3a51a6f9d2984498ee15e4e61f25' },
+  { path: 'migrations/044_public_data_period_inventory.sql', sourceDigest: '7562ebe5f48cde351742144bc72dbbd5f6b4aece87d0edec7463c375fda7f76b' },
+  { path: 'migrations/045_exact_matchup_values.sql', sourceDigest: '40bf8fa3eb8f1648487dcd1974a772ea15cbae66c0c0e9313a0cf98322367dee' },
+  { path: 'migrations/046_official_brackets.sql', sourceDigest: '98f3388e14e7c26d0be4dab4f512f7ccae269ae64c495c5b9a795f6c0418a957' },
+  { path: 'migrations/047_public_data_brackets.sql', sourceDigest: 'aa925726e32afe05e83a97dceb9d2e2957ca57aa3b617eae7403d70bbcf520b0' },
+  { path: 'migrations/048_official_standings.sql', sourceDigest: '5d5052a19970592fdfdf3db090b734ddde9b164caf2b92c846e3f7c8f7ba8059' },
+  { path: 'migrations/049_weekly_reports.sql', sourceDigest: '8b38bbe6c474befc289c4975165d45b04618e303997bd078dd533508b90b8163' },
+  { path: 'migrations/050_public_report_intake.sql', sourceDigest: 'db12d902acb9e898ee351fff41bfbcc62040a2e29e866864dde8b45b24a9e609' },
+  { path: 'migrations/051_public_transaction_intake.sql', sourceDigest: 'e6e35ef2328708d5f6310dbc3446f2d959b2756025a464654dc21465d6d18a3c' },
+  { path: 'migrations/052_public_transaction_history.sql', sourceDigest: 'c6e20295bc21a04158cb0cf1ec83b642d2ece51074613a2c96ac5a87394058b9' },
+  { path: 'migrations/053_draft_metadata.sql', sourceDigest: '27b5a34d1b3b1a56424cfffe907f71d1b453e6934a9d70b4eba08986851d736e' },
+  { path: 'migrations/054_draft_selections.sql', sourceDigest: 'adea290105f31e8b08e7c35d1de03dc304a365461691b008ed46500a9d71b453' },
+  { path: 'migrations/055_traded_pick_ownership.sql', sourceDigest: 'c39f8842e977428db9148b9bc090d38368c70f86efeb94d51f9c282a7a394939' },
+  { path: 'migrations/056_public_draft_intake.sql', sourceDigest: '83d709a4132e585642f57cbcec89b23406239474515355ed544b272135b35a00' },
+  { path: 'migrations/057_public_data_controls.sql', sourceDigest: '910388a94d449156f508dfab78c73fecdf573233f427f108b5559b0a63be8090' },
+  { path: 'migrations/058_public_data_batches.sql', sourceDigest: '9fedc0836f295c20b9004c84292bb80f1066ac4db6f8c725d8bb5e75b1f5c926' },
+  { path: 'migrations/059_public_data_resource_schedule.sql', sourceDigest: '97449430a4f8e48df14c9deefa1170ee0eae8c517abd0612b4cc758560b598f8' },
+  { path: 'migrations/060_public_data_correction_cycle_admission.sql', sourceDigest: '166aa68fd7eba37a32f935f49702e283b7d9f3828f9c493db31a29972ac895c6' },
+  { path: 'migrations/061_public_data_active_brackets.sql', sourceDigest: 'c4daa9c12e1dd4d11e723f05fa1aa4b4932cf431835b7901849cecbbc0f3821c' },
+  { path: 'migrations/062_public_data_settled_request_budget.sql', sourceDigest: 'e9f22e0704ec3fc0c2a72b9a3341ac75e06e03ca9356409b40bb814cb76714b3' },
+  { path: 'lib/league-administration/public-intake-runtime.ts', sourceDigest: '590a3dfccc1d2db6be08a61a66a8690e49404063578c24b0b40a9b14c29c6c6c' },
+  { path: 'lib/league-administration/public-capture-witness.ts', sourceDigest: '0aa7ec576bc1f30aa839152ed644206be77f1e6bf2f5bb2fed3ff2512b56fb9d' },
+  { path: 'lib/projection-store.ts', sourceDigest: 'a921e870093fe021f0fb1a7ad51b785f808616745dfc1473bc26cce40ce1a03e' },
+  { path: 'lib/projections/adapters/neon/jobs.ts', sourceDigest: '6636413d4a922b1249041dc81aaad4fff87806da9f484167085c099a2140f839' },
+  { path: 'lib/projections/shared/revision-compatibility.ts', sourceDigest: 'e419b7d25c93599b132c533615ca7f31fbcd4d953825323816479f9bd3a76631' },
+  { path: 'lib/league-administration/contracts.ts', sourceDigest: '89e78482db92555ae01fa5e26819acc2f56f858f88e9b54dbd3960f1fd06a97c' },
+  { path: 'integration/exact-matchup-clock.ts', sourceDigest: '3f7b327bce2dc72766564f804f85ff2dbb2ed7547fcdf2d4f8c8536c55545b69' },
+] as const;
 export const BATCH_CALIBRATION_PROFILE = 'data-batch-calibration-v1';
 export const BATCH_CALIBRATION_MODULE = 'integration/batch-calibration.qualification-case.ts';
 export const BATCH_CALIBRATION_SOURCE_DIGEST = '305c24f10fd8c7b7ddf3e1915904885e15e7ba537661a7cb9323d9d62867c284';
@@ -665,7 +781,7 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof READER_PERFORMANCE_PROFILE | 'data-freshness-capacity-ownership-v1' | 'data-live-public-batch-v1' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+export type QualificationProfile = 'full' | typeof STORAGE_MEASUREMENT_PROFILE | typeof READER_PERFORMANCE_PROFILE | 'data-freshness-capacity-ownership-v1' | 'data-live-public-batch-v1' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof RUNNER_CYCLES_PROFILE | typeof BACKEND_CONTROLS_PROFILE | typeof COMPETING_WORKERS_PROFILE | typeof PROCESS_RECOVERY_PROFILE | typeof FRESH_INSTALL_PROFILE | typeof WITHIN_SEASON_HISTORY_PROFILE | typeof DRAFT_INTAKE_PROFILE | typeof DRAFT_REFRESH_PROFILE | typeof DRAFT_INTAKE_RECOVERY_PROFILE | typeof TRADED_PICKS_PROFILE | typeof DRAFT_SELECTIONS_PROFILE | typeof DRAFT_METADATA_PROFILE | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
@@ -763,6 +879,7 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return { names: STORAGE_MEASUREMENT_FULL_NAMES, pattern: STORAGE_MEASUREMENT_PATTERN };
   const fleet=fleetProfile(profile);if(fleet)return{names:fleet.names,pattern:fleet.pattern};
   if (profile === READER_PERFORMANCE_PROFILE) return { names: READER_PERFORMANCE_FULL_NAMES, pattern: READER_PERFORMANCE_PATTERN };
   if (profile === BATCH_CALIBRATION_PROFILE) return { names: BATCH_CALIBRATION_FULL_NAMES, pattern: BATCH_CALIBRATION_PATTERN };
@@ -962,6 +1079,7 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_MODULE;
   const fleet=fleetProfile(profile);if(fleet)return fleet.module;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_MODULE;
   if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_MODULE;
@@ -985,6 +1103,7 @@ function selectedModule(profile: QualificationProfile) {
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_MODULE : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_MODULE : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_MODULE : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_SOURCE_DIGEST;
   const fleet=fleetProfile(profile);if(fleet)return fleet.sourceDigest;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_SOURCE_DIGEST;
   if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_SOURCE_DIGEST;
@@ -1012,6 +1131,7 @@ function selectedModules(profile: QualificationProfile) {
     : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
 }
 function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_FULL_NAMES;
   const fleet=fleetProfile(profile);if(fleet)return fleet.names;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_FULL_NAMES;
   if (profile === BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_FULL_NAMES;
@@ -1039,6 +1159,7 @@ function selectedInventory(profile: QualificationProfile, path?: string): readon
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_FULL_NAMES : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_FULL_NAMES : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_FULL_NAMES : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_FULL_NAMES : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_FULL_NAMES : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_FULL_NAMES : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_FULL_NAMES : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_FULL_NAMES : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_FULL_NAMES : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return qualificationDigest({ version: 1, profile, module: STORAGE_MEASUREMENT_MODULE, pattern: STORAGE_MEASUREMENT_PATTERN, sourceDigest: STORAGE_MEASUREMENT_SOURCE_DIGEST, inventory: STORAGE_MEASUREMENT_FULL_NAMES, supportSources: STORAGE_MEASUREMENT_SUPPORT_SOURCES });
   const fleet=fleetProfile(profile);if(fleet)return qualificationDigest({version:1,profile,module:fleet.module,pattern:fleet.pattern,sourceDigest:fleet.sourceDigest,inventory:fleet.names,supportSources:FLEET_SUPPORT_SOURCES});
   if (profile === READER_PERFORMANCE_PROFILE) return qualificationDigest({ version: 1, profile,
     module: READER_PERFORMANCE_MODULE, pattern: READER_PERFORMANCE_PATTERN, sourceDigest: READER_PERFORMANCE_SOURCE_DIGEST,
@@ -1065,6 +1186,7 @@ function profileDigest(profile: QualificationProfile) {
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
   if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE,FLEET_DAILY_PROFILE,FLEET_LIVE_PROFILE,FLEET_OWNERSHIP_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
+  if (args.length === 1 && args[0] === '--profile=' + STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + BATCH_CALIBRATION_PROFILE) return BATCH_CALIBRATION_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + RUNNER_CYCLES_PROFILE) return RUNNER_CYCLES_PROFILE;
@@ -1111,10 +1233,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   throw new Error('Only the closed data-reader-performance-v1, data-batch-calibration-v1, data-runner-cycles-v1, data-backend-controls-v1, data-competing-workers-v1, data-process-recovery-v1, data-fresh-install-v1, data-within-season-history-v1, data-traded-picks-v1, data-draft-selections-v1, data-draft-metadata-v1, data-transaction-history-intake-v1, data-transaction-history-refresh-v1, data-transaction-history-recovery-v1, data-transaction-period-intake-v1, data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(fleetProfile(profile)!==null || profile === READER_PERFORMANCE_PROFILE || profile === BATCH_CALIBRATION_PROFILE || profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(fleetProfile(profile)!==null || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE || profile === BATCH_CALIBRATION_PROFILE || profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     // Preserve deferred server-only validator imports while loading these selected profiles.
-    ...(profile === FLEET_LIVE_PROFILE || profile === FLEET_OWNERSHIP_PROFILE || profile === READER_PERFORMANCE_PROFILE ? ['--configLoader', 'runner'] : []),
+    ...(profile === FLEET_LIVE_PROFILE || profile === FLEET_OWNERSHIP_PROFILE || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE ? ['--configLoader', 'runner'] : []),
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
 function exactKeys(value: object, keys: string[]) {
@@ -1126,12 +1248,13 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(fleetProfile(value.profile)!==null || value.profile === READER_PERFORMANCE_PROFILE || value.profile === BATCH_CALIBRATION_PROFILE || value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(fleetProfile(value.profile)!==null || value.profile === STORAGE_MEASUREMENT_PROFILE || value.profile === READER_PERFORMANCE_PROFILE || value.profile === BATCH_CALIBRATION_PROFILE || value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
     exactKeys(entry, ['path', 'sourceDigest']);
     if (fleetProfile(value.profile)) assert.equal(entry.path,fleetProfile(value.profile)!.module);
+    else if (value.profile === STORAGE_MEASUREMENT_PROFILE) assert.equal(entry.path, STORAGE_MEASUREMENT_MODULE);
     else if (value.profile === READER_PERFORMANCE_PROFILE) assert.equal(entry.path, READER_PERFORMANCE_MODULE);
     else if (value.profile === BATCH_CALIBRATION_PROFILE) assert.equal(entry.path, BATCH_CALIBRATION_MODULE);
     else if (value.profile === RUNNER_CYCLES_PROFILE) assert.equal(entry.path, RUNNER_CYCLES_MODULE);
@@ -1144,6 +1267,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   }
   unique(value.modules.map(module => module.path));
   if(fleetProfile(value.profile))assert.equal(value.modules[0].sourceDigest,fleetProfile(value.profile)!.sourceDigest,'Fleet source differs from the reviewed LF digest.');
+  if (value.profile === STORAGE_MEASUREMENT_PROFILE) assert.equal(value.modules[0].sourceDigest, STORAGE_MEASUREMENT_SOURCE_DIGEST, 'Selected qualification source differs from the reviewed LF digest.');
   if (value.profile === READER_PERFORMANCE_PROFILE) assert.equal(value.modules[0].sourceDigest, READER_PERFORMANCE_SOURCE_DIGEST,
     'Reader performance source differs from the reviewed LF digest.');
   if (value.profile === BATCH_CALIBRATION_PROFILE) assert.equal(value.modules[0].sourceDigest, BATCH_CALIBRATION_SOURCE_DIGEST, 'Batch calibration source differs from the reviewed LF digest.');
@@ -1192,6 +1316,7 @@ function validateContext(value: QualificationContext): QualificationContext {
 export async function createQualificationContext(siteRoot: string, gitSha: string, runId: string,
   profile: QualificationProfile = 'full'): Promise<QualificationContext> {
   if(fleetProfile(profile))await assertFleetSupportSources(siteRoot);
+  if (profile === STORAGE_MEASUREMENT_PROFILE) await assertStorageMeasurementSupportSources(siteRoot);
   if (profile === READER_PERFORMANCE_PROFILE) await assertReaderPerformanceSupportSources(siteRoot);
   if (profile === BATCH_CALIBRATION_PROFILE) await assertBatchCalibrationSupportSources(siteRoot);
   if (profile === RUNNER_CYCLES_PROFILE) await assertRunnerCyclesSupportSources(siteRoot);
@@ -1232,6 +1357,9 @@ export async function assertBackendControlsSupportSources(siteRoot: string): Pro
 }
 export async function assertFleetSupportSources(siteRoot:string):Promise<void>{
   for(const entry of FLEET_SUPPORT_SOURCES)assert.equal(qualificationSourceDigest(await readFile(join(siteRoot,entry.path),'utf8')),entry.sourceDigest,'Fleet support source differs from the reviewed LF digest: '+entry.path);
+}
+export async function assertStorageMeasurementSupportSources(siteRoot: string): Promise<void> {
+  for (const entry of STORAGE_MEASUREMENT_SUPPORT_SOURCES) assert.equal(qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')), entry.sourceDigest, 'CP28 support source differs from the reviewed LF digest: ' + entry.path);
 }
 export async function assertReaderPerformanceSupportSources(siteRoot: string): Promise<void> {
   for (const entry of READER_PERFORMANCE_SUPPORT_SOURCES) assert.equal(qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')),
@@ -1402,6 +1530,13 @@ export function validateQualificationReport(context: QualificationContext, repor
         assert(previous && current && current.startTime >= previous.startTime,
           'CP19 draft draft-refresh cases must execute in chronological source order.');
       }
+    }
+    if (context.profile === STORAGE_MEASUREMENT_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), STORAGE_MEASUREMENT_FULL_NAMES);
+      assert.equal(entry.suites.length, 1); const suite = entry.suites[0];
+      assert.equal(suite.name, STORAGE_MEASUREMENT_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll','afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1);
     }
     if (context.profile === READER_PERFORMANCE_PROFILE) {
       assert.deepEqual(entry.cases.map(test => test.name), READER_PERFORMANCE_FULL_NAMES,
@@ -1852,6 +1987,12 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
     reportDigest: qualificationSourceDigest(raw), globalDatabaseCleanup: 'complete' });
   let companionDigest: string | undefined;
   if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_LIVE_PROFILE?'cp26-fleet-live-evidence.json':binding.context.profile===FLEET_OWNERSHIP_PROFILE?'cp26-fleet-ownership-evidence.json':binding.context.profile===FLEET_DAILY_PROFILE?'cp26-fleet-daily-evidence.json':binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const validators=await import('./freshness-capacity-profile');await (binding.context.profile===FLEET_LIVE_PROFILE?validators.validateFleetLiveCompanion:binding.context.profile===FLEET_OWNERSHIP_PROFILE?validators.validateFleetOwnershipCompanion:validators.validateFleetCompanion)(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
+  if (binding.context.profile === STORAGE_MEASUREMENT_PROFILE) {
+    const rawEvidence = await readBounded(binding.directory, 'cp28-storage-evidence.json');
+    const companion = await import('./reader-performance');
+    await companion.assertCompleteStorageMeasurementEvidence(JSON.parse(rawEvidence), binding);
+    companionDigest = qualificationSourceDigest(rawEvidence);
+  }
   if (binding.context.profile === READER_PERFORMANCE_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'reader-performance-evidence.json');
     const companion = await import('./reader-performance');
@@ -1889,6 +2030,7 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
   if(profile&&fleetProfile(profile))return[fleetProfile(profile)!.module];
+  if (profile === STORAGE_MEASUREMENT_PROFILE) return [STORAGE_MEASUREMENT_MODULE];
   if (profile === READER_PERFORMANCE_PROFILE) return [READER_PERFORMANCE_MODULE];
   if (profile === BATCH_CALIBRATION_PROFILE) return [BATCH_CALIBRATION_MODULE];
   if (profile === RUNNER_CYCLES_PROFILE) return [RUNNER_CYCLES_MODULE];
