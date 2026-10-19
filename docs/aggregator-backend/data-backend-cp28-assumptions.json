@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "qualification": "UNQUALIFIED",
+  "horizon": {
+    "start": "2026-01-01",
+    "endExclusive": "2028-04-01",
+    "days": 821,
+    "activeDays": 126,
+    "inactiveDays": 695,
+    "activeHoursPerDay": 24
+  },
+  "budgetBytes": 10737418240,
+  "benchmarkUniqueLeagues": 16,
+  "uniqueLeagueSensitivities": [
+    16,
+    400
+  ],
+  "cadence": {
+    "inactiveRefreshesPerDay": 1,
+    "dailyResourceRefreshesPerDay": 1,
+    "bracketAndReportActiveMinutes": 15,
+    "catalogRefreshesPerDay": 1,
+    "historicalPeriodsPerDailySweep": 17,
+    "draftsPerLeague": 1,
+    "rostersPerLeague": 20,
+    "coreTypedCapturesPerDispatch": 4
+  },
+  "scenarios": [
+    {
+      "name": "low",
+      "activeRefreshMinutes": 60,
+      "heldPlayersPerLeague": 160,
+      "catalogPlayers": 160,
+      "allocationRatioFactor": 0.5,
+      "coreChangedFraction": 0.001,
+      "exactChangedFraction": 0.01,
+      "historyChangedFraction": 0.0001,
+      "transactionChangedFraction": 0.001,
+      "bracketChangedFraction": 0.001,
+      "reportChangedFraction": 0.01,
+      "draftChangedFraction": 0.001,
+      "directoryChangedFraction": 0.001,
+      "catalogChangedFraction": 0.1,
+      "unmeasuredControlReserveFraction": 0.1,
+      "mvccReserveFraction": 0.1,
+      "sharedDependencyReserveBytes": 67108864
+    },
+    {
+      "name": "base",
+      "activeRefreshMinutes": 15,
+      "heldPlayersPerLeague": 320,
+      "catalogPlayers": 12229,
+      "allocationRatioFactor": 1,
+      "coreChangedFraction": 0.01,
+      "exactChangedFraction": 0.05,
+      "historyChangedFraction": 0.001,
+      "transactionChangedFraction": 0.01,
+      "bracketChangedFraction": 0.01,
+      "reportChangedFraction": 0.05,
+      "draftChangedFraction": 0.01,
+      "directoryChangedFraction": 0.01,
+      "catalogChangedFraction": 0.5,
+      "unmeasuredControlReserveFraction": 0.25,
+      "mvccReserveFraction": 0.2,
+      "sharedDependencyReserveBytes": 268435456
+    },
+    {
+      "name": "high",
+      "activeRefreshMinutes": 5,
+      "heldPlayersPerLeague": 600,
+      "catalogPlayers": 12229,
+      "allocationRatioFactor": 2,
+      "coreChangedFraction": 0.05,
+      "exactChangedFraction": 0.2,
+      "historyChangedFraction": 0.01,
+      "transactionChangedFraction": 0.05,
+      "bracketChangedFraction": 0.05,
+      "reportChangedFraction": 0.2,
+      "draftChangedFraction": 0.05,
+      "directoryChangedFraction": 0.05,
+      "catalogChangedFraction": 1,
+      "unmeasuredControlReserveFraction": 0.5,
+      "mvccReserveFraction": 0.35,
+      "sharedDependencyReserveBytes": 1073741824
+    }
+  ],
+  "interpretation": "Illustrative event-volume sensitivities, not statistical bounds or measured marginal growth. The full 821-day exposure is added to one CP27 seed snapshot; it does not reconstruct a calendar history from that later snapshot. Low/base miss the five-minute active scheduling target; high schedules at five minutes but proves no latency or success. The 126 active and 695 inactive days, fractions, byte-ratio factors and reserves are synthetic assumptions. Active means 24 hours per active day. Daily historical sweeps add 17 earlier exact and transaction periods to the separately modeled current period. Drafts use one draft with the seed's 20 picks. Catalog occupancy 12229 is the historical October 10 CP5 live observed row count (source 1257f8a4087c8e542ad6ba1b0b974761e6179bda, artifact sha256 8ca9455a766592edecbd3fb9911cf7c5fc84d97e20184a3fd4fb94b3188d3350), not a current fleet census; raw payload bytes are not database allocation. Catalog content changes retain a whole new version. All reserves are assumed capacity allowances, not measured omitted growth or proven bounds. Core capture multiplicity is four for the CP27 managerEvidenceVersion v2 path: settings, players, legacy managers and v2 team-manager evidence; standings attaches to an existing receipt. Every changed fraction denotes captures yielding a distinct retained content hash/version; a new observation or return to an existing hash is not a new content version."
+}

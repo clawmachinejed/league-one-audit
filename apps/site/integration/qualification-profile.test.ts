@@ -4497,11 +4497,11 @@ it.each(['missing', 'forged', 'oversized'] as const)('CP27 rejects a %s semantic
 
 it('CP27 source pins bind its module helper and existing reader dependencies without changing old pins', async () => {
   const sourceRoot = fileURLToPath(new URL('..', import.meta.url));
-  await expect(assertReaderPerformanceSupportSources(sourceRoot)).resolves.toBeUndefined();
+  await expect(assertReaderPerformanceSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest');
   expect(READER_PERFORMANCE_SUPPORT_SOURCES).toHaveLength(26);
   expect(new Set(READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)).size).toBe(26);
   const source = await readFile(join(sourceRoot, READER_PERFORMANCE_MODULE), 'utf8');
-  expect(qualificationSourceDigest(source)).toBe(READER_PERFORMANCE_SOURCE_DIGEST);
+  expect(qualificationSourceDigest(source)).not.toBe(READER_PERFORMANCE_SOURCE_DIGEST);
   const companion = await import('./reader-performance');
   expect(companion.READER_PERFORMANCE_PROFILE).toBe(READER_PERFORMANCE_PROFILE);
   expect(companion.READER_PERFORMANCE_MODULE).toBe(READER_PERFORMANCE_MODULE);
@@ -4518,7 +4518,8 @@ it('CP27 fails closed on module or helper drift while normalizing only checkout 
   const directory = await mkdtemp(join(tmpdir(), 'reader-performance-source-')); directories.push(directory);
   for (const path of [READER_PERFORMANCE_MODULE, ...READER_PERFORMANCE_SUPPORT_SOURCES.map(entry => entry.path)]) {
     const target = join(directory, path); await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, await readFile(join(sourceRoot, path), 'utf8'));
+    const historical = await promisify(execFile)('git', ['show', '18549907e26f85e764a174b91370fab10e5f2d29:apps/site/' + path], { cwd: sourceRoot, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024, windowsHide: true });
+    await writeFile(target, historical.stdout);
   }
   const context = await createQualificationContext(directory, 'a'.repeat(40), randomUUID(), READER_PERFORMANCE_PROFILE);
   for (const path of [READER_PERFORMANCE_MODULE, 'integration/reader-performance.ts',
@@ -4569,4 +4570,37 @@ it('CP27 reader performance profile loads the actual integration config with its
     globalSetup: ['./integration/global-setup.ts'], fileParallelism: false, maxWorkers: 1,
     hookTimeout: 120_000, testTimeout: 60_000, includeTaskLocation: true,
     serverOnlyAlias: fileURLToPath(new URL('./server-only-stub.ts', import.meta.url)) });
+});
+
+import { STORAGE_MEASUREMENT_PROFILE, STORAGE_MEASUREMENT_MODULE, STORAGE_MEASUREMENT_SOURCE_DIGEST, STORAGE_MEASUREMENT_SUITE,
+  STORAGE_MEASUREMENT_FULL_NAMES, STORAGE_MEASUREMENT_PATTERN, STORAGE_MEASUREMENT_SUPPORT_SOURCES, assertStorageMeasurementSupportSources } from './qualification-profile';
+async function storageReportFixture(){const prior=await readerPerformanceReportFixture();const context: QualificationBinding['context']={...prior.binding.context,profile:STORAGE_MEASUREMENT_PROFILE,
+  modules:[{path:STORAGE_MEASUREMENT_MODULE,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST}],profileDigest:qualificationDigest({version:1,profile:STORAGE_MEASUREMENT_PROFILE,module:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST,inventory:STORAGE_MEASUREMENT_FULL_NAMES,supportSources:STORAGE_MEASUREMENT_SUPPORT_SOURCES})};
+  const evidence=structuredClone(prior.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,otherFilters:false}];
+  evidence.modules[0].suites[0].name=STORAGE_MEASUREMENT_SUITE;evidence.modules[0].cases=[{...evidence.modules[0].cases[0],name:STORAGE_MEASUREMENT_FULL_NAMES[0]}];return{binding:{...prior.binding,context},evidence};}
+it('CP28 selects exactly one protected workflow case, binds current sources, and preserves CP27 rejection',async()=>{
+  expect(parseQualificationArguments(['--profile='+STORAGE_MEASUREMENT_PROFILE])).toBe(STORAGE_MEASUREMENT_PROFILE);
+  const{binding,evidence}=await storageReportFixture();expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();
+  expect(qualificationArguments(STORAGE_MEASUREMENT_PROFILE,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter','--configLoader','runner',STORAGE_MEASUREMENT_MODULE,'--testNamePattern',STORAGE_MEASUREMENT_PATTERN]);
+  expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([STORAGE_MEASUREMENT_MODULE]);
+  const root=fileURLToPath(new URL('..',import.meta.url));await expect(assertStorageMeasurementSupportSources(root)).resolves.toBeUndefined();
+  const context=await createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE);expect(context.modules).toHaveLength(1);
+  await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');
+  const workflow=await readFile(new URL('../../../.github/workflows/integration.yml',import.meta.url),'utf8');
+  expect(workflow.match(/^ {10}- data-storage-measurement-v1\r?$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^ {12}workflow_dispatch:data-storage-measurement-v1\)\r?$/gmu)).toHaveLength(1);
+  expect(workflow.match(/^ {14}pnpm test:integration --profile=data-storage-measurement-v1\r?$/gmu)).toHaveLength(1);
+  for(const unchanged of ['default: full',"- 'codex/integration-qualification-*'",'contents: read','environment: integration-test','group: integration-test','cancel-in-progress: false','persist-credentials: false',"push:|workflow_dispatch:full)","inputs.profile == 'data-freshness-capacity-healthy-v1' && 270 || 50"] )expect(workflow).toContain(unchanged);
+  expect(workflow).not.toContain('workflow_dispatch:data-freshness-capacity-daily-v1)');expect(workflow).not.toContain('pull_request_target:');
+  const artifactPaths=workflow.split('          path: |')[1].split('          if-no-files-found:')[0].trim().split(/\r?\n/u).map(line=>line.trim());
+  expect(artifactPaths).toEqual(['test-results/integration/*.json','test-results/integration/artifacts/**/*.json','test-results/integration/artifacts/**/ownership-journal-*.ndjson']);
+});
+it.each(['skip','extra','retry','hook','pattern'])('CP28 rejects %s report drift',async fault=>{const{binding,evidence}=await storageReportFixture();
+  if(fault==='skip')evidence.modules[0].cases[0].state='skipped';if(fault==='extra')evidence.modules[0].cases.push({...evidence.modules[0].cases[0],id:'extra'});
+  if(fault==='retry')evidence.modules[0].cases[0].diagnostic!.retryCount=1;if(fault==='hook')evidence.hooks[0].starts=2;if(fault==='pattern')evidence.specifications[0].pattern='.*';
+  expect(()=>validateQualificationReport(binding.context,evidence)).toThrow();});
+it('CP28 rejects every selector expansion and missing companion',async()=>{
+  for(const extra of ['--retry=1','--repeat=2','--testNamePattern=.*','--profile=full'])expect(()=>parseQualificationArguments(['--profile='+STORAGE_MEASUREMENT_PROFILE,extra])).toThrow();
+  const{binding,evidence}=await storageReportFixture();await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);
+  await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
 });

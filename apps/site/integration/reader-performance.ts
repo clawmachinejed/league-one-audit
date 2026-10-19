@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { STORAGE_RELATIONS, type StoragePhaseEvidence } from './reader-performance-snapshot';
 import type { DatabaseClient, DatabaseRow, DatabaseQueryOptions } from '../lib/database';
 import type { PublicIntakeReadOptions } from '../lib/league-administration/public-intake-contracts';
 import type { QualificationBinding } from './qualification-profile';
@@ -293,4 +296,294 @@ export async function writeReaderPerformanceEvidence(value: ReaderPerformanceEvi
   assertReaderEvidence(value, binding); const text = JSON.stringify(value) + '\n', path = join(binding.directory, READER_PERFORMANCE_EVIDENCE_FILE);
   assert(Buffer.byteLength(text) <= 4 * 1024 * 1024); await writeFile(path, text, { flag: 'wx', mode: 0o600 });
   const stat = await lstat(path); assert(stat.isFile() && !stat.isSymbolicLink()); assert.equal(await readFile(path, 'utf8'), text);
+}
+
+// CP28 is separately selected. CP27's contracts above remain historical.
+export const STORAGE_MEASUREMENT_PROFILE = 'data-storage-measurement-v1';
+export const STORAGE_MEASUREMENT_SUITE = 'bounded two league DATA storage measurement through witnessed core acceptance';
+export const STORAGE_MEASUREMENT_TEST = 'measures the frozen catalog forty two cores four corrections and exact pre acknowledgment replays';
+export const STORAGE_MEASUREMENT_FULL_NAMES = [STORAGE_MEASUREMENT_SUITE + ' > ' + STORAGE_MEASUREMENT_TEST];
+export const STORAGE_MEASUREMENT_EVIDENCE_FILE = 'cp28-storage-evidence.json';
+export const STORAGE_PACKAGED_CATALOG_PATH = 'apps/site/integration/fixtures/cp28-sleeper-players-nfl.raw.json.gz';
+export const STORAGE_MEASUREMENT_LIMITS = Object.freeze({ packagedBytes: 4 * 1024 * 1024, rawBytes: 16 * 1024 * 1024, captureBytes: 64 * 1024 * 1024,
+  catalogEntries: 20_000, responseBytes: 128 * 1024 * 1024, coreBytes: 1024 * 1024, evidenceBytes: 4 * 1024 * 1024,
+  statements: 40_000, readers: 200, catalogPages: 100, snapshotMs: 30_000, allocationBytes: 256 * 1024 * 1024 });
+export const STORAGE_PHASES = ['S0-empty', 'S1-catalog', 'S2-A-prerequisites', 'S3-A-baseline', 'S4-B-prerequisites', 'S5-B-baseline',
+  'S6-A-unchanged', 'S7-B-unchanged', 'S8-A-C1', 'S9-B-C1', 'S10-A-C2', 'S11-B-C2', 'S12-A-C3', 'S13-B-C3', 'S14-A-C4', 'S15-B-C4', 'S16-read-only'] as const;
+
+// Migration 059 deliberately seeds this scheduler-control row. PostgreSQL's
+// to_jsonb(row)::text and the existing multiset digest bind all four values.
+const storageResourceServiceSeedJson = '{"singleton": true, "history_credit": 0, "active_reserved_http": 0, "history_reserved_http": 0}';
+export const STORAGE_RESOURCE_SERVICE_SEED_DIGEST = createHash('md5')
+  .update(createHash('md5').update(storageResourceServiceSeedJson).digest('hex')).digest('hex');
+const storageGrowingControls = new Set(['public_data_intakes','public_data_identity_observations','public_data_league_lists',
+  'public_data_league_candidates','public_data_dispatches','public_data_dispatch_outcomes']);
+export function assertStorageControlState(phase: Pick<StoragePhaseEvidence,'relations'>) {
+  assert.deepEqual(phase.relations.map(row=>row.schema+'.'+row.table),STORAGE_RELATIONS.map(row=>row.schema+'.'+row.table));
+  for (const row of phase.relations) {
+    if (row.schema !== 'public' || !row.table.startsWith('public_data_') || storageGrowingControls.has(row.table)) continue;
+    const seeded = row.table === 'public_data_resource_service';
+    assert.equal(row.rows,seeded ? 1 : 0,'Unexpected CP28 control rows '+row.table);
+    if (seeded) assert.equal(row.digest,STORAGE_RESOURCE_SERVICE_SEED_DIGEST,'Unexpected CP28 migration-059 singleton values');
+  }
+}
+export function assertStorageBaseline(phase: Pick<StoragePhaseEvidence,'relations'>) {
+  assertStorageControlState(phase);
+  for (const row of phase.relations) if (row.group !== 'non-data') {
+    const seeded = row.schema === 'public' && row.table === 'public_data_resource_service';
+    assert.equal(row.rows,seeded ? 1 : 0,'Unexpected CP28 baseline '+row.table);
+  }
+}
+
+export type StorageFixtureManifest = { kind: 'data-cp28-fixture-v1'; rawCatalogPath: string; rawSha256: string; rawBytes: number;
+  entryCount: number; capturedAt: string; provenance: string; mapping: string[]; sourceBindings: string[]; fixtureDigest: string;
+  packagedCatalog?: { path: typeof STORAGE_PACKAGED_CATALOG_PATH; sha256: string; bytes: number } };
+export type StorageSource = ReturnType<typeof createStorageSourceDataset>;
+export function createStorageSourceDataset(mapping: readonly string[]) {
+  assert.equal(mapping.length, 160); assert.equal(new Set(mapping).size, 160);
+  assert(mapping.every(id => typeof id === 'string' && id.length > 0 && id.length <= 256));
+  // Reuse the already-bound CP27 source, copying only the two required core bodies.
+  // Each call owns its payload/rows; it does not rebuild sixteen weekly schedules.
+  const leagues = structuredClone(sourceDataset.leagues.slice(0, 2).map(({ native, manager, username, payload, rosters }) => ({ native, manager, username, payload, rosters })));
+  return leagues.map(league => {
+    const native = (id: string) => { const index = Number(id.slice('cp27-player-'.length)) - 1; assert(Number.isInteger(index) && index >= 0 && index < 160); return mapping[index]; };
+    const baseline = league.rosters.map(row => ({ ...row, players: row.players.map(native), starters: row.starters.map(native), reserve: row.reserve.map(native), taxi: row.taxi.map(native) }));
+    const versions = [baseline];
+    for (let correction = 1; correction <= 4; correction++) {
+      const rows = structuredClone(versions[correction - 1]);
+      if (correction === 1) rows[0].starters = [mapping[4], mapping[1], mapping[2], mapping[3]];
+      if (correction === 2) { rows[0].players = rows[0].players.filter(id => id !== mapping[7]); rows[0].taxi = []; }
+      if (correction === 3) { rows[0].players = rows[0].players.filter(id => id !== mapping[5]); rows[1].players.push(mapping[5]); }
+      if (correction === 4) { rows[0].owner_id = String(BigInt(league.manager) + 20n); rows[0].co_owners = []; rows[0].settings.fpts = 81; }
+      versions.push(rows);
+    }
+    return { native: league.native, manager: league.manager, username: league.username, payload: league.payload, versions };
+  });
+}
+/** Bind original catalog bytes. Parsing never replaces the transport body. */
+export async function bindStorageFixture(raw: string, metadata: Pick<StorageFixtureManifest, 'rawCatalogPath' | 'capturedAt' | 'provenance'>) {
+  assert(/^test-results\/cp28-fixture\/[a-zA-Z0-9._-]+\.json$/u.test(metadata.rawCatalogPath));
+  assert(Number.isFinite(Date.parse(metadata.capturedAt)) && metadata.provenance.length > 0 && metadata.provenance.length <= 2000);
+  const { normalizePlayerDirectoryRow, playerDirectoryDuplicateMembers } = await import('../lib/league-administration/player-directory');
+  assert(Buffer.byteLength(raw) > 0 && Buffer.byteLength(raw) <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
+  assert.equal(playerDirectoryDuplicateMembers(raw, true).count, 0, 'Duplicate catalog members are not complete evidence.');
+  const catalog: unknown = JSON.parse(raw); assert(catalog && typeof catalog === 'object' && !Array.isArray(catalog));
+  const entries = Object.entries(catalog); assert(entries.length >= 160 && entries.length <= STORAGE_MEASUREMENT_LIMITS.catalogEntries);
+  const positions = ['QB', 'RB', 'WR', 'TE'];
+  const byPosition = positions.map(position => entries.filter(([id, value]) => {
+    const row = normalizePlayerDirectoryRow(id, value);
+    return row.identityStatus === 'valid' && row.providerPlayerId === id && row.position === position
+      && row.fantasyPositions?.length === 1 && row.fantasyPositions[0] === position;
+  }).map(([id]) => id).sort());
+  assert(byPosition.every(ids => ids.length >= 40), 'Complete catalog lacks forty qualified IDs per selected position.');
+  const mapping = Array.from({ length: 160 }, (_, index) => byPosition[index % 4][Math.floor(index / 4)]);
+  const sourceBindings = createStorageSourceDataset(mapping).flatMap(league => [readerDigest(league.payload), ...league.versions.map(readerDigest)]);
+  const bound = { kind: 'data-cp28-fixture-v1' as const, ...metadata, rawSha256: createHash('sha256').update(raw).digest('hex'),
+    rawBytes: Buffer.byteLength(raw), entryCount: entries.length, mapping, sourceBindings };
+  return { ...bound, fixtureDigest: readerDigest(bound) };
+}
+export async function loadStorageFixture(repositoryRoot: string) {
+  const path = join(repositoryRoot, 'docs/aggregator-backend/data-backend-cp28-measurement-fixture.json');
+  const stat = await lstat(path); assert(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 64 * 1024);
+  const manifest: StorageFixtureManifest = JSON.parse(await readFile(path, 'utf8'));
+  assert(/^test-results\/cp28-fixture\/[a-zA-Z0-9._-]+\.json$/u.test(manifest.rawCatalogPath));
+  const { packagedCatalog, ...sourceManifest } = manifest;
+  let raw: string;
+  if (Object.hasOwn(manifest, 'packagedCatalog')) {
+    assert(packagedCatalog && typeof packagedCatalog === 'object' && !Array.isArray(packagedCatalog));
+    assert.deepEqual(Object.keys(packagedCatalog).sort(), ['bytes','path','sha256']);
+    assert.equal(packagedCatalog.path, STORAGE_PACKAGED_CATALOG_PATH);
+    assert(typeof packagedCatalog.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(packagedCatalog.sha256));
+    assert(Number.isSafeInteger(packagedCatalog.bytes) && packagedCatalog.bytes > 0 && packagedCatalog.bytes <= STORAGE_MEASUREMENT_LIMITS.packagedBytes);
+    assert(Number.isSafeInteger(manifest.rawBytes) && manifest.rawBytes > 0 && manifest.rawBytes <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
+    assert(typeof manifest.rawSha256 === 'string' && /^[a-f0-9]{64}$/u.test(manifest.rawSha256));
+    const packagePath = join(repositoryRoot, packagedCatalog.path), packageStat = await lstat(packagePath);
+    assert(packageStat.isFile() && !packageStat.isSymbolicLink() && packageStat.size === packagedCatalog.bytes);
+    const compressed = await readFile(packagePath); assert.equal(compressed.byteLength, packagedCatalog.bytes);
+    assert.equal(createHash('sha256').update(compressed).digest('hex'), packagedCatalog.sha256, 'Frozen compressed catalog bytes changed.');
+    // The native output cap applies before UTF-8 decoding, parsing, or catalog normalization.
+    const decoded = gunzipSync(compressed, { maxOutputLength: STORAGE_MEASUREMENT_LIMITS.rawBytes });
+    assert.equal(decoded.byteLength, manifest.rawBytes); assert.equal(createHash('sha256').update(decoded).digest('hex'), manifest.rawSha256);
+    raw = new TextDecoder('utf-8', { fatal: true }).decode(decoded);
+  } else {
+    const rawPath = join(repositoryRoot, manifest.rawCatalogPath), rawStat = await lstat(rawPath);
+    assert(rawStat.isFile() && !rawStat.isSymbolicLink() && rawStat.size > 0 && rawStat.size <= STORAGE_MEASUREMENT_LIMITS.rawBytes);
+    raw = await readFile(rawPath, 'utf8');
+  }
+  assert.deepEqual(sourceManifest, await bindStorageFixture(raw, { rawCatalogPath: manifest.rawCatalogPath, capturedAt: manifest.capturedAt, provenance: manifest.provenance }), 'Frozen catalog or native fixture binding changed.');
+  return { manifest, raw, source: createStorageSourceDataset(manifest.mapping) };
+}
+
+type StorageAdministration = import('../lib/league-administration/store-contracts').LeagueAdministrationStore;
+type StorageIntake = import('../lib/league-administration/public-intake-contracts').PublicIntakeStore;
+/** Exact same-request persistence replay, before the original checkpoint acknowledgement. */
+export function storageReplayBoundary(administration: StorageAdministration, intake: StorageIntake, input: {
+  requestId: string; audit: () => Promise<unknown>; completed: (proof: { requestId: string; tupleDigests: string[]; stateDigest: string }) => void;
+}) {
+  const writes: { args: Parameters<StorageAdministration['recordObservation']>; result: Awaited<ReturnType<StorageAdministration['recordObservation']>>; digest: string }[] = [];
+  const original = administration.recordObservation.bind(administration), complete = intake.completeCore.bind(intake);
+  let acknowledged = false;
+  const identity = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(identity);
+    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).filter(([key]) => !['status', 'reason'].includes(key)).map(([key, item]) => [key, identity(item)]));
+    return value;
+  };
+  const successful = (result: Awaited<ReturnType<StorageAdministration['recordObservation']>>) => {
+    assert(['changed','unchanged','replayed'].includes(result.status), 'CP28 replay writer did not succeed.');
+    for (const key of ['leagueSettingsAcceptance','rosterAcceptance','teamManagerAcceptance','teamManagerEvidenceAcceptance'] as const)
+      if (result[key]) assert.equal(result[key]!.status, 'accepted', 'CP28 replay typed acceptance was not accepted.');
+  };
+  return { administration: { ...administration, recordObservation: async (...args: Parameters<StorageAdministration['recordObservation']>) => {
+    assert(!acknowledged && writes.length < 2); assert.equal(args[0].envelope.family, writes.length === 0 ? 'league' : 'rosters');
+    const digest = readerDigest(args), result = await original(...args); assert.equal(readerDigest(args), digest);
+    successful(result); writes.push({ args, result, digest }); return result;
+  } }, intake: { ...intake, completeCore: async (...args: Parameters<StorageIntake['completeCore']>) => {
+    assert(!acknowledged && writes.length === 2); assert.equal(args[0].kind, 'core'); assert.equal(args[0].requestId, input.requestId);
+    const fence = args[3]; assert(writes.every(write => readerDigest(write.args[1]) === readerDigest(fence)));
+    assert(Date.now() < Date.parse(fence.deadlineAt), 'Replay original fence expired.');
+    const before = await input.audit();
+    for (const write of writes) {
+      assert.equal(readerDigest(write.args), write.digest); assert(Date.now() < Date.parse(fence.deadlineAt));
+      const replayed = await original(...write.args); successful(replayed); assert.deepEqual(identity(replayed), identity(write.result));
+    }
+    const after = await input.audit(); assert.deepEqual(after, before, 'Replay changed retained state.');
+    assert(Date.now() < Date.parse(fence.deadlineAt)); acknowledged = true;
+    await complete(...args);
+    input.completed({ requestId: input.requestId, tupleDigests: writes.map(write => write.digest), stateDigest: readerDigest(after) });
+  } } };
+}
+export type StorageMeasurementEvidence = { kind: 'data-cp28-storage-evidence-v1'; profile: typeof STORAGE_MEASUREMENT_PROFILE;
+  gitSha: string; contextDigest: string; fixtureDigest: string; runId: string; state: 'running' | 'passed' | 'failed';
+  startedAt: string; endedAt: string | null; serverVersion: string; runtimeLogin: string; fixtureResponses: number; responseBytes: number;
+  statements: number; snapshotCleanupStatements: number; resourceReads: number; catalogPages: number; catalogDigest: string | null;
+  captures: { requestId: string; league: number; correction: number; held: number; receipts: string[]; resultDigest: string; elapsedMs: number }[];
+  replays: { requestId: string; tupleDigests: string[]; stateDigest: string }[];
+  phases: StoragePhaseEvidence[]; deltas?: ReturnType<typeof storagePhaseDeltas>;
+  failure: ReaderFailureDiagnostic | null; cleanupComplete: boolean;
+  limitations: readonly string[] };
+export const STORAGE_LIMITATIONS = Object.freeze(['No SQL qualification until separately authorized execution.',
+  'CP26 STOPPED / INCOMPLETE; CP27 DEFERRED / UNQUALIFIED.',
+  'Cloud billing, history and transfer are not hard-capped by this test; no paid execution authorized.',
+  'Test statement count excludes supervisor/migration/cleanup statements; backend session maximum is unproved.',
+  'Allocation threshold is observed after a phase, not a guaranteed worst-case preallocation quota.',
+  'One large catalog row still uses existing PostgreSQL JSONB row hashing; 0.25-CU fit is unproved.',
+  'Short finite differences do not establish retention, capacity, elapsed recurrence or restore qualification.']);
+export async function assertCompleteStorageMeasurementEvidence(value: StorageMeasurementEvidence, binding: QualificationBinding) {
+  assert.equal(value.kind, 'data-cp28-storage-evidence-v1'); assert.equal(value.profile, STORAGE_MEASUREMENT_PROFILE);
+  assert.equal(binding.context.profile, STORAGE_MEASUREMENT_PROFILE); assert.equal(value.contextDigest, readerDigest(binding.context));
+  assert.equal(value.gitSha, binding.context.gitSha); assert.equal(value.runId, binding.context.runId);
+  assert.equal(value.state, 'passed'); assert.equal(value.failure, null); assert(value.cleanupComplete);
+  assert.equal(value.runtimeLogin, 'league_one_runtime'); assert(value.serverVersion.length > 0);
+  const manifest: StorageFixtureManifest = JSON.parse(await readFile(fileURLToPath(new URL('../../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', import.meta.url)), 'utf8'));
+  assert.equal(value.fixtureDigest, manifest.fixtureDigest);
+  assert(/^[a-f0-9]{64}$/u.test(value.fixtureDigest)); assert(/^[a-f0-9]{64}$/u.test(value.catalogDigest ?? ''));
+  for (const counter of [value.fixtureResponses,value.responseBytes,value.statements,value.snapshotCleanupStatements,value.resourceReads,value.catalogPages]) assert(typeof counter === 'number' && Number.isSafeInteger(counter) && counter >= 0);
+  assert.equal(value.fixtureResponses, 85); assert(value.responseBytes > 0 && value.responseBytes <= STORAGE_MEASUREMENT_LIMITS.responseBytes);
+  assert(value.statements > 0 && value.statements <= STORAGE_MEASUREMENT_LIMITS.statements);
+  assert(value.resourceReads > 0 && value.resourceReads <= STORAGE_MEASUREMENT_LIMITS.readers);
+  assert(value.catalogPages > 0 && value.catalogPages <= STORAGE_MEASUREMENT_LIMITS.catalogPages);
+  assert.equal(value.captures.length, 42); assert.equal(new Set(value.captures.map(row => row.requestId)).size, 42);
+  assert.equal(new Set(value.captures.flatMap(row => row.receipts)).size, 168);
+  assert.equal(value.captures.reduce((sum, row) => sum + row.held, 0), 6714);
+  for (const league of [0, 1]) {
+    const captures = value.captures.filter(row => row.league === league); assert.equal(captures.length, 21);
+    assert.deepEqual(captures.map(row => row.correction), [...Array<number>(17).fill(0), 1, 2, 3, 4]);
+    for (const row of captures) { assert.equal(row.held, row.correction < 2 ? 160 : 159); assert.equal(row.receipts.length, 4); assert(typeof row.elapsedMs === 'number' && Number.isFinite(row.elapsedMs) && row.elapsedMs >= 0 && row.elapsedMs <= 20_000); }
+  }
+  assert.equal(value.replays.length, 2); assert.equal(new Set(value.replays.map(row => row.requestId)).size, 2);
+  for (const replay of value.replays) { assert(value.captures.some(row => row.requestId === replay.requestId && row.correction === 4)); assert.equal(replay.tupleDigests.length, 2); }
+  assertStoragePhaseEvidence(value.phases);
+  assert.deepEqual(value.deltas, storagePhaseDeltas(value.phases));
+  assert.equal(value.resourceReads, 172); assert.equal(value.catalogPages, Math.ceil(manifest.entryCount / 200)); assert.equal(value.snapshotCleanupStatements, 17);
+  const sequence = [{league:0,correction:0},{league:1,correction:0},...([0,1].flatMap(league=>Array.from({length:16},()=>({league,correction:0})))),...Array.from({length:4},(_,index)=>index+1).flatMap(correction=>[0,1].map(league=>({league,correction})))];
+  assert.deepEqual(value.captures.map(({league,correction})=>({league,correction})),sequence);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+  for (const capture of value.captures) { assert(uuid.test(capture.requestId)); assert(capture.receipts.every(id=>uuid.test(id))); assert(/^[0-9a-f]{64}$/u.test(capture.resultDigest)); }
+  for (const replay of value.replays) assert([...replay.tupleDigests,replay.stateDigest].every(digest=>/^[0-9a-f]{64}$/u.test(digest)));
+  const finalCounts = new Map(value.phases[16].relations.map(row=>[row.table,row.rows]));
+  for (const [table,count] of Object.entries({league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_contents:10,league_official_standings_teams:200,league_official_standings_captures:42,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_entries:manifest.entryCount,public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,projection_jobs:1,public_data_collection_reservations:0,public_data_resource_service:1})) assert.equal(finalCounts.get(table),count,table);
+  for (const suffix of ['heads','attempts','contents','captures','source_slices','versions']) assert.equal(finalCounts.get('league_player_directory_'+suffix),1);
+  assert.deepEqual(value.phases.map(phase => phase.name), STORAGE_PHASES);
+  assert.equal(value.phases[15].digest, value.phases[16].digest); assert.deepEqual(value.limitations, STORAGE_LIMITATIONS);
+  assert(Number.isFinite(Date.parse(value.startedAt)) && value.endedAt !== null && Date.parse(value.endedAt) >= Date.parse(value.startedAt));
+  assert(Date.parse(value.endedAt!) - Date.parse(value.startedAt) <= 1_800_000);
+  assert(Buffer.byteLength(JSON.stringify(value)) <= STORAGE_MEASUREMENT_LIMITS.evidenceBytes);
+}
+export async function writeStorageMeasurementEvidence(value: StorageMeasurementEvidence, binding: QualificationBinding) {
+  value.deltas = storagePhaseDeltas(value.phases);
+  const text = JSON.stringify(value) + '\n'; assert(Buffer.byteLength(text) <= STORAGE_MEASUREMENT_LIMITS.evidenceBytes);
+  const path = join(binding.directory, STORAGE_MEASUREMENT_EVIDENCE_FILE); await writeFile(path, text, { flag: 'wx', mode: 0o600 });
+  assert.equal(await readFile(path, 'utf8'), text);
+}
+
+/** Adjacent finite differences only: DATA, shared catalog and synthetic controls remain separate. */
+export function storagePhaseDeltas(phases: readonly StoragePhaseEvidence[]) {
+  const units=[0,1,0,1,0,1,16,16,1,1,1,1,1,1,1,1,0];
+  return phases.slice(1).map((after,index)=>{
+    const before=phases[index];const groups=Object.fromEntries(['per-league','shared','controls','non-data'].map(group=>{
+      const sum=(phase:StoragePhaseEvidence,key:'rows'|'tupleBytes'|'jsonBytes'|'totalBytes')=>phase.relations.filter(row=>row.group===group).reduce((total,row)=>total+row[key],0);
+      return[group,{rows:sum(after,'rows')-sum(before,'rows'),tupleBytes:sum(after,'tupleBytes')-sum(before,'tupleBytes'),jsonBytes:sum(after,'jsonBytes')-sum(before,'jsonBytes'),allocatedBytes:sum(after,'totalBytes')-sum(before,'totalBytes')}];
+    }));
+    const allocatedBytes=after.allocatedBytes-before.allocatedBytes;assert.equal(Object.values(groups).reduce((sum,group)=>sum+group.allocatedBytes,0),allocatedBytes);
+    const captures=units[index+1],dataBytes=groups['per-league'].allocatedBytes+groups.shared.allocatedBytes;
+    return{before:before.name,after:after.name,unit:index===0?'shared-catalog':captures?'fresh-core':'no-capture',captures,groups,allocatedBytes,
+      dataAllocatedBytes:dataBytes,meanDataAllocatedBytesPerCapture:captures?dataBytes/captures:null};
+  });
+}
+export function assertStoragePhaseEvidence(phases: readonly StoragePhaseEvidence[]) {
+  assert.deepEqual(phases.map(phase=>phase.name),STORAGE_PHASES);
+  const initial=phases[0];const nonnegative=(value:unknown)=>assert(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0);
+  for(const phase of phases){assert(/^[0-9a-f]{64}$/u.test(phase.digest));assert.equal(phase.metadataDigest,initial.metadataDigest);
+    assert.equal(phase.relations.length,STORAGE_RELATIONS.length);
+    assert.deepEqual(phase.relations.map(row=>({schema:row.schema,table:row.table,migration:row.migration,group:row.group,immutable:row.immutable})),STORAGE_RELATIONS);
+    for(const [index,row] of phase.relations.entries()){
+      for(const key of ['oid','rows','totalBytes','tableBytes','indexBytes','heapMainBytes','heapFsmBytes','heapVmBytes','heapInitBytes','toastAndAuxBytes','tupleBytes','jsonBytes'] as const)nonnegative(row[key]);
+      assert(row.rows<=200_000);assert(/^[0-9a-f]{32}$/u.test(row.digest));assert(row.owner.length>0&&row.owner.length<=63);
+      assert(Array.isArray(row.dependencies)&&row.dependencies.every(value=>typeof value==='string'&&value.length<=128));
+      assert.equal(row.totalBytes,row.tableBytes+row.indexBytes);assert.equal(row.tableBytes,row.heapMainBytes+row.heapFsmBytes+row.heapVmBytes+row.heapInitBytes+row.toastAndAuxBytes);
+      const original=initial.relations[index];assert.equal(row.oid,original.oid);assert.equal(row.owner,original.owner);assert.deepEqual(row.dependencies,original.dependencies);
+      if(row.group==='non-data'){assert.equal(row.digest,original.digest);assert.equal(row.rows,original.rows);}
+    }
+    assert.equal(phase.digest,readerDigest(phase.relations.map(row=>({table:row.schema+'.'+row.table,rows:row.rows,digest:row.digest}))));
+    nonnegative(phase.allocatedBytes);nonnegative(phase.databaseBytes);nonnegative(phase.totalRows);
+    assert.equal(phase.allocatedBytes,phase.relations.reduce((sum,row)=>sum+row.totalBytes,0));assert(phase.allocatedBytes<STORAGE_MEASUREMENT_LIMITS.allocationBytes);
+    assert.equal(phase.totalRows,phase.relations.reduce((sum,row)=>sum+row.rows,0));assert(phase.totalRows<=1_000_000);
+    assert(Number.isFinite(phase.elapsedMs)&&phase.elapsedMs>=0&&phase.elapsedMs<=STORAGE_MEASUREMENT_LIMITS.snapshotMs);
+  }
+  const metadata=initial.relations.map(row=>{assert(row.metadata?.kind==='r');for(const list of [row.metadata.columns,row.metadata.constraints,row.metadata.indexes])assert(Array.isArray(list)&&list.every(value=>typeof value==='string'&&value.length<20_000));
+    return{schemaname:row.schema,tablename:row.table,oid:String(row.oid),relkind:row.metadata.kind,owner:row.owner,dependencies:row.dependencies,columns:row.metadata.columns,constraints:row.metadata.constraints,indexes:row.metadata.indexes};});
+  assert.equal(initial.metadataDigest,readerDigest(metadata));
+  const cores=[0,0,0,1,1,2,18,34,35,36,37,38,39,40,41,42,42];
+  for(const [index,phase]of phases.entries()){
+    const counts=new Map(phase.relations.map(row=>[row.table,row.rows]));
+    if(index===0)assertStorageBaseline(phase);else assertStorageControlState(phase);
+    for(const table of ['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'])assert.equal(counts.get(table),cores[index]*4);
+    for(const table of ['league_roster_player_link_receipts','league_official_standings_captures'])assert.equal(counts.get(table),cores[index]);
+  }
+}
+
+/** Compact before/after replay proof: selected C4 provenance and typed rows, all touched heads, and scoped growth counters. */
+export function storageReplayAuditStatement(receiptIds: readonly string[], observationIds: readonly string[], leagueSeasonId: string) {
+  const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u;
+  assert.equal(receiptIds.length,4);assert.equal(observationIds.length,2);assert([...receiptIds,...observationIds,leagueSeasonId].every(id=>uuid.test(id)));
+  const content='row.content_id IN (SELECT content_id FROM selected_receipts)',season='row.league_season_id=$3::uuid';
+  const selections:[string,string][]=[
+    ['league_roster_capture_receipts','row.id=ANY($1::uuid[])'],['league_roster_resource_attempts','row.id IN (SELECT attempt_id FROM selected_receipts)'],
+    ['league_roster_resource_acceptances','row.receipt_id=ANY($1::uuid[])'],['league_roster_resource_scopes','row.id IN (SELECT scope_id FROM selected_receipts JOIN public.league_roster_resource_attempts attempt ON attempt.id=selected_receipts.attempt_id)'],
+    ['league_roster_resource_heads','row.scope_id IN (SELECT scope_id FROM selected_receipts JOIN public.league_roster_resource_attempts attempt ON attempt.id=selected_receipts.attempt_id)'],
+    ['league_administration_contents','row.id IN (SELECT content_id FROM selected_receipts)'],['league_administration_observations','row.id=ANY($2::uuid[])'],
+    ['league_administration_observation_mappings','row.observation_id=ANY($2::uuid[])'],['league_administration_heads',season],['league_configuration_heads',season],
+    ['league_configuration_versions',season],['league_configuration_activations',season],['league_source_mapping_revisions',season],['league_source_connections',season],
+    ['league_administration_team_entries',content],['league_administration_manager_entries',content],['league_administration_memberships',content],
+    ['league_team_manager_entries',content],['league_team_manager_memberships',content],
+    ['league_roster_player_link_receipts','row.roster_receipt_id=ANY($1::uuid[])'],
+    ['league_roster_player_links','row.roster_acceptance_id IN (SELECT id FROM public.league_roster_resource_acceptances WHERE receipt_id=ANY($1::uuid[]))'],
+    ['league_official_standings_captures','row.receipt_id=ANY($1::uuid[])'],['league_official_standings_contents',content],['league_official_standings_teams',content],
+    ['scoring_entities','row.id IN (SELECT canonical_entity_id FROM public.league_roster_player_links WHERE roster_acceptance_id IN (SELECT id FROM public.league_roster_resource_acceptances WHERE receipt_id=ANY($1::uuid[])))'],
+    ['external_scoring_entity_ids','row.scoring_entity_id IN (SELECT canonical_entity_id FROM public.league_roster_player_links WHERE roster_acceptance_id IN (SELECT id FROM public.league_roster_resource_acceptances WHERE receipt_id=ANY($1::uuid[])))'],
+  ];
+  const parts=selections.flatMap(([table,where])=>[
+    `SELECT 'count'::text AS kind,'${table}'::text AS relation,count(*)::text AS digest FROM public.${table}`,
+    `SELECT 'row'::text AS kind,'${table}'::text AS relation,md5(to_jsonb(row)::text) AS digest FROM public.${table} row WHERE ${where}`]);
+  return{sql:'WITH selected_receipts AS MATERIALIZED (SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])) SELECT * FROM ('+parts.join(' UNION ALL ')+') proof ORDER BY kind,relation,digest LIMIT 4097',parameters:[receiptIds,observationIds,leagueSeasonId]};
 }
