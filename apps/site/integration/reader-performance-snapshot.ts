@@ -8,7 +8,7 @@ export type ReaderSnapshotDiagnostic = { stage: typeof stages[number]; table: st
 type SnapshotConnection = { database: Pick<DatabaseClient, 'query'>; close(): Promise<void> };
 type SnapshotResult = { digest: string; counts: { table: string; rows: number; totalBytes: number }[]; storage?: StoragePhaseEvidence };
 const tableName = /^[a-z][a-z0-9_]+$/u;
-const sqlStates = new Set(['53200', '57014', '08000', '08001', '08003', '08006', '08007', '08P01', '57P01', '57P02', '57P03', '42501', '42P01']);
+const sqlStates = new Set(['53200', '57014', '08000', '08001', '08003', '08006', '08007', '08P01', '57P01', '57P02', '57P03', '42501', '42P01', '42725']);
 export function validReaderSnapshotDiagnostic(value: unknown): value is ReaderSnapshotDiagnostic {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -216,10 +216,10 @@ export const STORAGE_RELATIONS: readonly StorageRelation[] = Object.freeze([
 ].sort((a,b) => (a.schema + '.' + a.table).localeCompare(b.schema + '.' + b.table)));
 assert.equal(STORAGE_RELATIONS.length,154); assert.equal(new Set(STORAGE_RELATIONS.map(row => row.schema + '.' + row.table)).size,154);
 export const STORAGE_INVENTORY_SQL = `SELECT n.nspname AS schemaname,c.relname AS tablename,c.oid::text AS oid,c.relkind,
-  pg_get_userbyid(c.relowner) AS owner,pg_database_size(current_database())::text AS database_bytes,
+  pg_get_userbyid(c.relowner) AS owner,(SELECT pg_database_size(current_database())::text) AS database_bytes,
   ARRAY(SELECT nr.nspname||'.'||cr.relname FROM pg_constraint fk JOIN pg_class cr ON cr.oid=fk.confrelid
     JOIN pg_namespace nr ON nr.oid=cr.relnamespace WHERE fk.conrelid=c.oid AND fk.contype='f' ORDER BY nr.nspname,cr.relname) AS dependencies,
-  ARRAY(SELECT a.attname||':'||format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull||':'||a.attidentity||':'||a.attgenerated||':'||COALESCE(pg_get_expr(d.adbin,d.adrelid),'')
+  ARRAY(SELECT a.attname||':'||format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull||':'||a.attidentity::text||':'||a.attgenerated::text||':'||COALESCE(pg_get_expr(d.adbin,d.adrelid),'')
     FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attnum) AS columns,
   ARRAY(SELECT k.conname||':'||pg_get_constraintdef(k.oid,true)||':'||k.convalidated||':'||k.condeferrable||':'||k.condeferred FROM pg_constraint k WHERE k.conrelid=c.oid ORDER BY k.conname) AS constraints,
   ARRAY(SELECT pg_get_indexdef(i.indexrelid)||':'||i.indisvalid||':'||i.indisready FROM pg_index i WHERE i.indrelid=c.oid ORDER BY i.indexrelid) AS indexes

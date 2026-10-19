@@ -263,7 +263,7 @@ export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/public-weekly-report-reader.ts', sourceDigest: '0b7e07dc82a189a07f6808803921e05a3254be91093345101863854979d72c95' },
   { path: 'lib/aggregator/within-season-history.ts', sourceDigest: '050bc1ff4c8f2e579dbe6d040f9a0dc6222b53e04ae5dc078a77532a17d0dd55' },
   { path: 'lib/aggregator/official-results.ts', sourceDigest: '3d30e90cd6386b26234991c92778f2b34e089f1b9bfa3e03a2f34faa6648e8a5' },
-  { path: 'integration/reader-performance-snapshot.ts', sourceDigest: '638a2ae5ba2e573c6adbe2e72d9ec930d54d5c9dde6cb84a38fd8ad327618f71' },
+  { path: 'integration/reader-performance-snapshot.ts', sourceDigest: '2c2db7a06b5e443189b9733228189ce5602c15665f9d98e50c59d2c208ce56fb' },
   { path: 'integration/reader-performance-oracle.ts', sourceDigest: '31da717fa4438e7df73c28d841ee92f0afd2614c98bbc2af827dd25fedd00626' },
   { path: 'lib/league-administration/runtime.ts', sourceDigest: 'e4ff88d3d46741a89cc3f457ec0583663cc08a251a06818ce353127beb35a1c5' },
   { path: 'lib/league-administration/player-directory.ts', sourceDigest: '5299aca54138176724c3e25319ee89ebe80d0fbbea17ad699ab434535c7df4fe' },

@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { readFile, readdir } from 'node:fs/promises';
+import { Socket } from 'node:net';
+import { Client, type ClientConfig } from '@neondatabase/serverless';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DatabaseRow } from '../lib/database';
 import { readReaderStateSnapshot, ReaderStateSnapshotError, READER_SNAPSHOT_LIMITS, validReaderSnapshotDiagnostic } from './reader-performance-snapshot';
@@ -156,5 +159,163 @@ describe('CP28 complete attribution and append history, offline query doubles on
   it('retains multiset duplicate history and distinguishes immutable subsets from unchanged baseline',()=>{
     expect(()=>assertStorageHistory(['a','a','b'],['a','a','b','c'])).not.toThrow();expect(()=>assertStorageHistory(['a','a'],['a'])).toThrow();
     expect(()=>assertStorageHistory(['a'],['a','b'],true)).toThrow();
+  });
+});
+
+// This opt-in uses an already prepared disposable local PostgreSQL instance.
+// It neither provisions/reset schemas nor changes the guarded Neon harness.
+const localPostgresRequested = process.env.CP28_LOCAL_POSTGRES_SNAPSHOT_TEST !== undefined;
+type LocalSnapshotRole = 'cp28_snapshot_owner' | 'league_one_runtime';
+function localPostgresConfiguration() {
+  if (process.env.CP28_LOCAL_POSTGRES_SNAPSHOT_TEST !== 'I_ACKNOWLEDGE_LOCAL_DISPOSABLE_DATABASE')
+    throw new Error('The local snapshot regression requires its explicit local-only marker.');
+  const port = process.env.CP28_LOCAL_POSTGRES_PORT ?? '', sentinel = process.env.CP28_LOCAL_POSTGRES_SENTINEL ?? '';
+  if (!/^[1-9][0-9]{3,4}$/u.test(port) || Number(port) < 1024 || Number(port) > 65535 || String(Number(port)) !== port)
+    throw new Error('The local snapshot regression requires a canonical unprivileged TCP port.');
+  if (!/^cp28-local-snapshot-regression-v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(sentinel))
+    throw new Error('The local snapshot regression requires its disposable database sentinel.');
+  const ownerPassword = process.env.CP28_LOCAL_POSTGRES_OWNER_PASSWORD, runtimePassword = process.env.CP28_LOCAL_POSTGRES_RUNTIME_PASSWORD;
+  if (!ownerPassword || !runtimePassword || ownerPassword === runtimePassword)
+    throw new Error('The local snapshot regression requires distinct ephemeral LOGIN passwords.');
+  return { port: Number(port), sentinel, ownerPassword, runtimePassword };
+}
+async function localSnapshotConnection(role: LocalSnapshotRole) {
+  const configuration = localPostgresConfiguration();
+  // The installed driver's runtime consumes a stream instance; its declaration
+  // still describes a stream factory. No WebSocket or inherited PG URL is used.
+  const socket = new Socket(), client = new Client({ host: '127.0.0.1', port: configuration.port, database: 'cp28_snapshot_test',
+    user: role, password: role === 'cp28_snapshot_owner' ? configuration.ownerPassword : configuration.runtimePassword,
+    ssl: false, stream: socket as unknown as ClientConfig['stream'], connectionTimeoutMillis: 5_000,
+    statement_timeout: 10_000, lock_timeout: 2_000, query_timeout: 12_000, idle_in_transaction_session_timeout: 15_000,
+    application_name: 'cp28-local-snapshot-regression' });
+  const calls: string[] = []; let closed = false;
+  async function close() {
+    try { await client.end(); closed = true; } finally { socket.destroy(); }
+  }
+  try {
+    await client.connect();
+    const identity = await client.query(`SELECT current_database() AS database,current_user AS username,session_user AS session_username,
+      host(inet_server_addr()) AS host,inet_server_port() AS port,current_setting('server_version_num') AS version,
+      shobj_description(d.oid,'pg_database') AS sentinel,r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolreplication,r.rolbypassrls,r.rolcanlogin,
+      EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS has_memberships
+      FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`);
+    const version = String(identity.rows[0]?.version);
+    expect(version).toMatch(/^18[0-9]{4}$/u); expect(Number(version)).toBeGreaterThanOrEqual(180000); expect(Number(version)).toBeLessThan(190000);
+    expect(identity.rows).toEqual([{ database: 'cp28_snapshot_test', username: role, session_username: role, host: '127.0.0.1',
+      port: configuration.port, version, sentinel: configuration.sentinel, rolsuper: false, rolcreatedb: false,
+      rolcreaterole: false, rolreplication: false, rolbypassrls: false, rolcanlogin: true, has_memberships: false }]);
+    return { database: { query: async <Row extends DatabaseRow>(sql: string, parameters: readonly unknown[] = []): Promise<readonly Row[]> => {
+      calls.push(sql); return (await client.query(sql, [...parameters])).rows as Row[];
+    } }, close, calls, serverVersion: Number(version), isClosed: () => closed };
+  } catch (error) { await close(); throw error; }
+}
+describe.skipIf(!localPostgresRequested)('CP28 opt-in local PostgreSQL 18 inventory regression', () => {
+  it('reproduces the exact hosted SQL ambiguity and retains sanitized 42725 with acknowledged cleanup', async () => {
+    const original = STORAGE_INVENTORY_SQL.replace('a.attidentity::text', 'a.attidentity').replace('a.attgenerated::text', 'a.attgenerated')
+      .replace('(SELECT pg_database_size(current_database())::text)', 'pg_database_size(current_database())::text');
+    expect(createHash('sha256').update(original).digest('hex')).toBe('e7e6a8fb368258bae695e692ba8d4cb97f8d2bd712d57f4dc0a6380789fdd98b');
+    const connection = await localSnapshotConnection('cp28_snapshot_owner');
+    try {
+      await expect(connection.database.query(original)).rejects.toMatchObject({ code: '42725' });
+    } finally { await connection.close(); }
+    expect(connection.isClosed()).toBe(true);
+    const failed = await localSnapshotConnection('cp28_snapshot_owner');
+    const query = failed.database.query;
+    const history = new Map<string,string[]>();
+    await expect(readReaderStateSnapshot(async () => ({ database: { query: <Row extends DatabaseRow>(sql: string, parameters?: readonly unknown[]) =>
+      query<Row>(sql === STORAGE_INVENTORY_SQL ? original : sql, parameters) }, close: failed.close }), 30_000, { name: 'S0-empty', history }))
+      .rejects.toMatchObject({ diagnostic: { stage: 'inventory', table: null, code: '42725' }, cleanupFailures: [] });
+    expect(failed.calls.at(-1)).toBe('ROLLBACK'); expect(failed.isClosed()).toBe(true); expect(history.size).toBe(0);
+  }, 45_000);
+  it('executes the complete corrected inventory under the restricted runtime LOGIN without granting application ownership or auth access', async () => {
+    const connection = await localSnapshotConnection('league_one_runtime');
+    try {
+      const inventory = await connection.database.query(STORAGE_INVENTORY_SQL);
+      expect(new Set(inventory.map(row => row.database_bytes)).size).toBe(1);
+      expect(inventory[0].database_bytes).toMatch(/^[1-9][0-9]*$/u);
+      expect(Number.isSafeInteger(Number(inventory[0].database_bytes))).toBe(true);
+      expect(inventory.map(row => row.schemaname + '.' + row.tablename).sort()).toEqual(STORAGE_RELATIONS.map(row => row.schema + '.' + row.table).sort());
+      expect(inventory.every(row => row.relkind === 'r' && Array.isArray(row.columns) && row.columns.length > 0
+        && Array.isArray(row.constraints) && Array.isArray(row.indexes))).toBe(true);
+      const privileges = await connection.database.query(`SELECT has_schema_privilege(current_user,'public','CREATE') AS public_create,
+        has_schema_privilege(current_user,'website_auth','USAGE') AS auth_usage,
+        EXISTS(SELECT 1 FROM pg_class c JOIN pg_roles r ON r.oid=c.relowner WHERE r.rolname=current_user) AS owns_relations`);
+      expect(privileges).toEqual([{ public_create: false, auth_usage: false, owns_relations: false }]);
+      await expect(connection.database.query('SELECT count(*) FROM website_auth."user"')).rejects.toMatchObject({ code: '42501' });
+    } finally { await connection.close(); }
+    expect(connection.isClosed()).toBe(true);
+  }, 30_000);
+  it('completes two pinned owner snapshots across the exact migrated 154-relation schema with stable evidence and acknowledged rollback/close', async () => {
+    const setup = await localSnapshotConnection('cp28_snapshot_owner');
+    try {
+      const directory = new URL('../migrations/', import.meta.url);
+      const names = (await readdir(directory)).filter(name => /^\d+_[a-z0-9_]+\.sql$/u.test(name)).sort();
+      const expected = await Promise.all(names.map(async name => ({ name, checksum: createHash('sha256')
+        .update((await readFile(new URL(name, directory), 'utf8')).replace(/\r\n?/gu, '\n')).digest('hex') })));
+      expect(await setup.database.query('SELECT name,checksum FROM app_schema_migrations ORDER BY name')).toEqual(expected);
+    } finally { await setup.close(); }
+    const history = new Map<string,string[]>(), connections: Awaited<ReturnType<typeof localSnapshotConnection>>[] = [];
+    const connect = async () => { const connection = await localSnapshotConnection('cp28_snapshot_owner'); connections.push(connection); return connection; };
+    const first = await readReaderStateSnapshot(connect, 30_000, { name: 'S0-empty', history });
+    const second = await readReaderStateSnapshot(connect, 30_000, { name: 'S0-repeat', history });
+    expect(first.storage?.relations).toHaveLength(154); expect(second.storage?.relations).toHaveLength(154); expect(history.size).toBe(154);
+    expect(second.digest).toBe(first.digest); expect(second.storage?.metadataDigest).toBe(first.storage?.metadataDigest);
+    expect(first.storage?.relations.every(row => row.owner === 'cp28_snapshot_owner' && row.metadata?.kind === 'r')).toBe(true);
+    expect(second.storage?.relations.every(row => row.metadata === undefined)).toBe(true);
+    for (const snapshot of [first, second]) {
+      expect(snapshot.storage).toBeDefined();
+      const phase = snapshot.storage!;
+      expect(phase.allocatedBytes).toBe(phase.relations.reduce((sum, row) => sum + row.totalBytes, 0));
+      expect(phase.totalRows).toBe(phase.relations.reduce((sum, row) => sum + row.rows, 0));
+      for (const row of phase.relations) {
+        expect(row.totalBytes).toBe(row.tableBytes + row.indexBytes);
+        expect(row.tableBytes).toBe(row.heapMainBytes + row.heapFsmBytes + row.heapVmBytes + row.heapInitBytes + row.toastAndAuxBytes);
+        expect(Number.isSafeInteger(row.tupleBytes) && row.tupleBytes >= 0 && Number.isSafeInteger(row.jsonBytes) && row.jsonBytes >= 0).toBe(true);
+      }
+    }
+    console.info('CP28 local snapshot verification', JSON.stringify({ serverVersion: setup.serverVersion, relationCount: first.storage!.relations.length,
+      totalRows: first.storage!.totalRows, snapshotDigest: first.digest, metadataDigest: first.storage!.metadataDigest, snapshots: 2 }));
+    expect(connections).toHaveLength(2);
+    for (const connection of connections) {
+      expect(connection.calls[0]).toBe('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      expect(connection.calls).toContain("SET LOCAL statement_timeout = '10000ms'");
+      expect(connection.calls).toContain("SET LOCAL lock_timeout = '2000ms'");
+      expect(connection.calls.filter(sql => sql === 'ROLLBACK')).toHaveLength(1);
+      expect(connection.calls.at(-1)).toBe('ROLLBACK'); expect(connection.isClosed()).toBe(true);
+    }
+  }, 75_000);
+});
+describe('CP28 inventory SQLSTATE regression, offline only', () => {
+  it('rejects invalid opt-in configuration before creating a database connection', () => {
+    const names = ['CP28_LOCAL_POSTGRES_SNAPSHOT_TEST','CP28_LOCAL_POSTGRES_PORT','CP28_LOCAL_POSTGRES_SENTINEL',
+      'CP28_LOCAL_POSTGRES_OWNER_PASSWORD','CP28_LOCAL_POSTGRES_RUNTIME_PASSWORD'] as const;
+    const previous = names.map(name => [name,process.env[name]] as const);
+    try {
+      process.env.CP28_LOCAL_POSTGRES_SNAPSHOT_TEST = 'I_ACKNOWLEDGE_LOCAL_DISPOSABLE_DATABASE';
+      process.env.CP28_LOCAL_POSTGRES_PORT = '53125';
+      process.env.CP28_LOCAL_POSTGRES_SENTINEL = 'cp28-local-snapshot-regression-v1:00000000-0000-0000-0000-000000000000';
+      process.env.CP28_LOCAL_POSTGRES_OWNER_PASSWORD = 'offline-owner';
+      process.env.CP28_LOCAL_POSTGRES_RUNTIME_PASSWORD = 'offline-runtime';
+      expect(localPostgresConfiguration().port).toBe(53125);
+      for (const [name,value] of [['CP28_LOCAL_POSTGRES_SNAPSHOT_TEST','false'],['CP28_LOCAL_POSTGRES_PORT','053125'],
+        ['CP28_LOCAL_POSTGRES_PORT','65536'],['CP28_LOCAL_POSTGRES_PORT','5432@remote'],['CP28_LOCAL_POSTGRES_SENTINEL','production'],
+        ['CP28_LOCAL_POSTGRES_OWNER_PASSWORD',''],['CP28_LOCAL_POSTGRES_RUNTIME_PASSWORD','offline-owner']] as const) {
+        const saved=process.env[name]; process.env[name]=value;
+        expect(()=>localPostgresConfiguration()).toThrow(); process.env[name]=saved;
+      }
+    } finally { for(const [name,value] of previous) { if(value===undefined) delete process.env[name]; else process.env[name]=value; } }
+  });
+  it('retains only the safe ambiguity code and does not expose message, detail, hint or cause', async () => {
+    const mock = storageMock(sql => {
+      if (sql === STORAGE_INVENTORY_SQL) throw Object.assign(new Error('postgresql://secret:password@private/private'), {
+        code: '42725', detail: 'private row', hint: 'private SQL', cause: 'private cause' });
+      return [];
+    });
+    let failure: unknown; try { await readReaderStateSnapshot(mock.connect, 30_000, { name: 'S0-empty', history: new Map() }); } catch (error) { failure = error; }
+    expect(failure).toMatchObject({ diagnostic: { stage: 'inventory', table: null, code: '42725' }, cleanupFailures: [] });
+    expect(validReaderSnapshotDiagnostic((failure as ReaderStateSnapshotError).diagnostic)).toBe(true);
+    expect(String(failure)).not.toMatch(/secret|password|private/u);
+    expect(JSON.stringify(failure)).not.toMatch(/secret|password|private|detail|hint|cause/u);
+    expect(mock.calls.at(-1)).toBe('ROLLBACK'); expect(mock.close).toHaveBeenCalledTimes(1);
   });
 });
