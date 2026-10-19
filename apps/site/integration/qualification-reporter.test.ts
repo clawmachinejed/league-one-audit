@@ -469,14 +469,14 @@ it('records the exact live directory public reporter events against pinned bytes
   }
 });
 
-it.each(['source', 'reversed'] as const)('reports the nine roster player link cases with actual installed-runner hooks and rejects %s order when needed', async order => {
+it.each(['source', 'reversed'] as const)('reports the fifteen roster player link cases with actual installed-runner hooks and rejects %s order when needed', async order => {
   const directory = await mkdtemp(join(tmpdir(), 'roster-player-links-runner-')); directories.push(directory);
   await mkdir(join(directory, 'integration')); await mkdir(join(directory, 'artifacts'));
   const context = await createQualificationContext(site, 'a'.repeat(40), randomUUID(), ROSTER_PLAYER_LINKS_PROFILE);
   const names = order === 'source' ? [...ROSTER_PLAYER_LINKS_TESTS] : [...ROSTER_PLAYER_LINKS_TESTS].reverse();
   let body = 'import {it,expect,describe,beforeAll,afterAll} from ' + JSON.stringify(pathToFileURL(join(site, 'node_modules/vitest/dist/index.js')).href) + ';\n';
   body += 'let setup=0,executed=0;describe.sequential(' + JSON.stringify(ROSTER_PLAYER_LINKS_SUITE) + ',()=>{';
-  body += 'beforeAll(()=>{expect(setup++).toBe(0)});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(9)});';
+  body += 'beforeAll(()=>{expect(setup++).toBe(0)});afterAll(()=>{expect(setup).toBe(1);expect(executed).toBe(15)});';
   names.forEach((name, index) => {
     body += 'it(' + JSON.stringify(name) + ',async()=>{expect(setup).toBe(1);expect(executed).toBe(' + index + ');' +
       'await new Promise(resolve=>setTimeout(resolve,10));expect(executed++).toBe(' + index + ')});';
@@ -508,7 +508,7 @@ it.each(['source', 'reversed'] as const)('reports the nine roster player link ca
   expect(report.modules[0].cases.every(test => test.state === 'passed')).toBe(true);
   if (order === 'source') {
     expect(report.modules[0].cases.map(test => test.name)).toEqual(ROSTER_PLAYER_LINKS_FULL_NAMES);
-    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 9, executed: 9, passed: 9, filtered: 0 });
+    await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ collected: 15, executed: 15, passed: 15, filtered: 0 });
   } else await expect(validateQualificationArtifacts(binding)).rejects.toThrow('source order');
 }, 30_000);
 

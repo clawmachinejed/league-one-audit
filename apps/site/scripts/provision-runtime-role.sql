@@ -563,6 +563,39 @@ DO $$ DECLARE link_table text; denied_privileges text:='INSERT,UPDATE,DELETE,TRU
 END; $$;
 -- END OPTIONAL ROSTER PLAYER LINKS GRANTS
 
+-- BEGIN OPTIONAL SHARED ROSTER PLAYER LINK CONTENT GRANTS
+DO $$ DECLARE relation_name text; helper text; role_name text;
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_player_link_contents') IS NOT NULL THEN
+    FOREACH relation_name IN ARRAY ARRAY['league_roster_player_link_contents','league_roster_player_link_content_entries'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC,league_one_runtime',relation_name);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',relation_name);
+      IF NOT has_table_privilege('league_one_runtime','public.'||relation_name,'SELECT')
+        OR has_table_privilege('league_one_runtime','public.'||relation_name,denied)
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||relation_name)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'incorrect shared roster content privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.roster_player_link_content_value(uuid)','public.guard_roster_player_link_content_entry()','public.guard_legacy_roster_player_link_insert()','public.validate_shared_roster_player_link_receipt()','public.validate_roster_player_link_content()','public.store_roster_player_link_content(uuid,uuid,jsonb,jsonb)','public.capture_roster_player_links_shared()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN
+            RAISE EXCEPTION 'restricted role can execute private shared roster helper'; END IF;
+        END IF;
+      END LOOP;
+      IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+        LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+        WHERE function_entry.oid=to_regprocedure(helper) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+        RAISE EXCEPTION 'public can execute private shared roster helper'; END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL SHARED ROSTER PLAYER LINK CONTENT GRANTS
+
+
 -- BEGIN OPTIONAL MANAGER DIRECTORY FACTS GRANTS
 -- CP7 adds typed facts under the existing administration writer. Commissioner
 -- observations convey no roster ownership, account authority or direct write grant.

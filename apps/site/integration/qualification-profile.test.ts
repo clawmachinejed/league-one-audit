@@ -1024,7 +1024,7 @@ async function rosterPlayerLinksFixture(): Promise<{ binding: QualificationBindi
   };
   return { binding: { context, directory }, evidence };
 }
-it('binds the roster player links profile to nine exact cases and original cleanup gates while full discovery includes its module', async () => {
+it('binds the roster player links profile to fifteen exact cases and original cleanup gates while full discovery includes its module', async () => {
   expect(parseQualificationArguments(['--profile=' + ROSTER_PLAYER_LINKS_PROFILE])).toBe(ROSTER_PLAYER_LINKS_PROFILE);
   expect(qualificationArguments(ROSTER_PLAYER_LINKS_PROFILE, '/reporter')).toEqual([
     '--reporter', 'verbose', '--reporter', '/reporter', ROSTER_PLAYER_LINKS_MODULE, '--testNamePattern', ROSTER_PLAYER_LINKS_PATTERN]);
@@ -1042,7 +1042,7 @@ it('binds the roster player links profile to nine exact cases and original clean
   const older = await fixture(INGESTION_PROFILE);
   expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
   const regex = new RegExp(ROSTER_PLAYER_LINKS_PATTERN);
-  expect(ROSTER_PLAYER_LINKS_FULL_NAMES).toHaveLength(9);
+  expect(ROSTER_PLAYER_LINKS_FULL_NAMES).toHaveLength(15);
   for (const name of ROSTER_PLAYER_LINKS_FULL_NAMES) {
     expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
     expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
@@ -1054,7 +1054,7 @@ it('binds the roster player links profile to nine exact cases and original clean
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: ROSTER_PLAYER_LINKS_PROFILE,
-    collected: 9, executed: 9, passed: 9, skipped: 0, filtered: 0 });
+    collected: 15, executed: 15, passed: 15, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout');
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
 });
@@ -4310,7 +4310,9 @@ it('CP26 fleet binds frozen support bytes rejects current harness and supervisor
  const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
   if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
  }
- expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath].sort());
+ // Slice A changes two more support files; the accepted CP26 pins remain historical.
+ const sharedStorageDrift=['lib/league-administration/neon/roster-player-links.ts','scripts/provision-runtime-role.sql'];
+ expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath,...sharedStorageDrift].sort());
  expect(qualificationSourceDigest(historicalHarness)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===harnessPath)!.sourceDigest);
  await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+changed[0]);
  await expect(createQualificationContext(sourceRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE))
@@ -4318,7 +4320,7 @@ it('CP26 fleet binds frozen support bytes rejects current harness and supervisor
  const directory=await mkdtemp(join(tmpdir(),'cp26-fleet-registration-'));directories.push(directory);const siteRoot=join(directory,'apps/site');
  const paths=[fleet.FLEET_HEALTHY_MODULE,fleet.FLEET_RECOVERY_MODULE,fleet.FLEET_DAILY_MODULE,fleet.FLEET_LIVE_MODULE,fleet.FLEET_OWNERSHIP_MODULE,...FLEET_SUPPORT_SOURCES.map(row=>row.path)];
  for(const path of paths){await mkdir(dirname(join(siteRoot,path)),{recursive:true});
-  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:path===harnessPath?historicalHarness:await readFile(join(sourceRoot,path)));}
+  await writeFile(join(siteRoot,path),path===supervisorPath?historicalSupervisor:path===harnessPath?historicalHarness:sharedStorageDrift.includes(path)?await historicalSource(path):await readFile(join(sourceRoot,path)));}
  await expect(assertFleetSupportSources(siteRoot)).resolves.toBeUndefined();
  const context=await createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE);
  for(const path of [supervisorPath,harnessPath,fleet.FLEET_HEALTHY_MODULE,'integration/freshness-capacity-observer.ts','integration/freshness-capacity-protocol.ts','integration/freshness-capacity-profile.ts','integration/freshness-capacity-recovery.ts','test-support/fixtures/cp26-named-source-2026.json','migrations/061_public_data_active_brackets.sql','migrations/062_public_data_settled_request_budget.sql']){const file=join(siteRoot,path),original=await readFile(file,'utf8');await writeFile(file,original+'\n ');await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).rejects.toThrow('reviewed LF digest');await writeFile(file,original.replace(/\r?\n/gu,'\r\n'));await expect(createQualificationContext(siteRoot,'a'.repeat(40),randomUUID(),fleet.FLEET_HEALTHY_PROFILE)).resolves.toMatchObject({modules:context.modules,profileDigest:context.profileDigest});await writeFile(file,original);}
@@ -4578,13 +4580,17 @@ async function storageReportFixture(){const prior=await readerPerformanceReportF
   modules:[{path:STORAGE_MEASUREMENT_MODULE,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST}],profileDigest:qualificationDigest({version:1,profile:STORAGE_MEASUREMENT_PROFILE,module:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,sourceDigest:STORAGE_MEASUREMENT_SOURCE_DIGEST,inventory:STORAGE_MEASUREMENT_FULL_NAMES,supportSources:STORAGE_MEASUREMENT_SUPPORT_SOURCES})};
   const evidence=structuredClone(prior.evidence);evidence.contextDigest=qualificationDigest(context);evidence.specifications=[{path:STORAGE_MEASUREMENT_MODULE,pattern:STORAGE_MEASUREMENT_PATTERN,otherFilters:false}];
   evidence.modules[0].suites[0].name=STORAGE_MEASUREMENT_SUITE;evidence.modules[0].cases=[{...evidence.modules[0].cases[0],name:STORAGE_MEASUREMENT_FULL_NAMES[0]}];return{binding:{...prior.binding,context},evidence};}
-it('CP28 selects exactly one protected workflow case, binds current sources, and preserves CP27 rejection',async()=>{
+it('CP28 preserves the accepted historical profile and rejects shared-storage source drift before provisioning',async()=>{
   expect(parseQualificationArguments(['--profile='+STORAGE_MEASUREMENT_PROFILE])).toBe(STORAGE_MEASUREMENT_PROFILE);
   const{binding,evidence}=await storageReportFixture();expect(()=>validateQualificationReport(binding.context,evidence)).not.toThrow();
   expect(qualificationArguments(STORAGE_MEASUREMENT_PROFILE,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter','--configLoader','runner',STORAGE_MEASUREMENT_MODULE,'--testNamePattern',STORAGE_MEASUREMENT_PATTERN]);
   expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([STORAGE_MEASUREMENT_MODULE]);
-  const root=fileURLToPath(new URL('..',import.meta.url));await expect(assertStorageMeasurementSupportSources(root)).resolves.toBeUndefined();
-  const context=await createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE);expect(context.modules).toHaveLength(1);
+  const root=fileURLToPath(new URL('..',import.meta.url));
+  // The accepted 168a856 measurement keeps its original 107 support pins. Slice A
+  // intentionally changes this reader; a future run requires separately reviewed pins.
+  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/neon/roster-player-links.ts';
+  await expect(assertStorageMeasurementSupportSources(root)).rejects.toThrow(sourceDrift);
+  await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');
   const workflow=await readFile(new URL('../../../.github/workflows/integration.yml',import.meta.url),'utf8');
   expect(workflow.match(/^ {10}- data-storage-measurement-v1\r?$/gmu)).toHaveLength(1);

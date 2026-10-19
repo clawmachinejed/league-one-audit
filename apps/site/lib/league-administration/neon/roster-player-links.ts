@@ -12,13 +12,26 @@ import { isPlayerDirectoryNativeId } from '../player-directory';
 import type { AdministrationEnvelope, JsonObject } from '../contracts';
 import type { PlayerDirectoryVersion, PlayerDirectorySourceSlice } from '../player-directory-contracts';
 
-/** Immutable receipt selection, with no current head, mapping or crosswalk dependency. */
+/** Requires schema expansion 063 before deployment; the legacy writer stays active until
+ * this dual-format reader is installed. No current head, mapping or crosswalk dependency. */
 export const ROSTER_PLAYER_LINK_READ_SQL = `/* league-administration:read-roster-player-links */
   SELECT linked.*,linked.resolved_at::text AS resolved_at,linked.mapping_evaluated_at::text AS mapping_evaluated_at,accepted.generation,scope.identity,scope.connection_id,receipt.provenance,receipt.coverage,
     receipt.expected_team_count,attempt.source_mapping,content.content_hash,content.payload,content.normalized_value,
     content.normalizer_version,content.completeness,content.provider,content.external_league_id,
     content.league_season_id AS content_league_season_id,
     coalesce(teams.rows,'[]'::jsonb) AS identities,coalesce(links.rows,'[]'::jsonb) AS links,
+    links.content_hash AS computed_link_content_hash,
+    EXISTS(SELECT 1 FROM public.league_roster_player_links legacy
+      WHERE legacy.roster_acceptance_id=linked.roster_acceptance_id) AS legacy_links_present,
+    CASE WHEN shared.id IS NULL THEN NULL ELSE jsonb_build_object('id',shared.id,
+      'leagueSeasonId',shared.league_season_id,'sourceMappingRevisionId',shared.source_mapping_revision_id,
+      'directoryVersionId',shared.directory_version_id,'linkVersion',shared.link_version,
+      'storageVersion',shared.storage_version,'contentHash',shared.content_hash,
+      'held',shared.held_count,'resolved',shared.resolved_count,'unresolved',shared.unresolved_count,'conflict',shared.conflict_count,
+      'firstReceiptPresent',EXISTS(SELECT 1 FROM public.league_roster_player_link_receipts first_linked
+        WHERE first_linked.roster_acceptance_id=shared.first_roster_acceptance_id
+          AND first_linked.roster_receipt_id=shared.first_roster_receipt_id
+          AND first_linked.storage_format='shared-v1' AND first_linked.link_content_id=shared.id)) END AS shared_content,
     CASE WHEN directory.id IS NULL THEN NULL ELSE jsonb_build_object('versionId',directory.id,
       'contentId',directory.content_id,'receiptId',capture.id,'attemptId',capture.attempt_id,
       'generation',directory.generation,'acceptedAt',directory.accepted_at,'sourceRevision',catalog.source_revision,
@@ -36,6 +49,7 @@ export const ROSTER_PLAYER_LINK_READ_SQL = `/* league-administration:read-roster
   JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id AND attempt.scope_id=scope.id
   JOIN public.league_administration_contents content ON content.id=linked.roster_content_id
     AND content.league_season_id=linked.league_season_id AND content.accepted AND content.family='rosters' AND content.week=0
+  LEFT JOIN public.league_roster_player_link_contents shared ON shared.id=linked.link_content_id
   LEFT JOIN public.league_player_directory_versions directory ON directory.id=linked.directory_version_id
   LEFT JOIN public.league_player_directory_captures capture ON capture.id=directory.capture_id
     AND capture.content_id=directory.content_id AND capture.status='complete'
@@ -49,14 +63,29 @@ export const ROSTER_PLAYER_LINK_READ_SQL = `/* league-administration:read-roster
       AND team.provider=content.provider AND team.external_league_id=content.external_league_id
     ORDER BY team.external_roster_id COLLATE "C" LIMIT 1001
   ) selected) teams ON true
-  LEFT JOIN LATERAL (SELECT jsonb_agg(selected.row ORDER BY selected.team_id,selected.ordinal) AS rows FROM (
-    SELECT item.season_team_id AS team_id,item.membership_ordinal AS ordinal,
+  LEFT JOIN LATERAL (SELECT jsonb_agg(selected.row ORDER BY selected.team_id,selected.ordinal) AS rows,
+    encode(digest(convert_to(coalesce(jsonb_agg(selected.hash_row
+      ORDER BY selected.external_id COLLATE "C",selected.ordinal),'[]'::jsonb)::text,'UTF8'),'sha256'),'hex') AS content_hash FROM (
+    SELECT item.season_team_id AS team_id,item.membership_ordinal AS ordinal,item.external_roster_id AS external_id,
+      jsonb_build_object('season_team_id',item.season_team_id,'external_roster_id',item.external_roster_id,
+        'native_player_id',item.native_player_id,'membership_ordinal',item.membership_ordinal,'entity_kind',item.entity_kind,
+        'directory_identity_status',item.directory_identity_status,'kind_evidence',item.kind_evidence,'mapping_proof',item.mapping_proof,
+        'canonical_entity_id',item.canonical_entity_id,'identity_state',item.identity_state,'reasons',item.reasons) AS hash_row,
       jsonb_build_object('seasonTeamId',item.season_team_id,'externalRosterId',item.external_roster_id,
         'nativePlayerId',item.native_player_id,'membershipOrdinal',item.membership_ordinal,'entityKind',item.entity_kind,
         'identityState',item.identity_state,'canonicalEntityId',item.canonical_entity_id,'reasons',item.reasons,
         'directoryIdentityStatus',item.directory_identity_status,'kindEvidence',item.kind_evidence,'mappingProof',item.mapping_proof) AS row
-    FROM public.league_roster_player_links item WHERE item.roster_acceptance_id=linked.roster_acceptance_id
-    ORDER BY item.season_team_id,item.membership_ordinal LIMIT 10001
+    FROM (
+      SELECT season_team_id,external_roster_id,native_player_id,membership_ordinal,entity_kind,
+        identity_state,canonical_entity_id,reasons,directory_identity_status,kind_evidence,mapping_proof
+      FROM public.league_roster_player_links
+      WHERE linked.storage_format='acceptance-v1' AND roster_acceptance_id=linked.roster_acceptance_id
+      UNION ALL
+      SELECT season_team_id,external_roster_id,native_player_id,membership_ordinal,entity_kind,
+        identity_state,canonical_entity_id,reasons,directory_identity_status,kind_evidence,mapping_proof
+      FROM public.league_roster_player_link_content_entries
+      WHERE linked.storage_format='shared-v1' AND content_id=linked.link_content_id
+    ) item ORDER BY item.season_team_id,item.membership_ordinal LIMIT 10001
   ) selected) links ON true
   WHERE linked.roster_receipt_id=$1::uuid AND linked.league_season_id=$2::uuid`;
 
@@ -173,6 +202,30 @@ function linkRow(value: unknown, directory: PlayerDirectoryVersion | null, evalu
     directoryIdentityStatus: row.directoryIdentityStatus as RosterPlayerLink['directoryIdentityStatus'], kindEvidence: kind, mappingProof: proof };
 }
 
+/** Storage metadata is internal: both representations feed the same semantic checks below. */
+function validateStorage(row: Record<string, unknown>): void {
+  if (typeof row.legacy_links_present !== 'boolean') throw new Error('Missing roster link representation evidence.');
+  if (row.storage_format === 'acceptance-v1') {
+    if (row.link_content_id !== null || row.shared_content !== null) throw new Error('Mixed legacy roster link representation.');
+    return;
+  }
+  if (row.storage_format !== 'shared-v1' || row.legacy_links_present) throw new Error('Invalid roster link representation.');
+  if (row.outcome === 'capacity_exceeded' || row.outcome === 'owner_unqualified') {
+    if (row.link_content_id !== null || row.shared_content !== null) throw new Error('Unexpected content for omitted roster links.');
+    return;
+  }
+  const shared = object(row.shared_content);
+  if (uuid(shared.id) !== uuid(row.link_content_id) || shared.leagueSeasonId !== row.league_season_id
+    || shared.sourceMappingRevisionId !== row.source_mapping_revision_id || shared.directoryVersionId !== row.directory_version_id
+    || shared.linkVersion !== row.link_version || shared.storageVersion !== 'shared-roster-player-links-v1'
+    || shared.firstReceiptPresent !== true || typeof shared.contentHash !== 'string' || !/^[0-9a-f]{64}$/u.test(shared.contentHash)
+    || shared.contentHash !== row.computed_link_content_hash
+    || integer(shared.held) !== integer(row.held_count) || integer(shared.resolved) !== integer(row.resolved_count)
+    || integer(shared.unresolved) !== integer(row.unresolved_count) || integer(shared.conflict) !== integer(row.conflict_count)) {
+    throw new Error('Invalid shared roster link content.');
+  }
+}
+
 export function rosterPlayerLinkMethods(client: DatabaseClient) {
   return {
     async readRosterPlayerLinks(selection: RosterPlayerLinksSelection): Promise<RosterPlayerLinksRead> {
@@ -182,6 +235,7 @@ export function rosterPlayerLinkMethods(client: DatabaseClient) {
         if (rows.length === 0) return { status: 'missing', reason: 'roster_player_links_not_recorded' };
         if (rows.length !== 1 || Buffer.byteLength(JSON.stringify(rows[0]), 'utf8') > ROSTER_PLAYER_LINK_MAX_BYTES) throw new Error('Invalid roster link snapshot size.');
         const row = rows[0], mapping = row.source_mapping;
+        validateStorage(row);
         if (!isAdministrationSourceMapping(mapping) || mapping.leagueSeasonId !== leagueSeasonId
           || row.league_season_id !== leagueSeasonId || row.content_league_season_id !== leagueSeasonId
           || row.roster_receipt_id !== receiptId || row.source_mapping_revision_id !== mapping.revisionId

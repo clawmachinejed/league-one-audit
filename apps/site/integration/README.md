@@ -368,9 +368,17 @@ not evidence of live capacity or fit; only a separately authorized exact-source
 run with verified report and cleanup can qualify the observed catalog.
 
 
-## CP6 roster-player link qualification
+## CP28 shared roster content: current local candidate
 
-The closed `data-roster-player-links-v1` profile selects exactly nine ordered
+The current `data-roster-player-links-v1` inventory contains **15 ordered cases**: the original nine CP6 cases plus six Slice A cases. The original nine bodies and their historical run below remain unchanged. The compatible reader and migration 063 are new executable sources; the earlier CP6/CP26/CP27/CP28 qualifications do not transfer to this candidate.
+
+The bounded local PostgreSQL proof selects only the six Slice A cases through an ignored, owned-loopback adapter. It uses all 63 actual migrations and three provisioners, restores the original legacy trigger after each shared-write proof, and verifies local process/data/credential cleanup. The nine original cases are unselected in that proof. See the [Slice A implementation and local evidence](../../../docs/aggregator-backend/data-backend-cp28-shared-roster-content.md) for results, failed attempts, synthetic absent-catalog setup and measurement limits. This local adapter is not the protected Neon supervisor or hosted qualification.
+
+The six added body allowances total 810 seconds (240/180/120/90/90/90), making the combined 15-case authored body allowance 2,550 seconds (**42.5 minutes**) before hooks. This is an allowance sum, not actual elapsed time or a fit claim. The protected supervisor still enforces the unchanged 30-minute work and 40-minute lifecycle limits. The combined 15-case candidate is not qualified; it needs its own source review, bounded execution authorization and measured fit before any hosted run. No timeout extension, automatic retry or new dispatch authority is introduced.
+
+## CP6 roster-player link qualification (historical nine-case run)
+
+The original closed `data-roster-player-links-v1` profile selected exactly nine ordered
 cases in `integration/roster-player-links.integration-case.ts`, with one shared
 setup/teardown pair. Its fixed supervisor command is
 `pnpm test:integration --profile=data-roster-player-links-v1`. The same protected

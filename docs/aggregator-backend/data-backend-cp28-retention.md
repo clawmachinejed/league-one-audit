@@ -1,5 +1,10 @@
 # CP28 retention and storage growth analysis
 
+## Current local Slice A implementation — October 19, 2026
+
+**Shared roster content: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [Slice A implementation report](data-backend-cp28-shared-roster-content.md) records the additive schema and compatible reader, six passing selected cases against all 63 real migrations and three provisioners, matched roster-only storage observations, preserved failed attempts and verified local cleanup. The production writer remains legacy; this local candidate is unpublished and has no new CI, preview, hosted, merge or deployment qualification. Metadata reduction and a complete all-family 10-GiB forecast remain outstanding. The design-stage statements and accepted hosted evidence below describe their earlier checkpoints and are preserved unchanged.
+
+
 ## Approved lossless design continuation — October 19, 2026
 
 The user selected the recommended design work with the 10-GiB budget and retained history unchanged. The [lossless storage design](data-backend-cp28-lossless-storage-design.md) specifies immutable shared roster content, compatible readers and a second capture-evidence normalization slice. Offline attribution shows the metadata remaining after ideal link elimination would still model 12.274 GiB DATA, or 16.365 GiB with the observed synthetic-control proxy; this makes metadata reduction a necessary investigation. The design does not claim measured savings or capacity fit. Implementation, new installed-schema proof and the complete all-family forecast remain outstanding. The measured calculator, original evidence and previous retention proof below are unchanged. No new SQL/hosted run, private Neon access, publication, merge or deployment is part of this continuation.

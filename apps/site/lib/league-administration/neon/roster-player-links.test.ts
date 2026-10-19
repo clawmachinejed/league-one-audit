@@ -38,7 +38,8 @@ function storedRow(raw: readonly JsonObject[] = payload): Record<string, unknown
     directoryIdentityStatus: index < 2 ? 'valid' : 'missing', kindEvidence: index < 2 ? {
       position: index === 0 ? 'LB' : 'DEF', fantasyPositions: null, positionState: 'supplied', fantasyPositionsState: 'missing' } : null,
     mappingProof: index < 2 ? [proof(nativePlayerId, index === 0 ? 'player' : 'team_defense', uuid(30 + index))] : [] }));
-  return { roster_acceptance_id: uuid(5), roster_receipt_id: selection.rosterReceiptId, roster_content_id: uuid(6),
+  return { storage_format: 'acceptance-v1', link_content_id: null, shared_content: null, legacy_links_present: true,
+    roster_acceptance_id: uuid(5), roster_receipt_id: selection.rosterReceiptId, roster_content_id: uuid(6),
     league_season_id: mapping.leagueSeasonId, content_league_season_id: mapping.leagueSeasonId, source_mapping_revision_id: mapping.revisionId,
     link_version: ROSTER_PLAYER_LINK_VERSION, directory_version_id: uuid(10), resolved_at: '2026-10-01T01:00:03.000Z',
     mapping_evaluated_at: '2026-10-01T01:00:02.000Z', outcome: 'partial', reasons: ['unresolved_player_links'],
@@ -48,6 +49,18 @@ function storedRow(raw: readonly JsonObject[] = payload): Record<string, unknown
     expected_team_count: 2, source_mapping: mapping, content_hash: normalized.contentHash, payload: raw, normalized_value: normalized.value,
     normalizer_version: 'sleeper-administration-v1', completeness: 'complete', provider: 'sleeper', external_league_id: mapping.scope.externalLeagueId,
     identities: [{ seasonTeamId: uuid(20), externalRosterId: '1' }, { seasonTeamId: uuid(21), externalRosterId: '2' }], links, directory: directory() };
+}
+/** Query-result double only; actual PostgreSQL canonical JSONB hashing is proved in integration. */
+function sharedRow(row = storedRow()): Record<string, unknown> {
+  const shared = structuredClone(row);
+  const omitted = shared.outcome === 'capacity_exceeded' || shared.outcome === 'owner_unqualified';
+  Object.assign(shared, { storage_format: 'shared-v1', link_content_id: omitted ? null : uuid(50), legacy_links_present: false,
+    computed_link_content_hash: 'a'.repeat(64), shared_content: omitted ? null : {
+      id: uuid(50), leagueSeasonId: shared.league_season_id, sourceMappingRevisionId: shared.source_mapping_revision_id,
+      directoryVersionId: shared.directory_version_id, linkVersion: shared.link_version, storageVersion: 'shared-roster-player-links-v1',
+      contentHash: 'a'.repeat(64), firstReceiptPresent: true, held: shared.held_count, resolved: shared.resolved_count,
+      unresolved: shared.unresolved_count, conflict: shared.conflict_count } });
+  return shared;
 }
 function fixture(row: DatabaseRow | null = storedRow()) {
   const query = vi.fn(async (sql: string, parameters?: readonly unknown[]) => {
@@ -96,8 +109,10 @@ describe('stored immutable roster player link reader', () => {
     expect(await reader.readRosterPlayerLinks(selection)).toEqual(before);
     expect(query).toHaveBeenCalledTimes(3);
   });
-  it.each(['native', 'ordinal', 'team', 'extra', 'missing', 'count', 'scope', 'mapping', 'content', 'kind', 'canonical', 'expired', 'unverified'])('rejects the entire %s-corrupted snapshot', async corruption => {
-    const row = storedRow(); const links = row.links as Array<Record<string, unknown>>;
+  it.each(['acceptance-v1', 'shared-v1'].flatMap(format =>
+    ['native', 'ordinal', 'team', 'extra', 'missing', 'count', 'scope', 'mapping', 'content', 'kind', 'canonical', 'expired', 'unverified']
+      .map(corruption => [format, corruption])))('rejects the entire %s %s-corrupted snapshot', async (format, corruption) => {
+    const row = format === 'shared-v1' ? sharedRow() : storedRow(); const links = row.links as Array<Record<string, unknown>>;
     if (corruption === 'native') links[0].nativePlayerId = '1';
     if (corruption === 'ordinal') links[0].membershipOrdinal = 2;
     if (corruption === 'team') links[0].seasonTeamId = uuid(99);
@@ -170,6 +185,113 @@ describe('stored immutable roster player link reader', () => {
   it('keeps pre-migration absence and a database failure explicit without read-side backfill', async () => {
     expect(await fixture(null).read()).toEqual({ status: 'missing', reason: 'roster_player_links_not_recorded' });
     const query = vi.fn(async () => { throw new Error('database unavailable'); });
+    expect(await rosterPlayerLinkMethods({ enabled: true, query } as unknown as DatabaseClient).readRosterPlayerLinks(selection))
+      .toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('dual-format immutable roster membership storage', () => {
+  it('returns exactly the same public shape for legacy and shared partial membership, with one bounded stored query', async () => {
+    const fetch = vi.fn(() => { throw new Error('Provider forbidden.'); }); vi.stubGlobal('fetch', fetch);
+    const legacy = fixture(), shared = fixture(sharedRow());
+    const result = await shared.read();
+    expect(result.status).toBe('available');
+    expect(result).toEqual(await legacy.read());
+    expect(shared.query).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(ROSTER_PLAYER_LINK_READ_SQL).not.toMatch(/external_scoring_entity_ids|current_mapping_revision_id|resource_heads|directory_heads/);
+    expect(ROSTER_PLAYER_LINK_READ_SQL).toContain("linked.storage_format='acceptance-v1'");
+    expect(ROSTER_PLAYER_LINK_READ_SQL).toContain("linked.storage_format='shared-v1'");
+    expect(ROSTER_PLAYER_LINK_READ_SQL).toContain('LIMIT 10001');
+    expect(ROSTER_PLAYER_LINK_READ_SQL).toContain('LIMIT 1001');
+  });
+  it('retains every unresolved held member with a NULL pinned directory, without substituting a directory head', async () => {
+    const legacy = storedRow();
+    Object.assign(legacy, { directory: null, directory_version_id: null, resolved_count: 0, unresolved_count: 4,
+      links: (legacy.links as Array<Record<string, unknown>>).map(link => ({ ...link, canonicalEntityId: null, entityKind: null,
+        identityState: 'unresolved', directoryIdentityStatus: 'missing', kindEvidence: null, mappingProof: [], reasons: ['directory_unavailable'] })) });
+    const shared = sharedRow(legacy);
+    expect(await fixture(shared).read()).toEqual(await fixture(legacy).read());
+    expect(await fixture(shared).read()).toMatchObject({ status: 'available', directory: null, counts: { held: 4 }, links: [{}, {}, {}, {}] });
+    (shared.shared_content as Record<string, unknown>).directoryVersionId = uuid(99);
+    expect(await fixture(shared).read()).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+  });
+  it('accepts a complete empty shared set and distinguishes a missing header from that empty set', async () => {
+    const legacy = storedRow(payload.map(team => ({ ...team, players: [] })));
+    Object.assign(legacy, { outcome: 'complete', reasons: [], held_count: 0, resolved_count: 0, unresolved_count: 0,
+      links: [], legacy_links_present: false });
+    const shared = sharedRow(legacy);
+    expect(await fixture(shared).read()).toEqual(await fixture(legacy).read());
+    expect(await fixture(shared).read()).toMatchObject({ status: 'available', outcome: 'complete', counts: { teams: 2, held: 0 }, links: [] });
+    shared.shared_content = null;
+    expect(await fixture(shared).read()).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+  });
+  it.each(['capacity_exceeded', 'owner_unqualified'])('retains the shared %s outcome without inventing a content set', async outcome => {
+    const legacy = storedRow();
+    Object.assign(legacy, { outcome, reasons: [outcome], links: [], resolved_count: 0, unresolved_count: 4, legacy_links_present: false });
+    const shared = sharedRow(legacy);
+    expect(await fixture(shared).read()).toEqual(await fixture(legacy).read());
+    shared.link_content_id = uuid(50);
+    expect(await fixture(shared).read()).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+  });
+  it.each(['unknown-format', 'missing-format', 'legacy-with-pointer', 'legacy-with-header', 'missing-pointer', 'missing-header',
+    'double-representation', 'missing-representation-proof', 'id', 'league', 'mapping', 'directory', 'link-version', 'storage-version',
+    'missing-first-receipt', 'malformed-hash', 'different-hash', 'held', 'resolved', 'unresolved', 'conflict'])
+    ('rejects %s representation before treating it as valid history', async corruption => {
+      const row = sharedRow(), header = row.shared_content as Record<string, unknown>;
+      if (corruption === 'unknown-format') row.storage_format = 'future-v2';
+      if (corruption === 'missing-format') delete row.storage_format;
+      if (corruption === 'legacy-with-pointer') Object.assign(row, { storage_format: 'acceptance-v1', shared_content: null });
+      if (corruption === 'legacy-with-header') Object.assign(row, { storage_format: 'acceptance-v1', link_content_id: null });
+      if (corruption === 'missing-pointer') row.link_content_id = null;
+      if (corruption === 'missing-header') row.shared_content = null;
+      if (corruption === 'double-representation') row.legacy_links_present = true;
+      if (corruption === 'missing-representation-proof') delete row.legacy_links_present;
+      if (corruption === 'id') header.id = uuid(99);
+      if (corruption === 'league') header.leagueSeasonId = uuid(99);
+      if (corruption === 'mapping') header.sourceMappingRevisionId = uuid(99);
+      if (corruption === 'directory') header.directoryVersionId = null;
+      if (corruption === 'link-version') header.linkVersion = 'future-v2';
+      if (corruption === 'storage-version') header.storageVersion = 'future-v2';
+      if (corruption === 'missing-first-receipt') header.firstReceiptPresent = false;
+      if (corruption === 'malformed-hash') header.contentHash = row.computed_link_content_hash = 'not-a-digest';
+      if (corruption === 'different-hash') row.computed_link_content_hash = 'b'.repeat(64);
+      if (['held', 'resolved', 'unresolved', 'conflict'].includes(corruption)) header[corruption] = Number(header[corruption]) + 1;
+      expect(await fixture(row).read()).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+    });
+  it('preserves independent capture identities and microsecond times when fresh history reuses the same content', async () => {
+    const first = sharedRow();
+    const next = sharedRow();
+    Object.assign(next, { roster_receipt_id: uuid(44), roster_acceptance_id: uuid(45), roster_content_id: uuid(46), generation: 2,
+      mapping_evaluated_at: '2026-10-01 01:00:02.123456+00', resolved_at: '2026-10-01 01:00:02.123457+00' });
+    const nextLinks = next.links as Array<Record<string, unknown>>;
+    const mappings = nextLinks[0].mappingProof as Array<Record<string, unknown>>;
+    mappings[0].validFrom = '2026-09-01T00:00:00.000001+00:00';
+    ((first.links as Array<Record<string, unknown>>)[0].mappingProof as Array<Record<string, unknown>>)[0].validFrom = mappings[0].validFrom;
+    const query = vi.fn(async (sql: string, parameters: readonly unknown[]) => {
+      expect(sql).toBe(ROSTER_PLAYER_LINK_READ_SQL);
+      return parameters[0] === selection.rosterReceiptId ? [first] : parameters[0] === uuid(44) ? [next] : [];
+    });
+    const reader = rosterPlayerLinkMethods({ enabled: true, query } as unknown as DatabaseClient);
+    const before = await reader.readRosterPlayerLinks(selection);
+    const after = await reader.readRosterPlayerLinks({ ...selection, rosterReceiptId: uuid(44) });
+    expect(before).toMatchObject({ status: 'available', rosterAcceptanceId: uuid(5), rosterReceiptId: selection.rosterReceiptId });
+    expect(after).toMatchObject({ status: 'available', rosterAcceptanceId: uuid(45), rosterReceiptId: uuid(44), rosterContentId: uuid(46),
+      mappingEvaluatedAt: next.mapping_evaluated_at, resolvedAt: next.resolved_at,
+      links: [{ mappingProof: [{ validFrom: '2026-09-01T00:00:00.000001+00:00' }] }, {}, {}, {}] });
+    expect(await reader.readRosterPlayerLinks(selection)).toEqual(before);
+    expect(query).toHaveBeenCalledTimes(3);
+    mappings[0].validTo = next.mapping_evaluated_at;
+    expect(await reader.readRosterPlayerLinks({ ...selection, rosterReceiptId: uuid(44) })).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+  });
+  it('rejects overbound shared rows and duplicate receipt rows without another query', async () => {
+    const row = sharedRow(); row.links = Array.from({ length: 10_001 }, () => (row.links as unknown[])[0]);
+    const shared = fixture(row);
+    expect(await shared.read()).toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+    expect(shared.query).toHaveBeenCalledTimes(1);
+    const query = vi.fn(async () => [sharedRow(), sharedRow()]);
     expect(await rosterPlayerLinkMethods({ enabled: true, query } as unknown as DatabaseClient).readRosterPlayerLinks(selection))
       .toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
     expect(query).toHaveBeenCalledTimes(1);

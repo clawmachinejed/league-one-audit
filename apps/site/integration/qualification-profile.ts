@@ -729,8 +729,8 @@ export const TEAM_MANAGER_FACTS_FULL_NAMES = TEAM_MANAGER_FACTS_TESTS.map(name =
 export const TEAM_MANAGER_FACTS_PATTERN = closedPattern(TEAM_MANAGER_FACTS_FULL_NAMES);
 export const ROSTER_PLAYER_LINKS_PROFILE = 'data-roster-player-links-v1';
 export const ROSTER_PLAYER_LINKS_MODULE = 'integration/roster-player-links.integration-case.ts';
-// Independently reviewed nine-case fixture; changed bytes require renewed review and an explicit re-pin.
-export const ROSTER_PLAYER_LINKS_SOURCE_DIGEST = '652a0be4ac216af1a8fd17b03f19a05e8be09f0529a4afe6b7c37ad153d640d0';
+// Reviewed original nine cases plus six Slice A cases; changed bytes require independent review and an explicit re-pin.
+export const ROSTER_PLAYER_LINKS_SOURCE_DIGEST = '8af7186b26068c4346cdaf7a28f9933167768446e378dbf486aab2f020e878ca';
 export const ROSTER_PLAYER_LINKS_SUITE = 'immutable roster player links through restricted PostgreSQL';
 export const ROSTER_PLAYER_LINKS_TESTS = [
   'preserves official membership without directory evidence or a qualified identity owner',
@@ -742,6 +742,12 @@ export const ROSTER_PLAYER_LINKS_TESTS = [
   'rolls back canonical writes links and acceptance when an observed identity lock outlives deadline or lease',
   'keeps capacity outcomes explicit and denies history mutation while preserving runtime identity permissions',
   'stores and reads linked membership through ordinary public intake and one real refresh cycle',
+  'Slice A preserves legacy reads and measures 32 matched unchanged captures with shared immutable content',
+  'Slice A preserves correction provenance exact replay mapping revisions and directory boundaries',
+  'Slice A rejects late members collisions history mutation and unauthorized shared storage access',
+  'Slice A preserves null directory empty membership and fresh receipt semantics without changing public version',
+  'Slice A rolls back shared state after observed identity waits outlive deadline or lease',
+  'Slice A reuses the committed shared winner after a real concurrent acceptance wait',
 ] as const;
 export const ROSTER_PLAYER_LINKS_FULL_NAMES = ROSTER_PLAYER_LINKS_TESTS.map(name => ROSTER_PLAYER_LINKS_SUITE + ' > ' + name);
 export const ROSTER_PLAYER_LINKS_PATTERN = closedPattern(ROSTER_PLAYER_LINKS_FULL_NAMES);
