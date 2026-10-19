@@ -1,5 +1,8 @@
 # CP28 bounded two-league storage measurement proposal
 
+**Current disposition — October 19, 2026:** The focused experiment passed once at `168a856` in [run 39323139287](https://github.com/clawmachinejed/league-one-audit/actions/runs/39323139287); original evidence and independent cleanup checks were accepted. All four separately authorized hosted allowances are consumed. The [current retention/capacity report](data-backend-cp28-retention.md#current-measured-update--october-19-2026) records the local measured-forecast continuation and remaining CP28 capacity decision. The proposal and preparation stages below are preserved history; their earlier unexecuted/$0 statements do not override the separately authorized completed run, and do not authorize another run.
+
+
 **CI CANDIDATE VALIDATED LOCALLY; NOT PUBLISHED OR MEASURED. SQL/SPEND APPROVAL: NONE ($0).** Updated October 18, 2026, America/Indianapolis. The user authorized the focused two-league implementation and catalog preparation, then directed reuse of the existing protected GitHub integration setup. No SQL, paid run, provisioning, credential retrieval, publication, merge, deployment or DATA activation is authorized. Sections 1–9 preserve the historical proposal, and section 10 records the validated local-only candidate. [Section 11 is the current CI preparation record](#11-existing-protected-ci-preparation--current-record); it supersedes the local-only dispatch choice and credential prerequisite. CP26 remains **STOPPED / INCOMPLETE**; CP27 remains **DEFERRED / UNQUALIFIED**.
 
 ## 1. Authority, immutable source and scope

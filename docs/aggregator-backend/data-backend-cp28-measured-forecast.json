@@ -1,0 +1,1496 @@
+{
+  "schemaVersion": 1,
+  "kind": "cp28-partial-measured-core-sensitivity",
+  "qualification": "UNQUALIFIED",
+  "acceptedExperiment": "PASSED",
+  "originalEvidenceVerification": "ORIGINAL_CP28_BYTES_AND_EXTRACTION_VERIFIED",
+  "provenance": {
+    "artifactSha256": "73668875846572a703d5667877e5d715062e82e098b6e0988510f28d123c96c5",
+    "artifactBytes": 1631137,
+    "gitSha": "168a856ae44e7431393b0a8a9404483dda294ccc",
+    "contextDigest": "e2865b381b377484dc50e14b03f3421b033125217f4733bd8e9e9278a263b98a",
+    "fixtureDigest": "1da88e54b8a058b5bffffd4b5daa08dcf687ef5c46a34af4a0ecfc1e5e72c440",
+    "runId": "a99011e2-a5e2-43c2-ad7d-6e54e9643ffa",
+    "hostedRun": "39323139287",
+    "artifactId": "12220502648",
+    "originalZipSha256": "4f6162dde2ca6698584d1cdbb3baf7c533f0cf70f9fb3dc69dcb6c161c6b4f01",
+    "extractionSha256": "5a389413238a786f90e9b3003499d8d981dc70905853d97216e3ef3cbeb9a377",
+    "historicalAssumptionsSha256": "01ea051930d466f3001f6442d23a4b49005d3ada5a8c5a3df7a4695cce64c28b"
+  },
+  "horizon": {
+    "start": "2026-01-01",
+    "endExclusive": "2028-04-01",
+    "days": 821,
+    "activeDays": 126,
+    "inactiveDays": 695,
+    "activeHoursPerDay": 24
+  },
+  "budgetBytes": 10737418240,
+  "benchmarkUniqueLeagues": 16,
+  "assumptions": {
+    "activeRefreshMinutes": [
+      60,
+      15,
+      5
+    ],
+    "uniqueLeagues": [
+      16,
+      400
+    ],
+    "inactiveRefreshesPerDay": 1,
+    "correctionFractions": [
+      0,
+      0.01,
+      0.05
+    ],
+    "correctionTypeWeights": {
+      "C1": 0.25,
+      "C2": 0.25,
+      "C3": 0.25,
+      "C4": 0.25
+    },
+    "allocationRateMultiplier": 1,
+    "startupCatalogLoadsPerFleet": 1,
+    "recurringCatalogVersionRate": null,
+    "fixedFixtureTeamsPerLeague": 20,
+    "unchangedHeldPlayersPerLeague": 160,
+    "correctionHeldPlayersPerLeague": [
+      160,
+      159,
+      159,
+      159
+    ],
+    "interpretation": "Illustrative exposure at observed fixture occupancy, not a fleet census or statistical bound. Expected unchanged and correction counts are disjoint. Equal correction-type weights, stationary observed allocation rates and roster-link-only linear scaling are assumptions. No historical allocation ratio factors or reserves are applied in this lane. The full 821-day event exposure is additional to the separately observed two-league startup; it is not a reconstructed calendar history or an inferred16-league seed."
+  },
+  "observed": {
+    "migratedBaseline": {
+      "allocatedBytes": 3825664,
+      "groups": {
+        "per-league": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 1384448
+        },
+        "shared": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 262144
+        },
+        "controls": {
+          "rows": 1,
+          "tupleBytes": 48,
+          "jsonBytes": 95,
+          "allocatedBytes": 761856
+        },
+        "non-data": {
+          "rows": 62,
+          "tupleBytes": 8272,
+          "jsonBytes": 10805,
+          "allocatedBytes": 1417216
+        }
+      }
+    },
+    "firstCatalog": {
+      "sharedDelta": {
+        "rows": 12235,
+        "tupleBytes": 25440418,
+        "jsonBytes": 41295033,
+        "allocatedBytes": 31285248
+      },
+      "syntheticControlDelta": {
+        "rows": 1,
+        "tupleBytes": 224,
+        "jsonBytes": 489,
+        "allocatedBytes": 32768
+      },
+      "initialCatalogTableAllocationBytes": 31457280,
+      "relations": [
+        {
+          "table": "public.league_player_directory_attempts",
+          "initialRows": 1,
+          "initialAllocatedBytes": 65536,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 32768,
+          "deltaTupleBytes": 264,
+          "deltaJsonBytes": 363
+        },
+        {
+          "table": "public.league_player_directory_captures",
+          "initialRows": 1,
+          "initialAllocatedBytes": 65536,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 32768,
+          "deltaTupleBytes": 448,
+          "deltaJsonBytes": 766
+        },
+        {
+          "table": "public.league_player_directory_contents",
+          "initialRows": 1,
+          "initialAllocatedBytes": 3588096,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 3563520,
+          "deltaTupleBytes": 3372960,
+          "deltaJsonBytes": 16557073
+        },
+        {
+          "table": "public.league_player_directory_entries",
+          "initialRows": 12229,
+          "initialAllocatedBytes": 27615232,
+          "deltaRows": 12229,
+          "deltaAllocatedBytes": 27590656,
+          "deltaTupleBytes": 22066390,
+          "deltaJsonBytes": 24735955
+        },
+        {
+          "table": "public.league_player_directory_heads",
+          "initialRows": 1,
+          "initialAllocatedBytes": 32768,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 16384,
+          "deltaTupleBytes": 96,
+          "deltaJsonBytes": 278
+        },
+        {
+          "table": "public.league_player_directory_source_slices",
+          "initialRows": 1,
+          "initialAllocatedBytes": 32768,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 16384,
+          "deltaTupleBytes": 172,
+          "deltaJsonBytes": 376
+        },
+        {
+          "table": "public.league_player_directory_versions",
+          "initialRows": 1,
+          "initialAllocatedBytes": 57344,
+          "deltaRows": 1,
+          "deltaAllocatedBytes": 32768,
+          "deltaTupleBytes": 88,
+          "deltaJsonBytes": 222
+        }
+      ],
+      "repeatedVersionOrObservationSlopeMeasured": false
+    },
+    "prerequisitesAndFirstCore": [
+      {
+        "before": "S1-catalog",
+        "after": "S2-A-prerequisites",
+        "unit": "no-capture",
+        "captures": 0,
+        "groups": {
+          "per-league": {
+            "rows": 7,
+            "tupleBytes": 853,
+            "jsonBytes": 2052,
+            "allocatedBytes": 163840
+          },
+          "shared": {
+            "rows": 2,
+            "tupleBytes": 248,
+            "jsonBytes": 382,
+            "allocatedBytes": 49152
+          },
+          "controls": {
+            "rows": 4,
+            "tupleBytes": 1788,
+            "jsonBytes": 2735,
+            "allocatedBytes": 73728
+          },
+          "non-data": {
+            "rows": 0,
+            "tupleBytes": 0,
+            "jsonBytes": 0,
+            "allocatedBytes": 0
+          }
+        },
+        "allocatedBytes": 286720,
+        "dataAllocatedBytes": 212992,
+        "meanDataAllocatedBytesPerCapture": null
+      },
+      {
+        "before": "S2-A-prerequisites",
+        "after": "S3-A-baseline",
+        "unit": "fresh-core",
+        "captures": 1,
+        "groups": {
+          "per-league": {
+            "rows": 364,
+            "tupleBytes": 156714,
+            "jsonBytes": 248930,
+            "allocatedBytes": 811008
+          },
+          "shared": {
+            "rows": 340,
+            "tupleBytes": 27432,
+            "jsonBytes": 74627,
+            "allocatedBytes": 106496
+          },
+          "controls": {
+            "rows": 2,
+            "tupleBytes": 1839,
+            "jsonBytes": 2085,
+            "allocatedBytes": 49152
+          },
+          "non-data": {
+            "rows": 0,
+            "tupleBytes": 0,
+            "jsonBytes": 0,
+            "allocatedBytes": 0
+          }
+        },
+        "allocatedBytes": 966656,
+        "dataAllocatedBytes": 917504,
+        "meanDataAllocatedBytesPerCapture": 917504
+      },
+      {
+        "before": "S3-A-baseline",
+        "after": "S4-B-prerequisites",
+        "unit": "no-capture",
+        "captures": 0,
+        "groups": {
+          "per-league": {
+            "rows": 7,
+            "tupleBytes": 853,
+            "jsonBytes": 2052,
+            "allocatedBytes": 0
+          },
+          "shared": {
+            "rows": 1,
+            "tupleBytes": 80,
+            "jsonBytes": 165,
+            "allocatedBytes": 0
+          },
+          "controls": {
+            "rows": 4,
+            "tupleBytes": 1788,
+            "jsonBytes": 2739,
+            "allocatedBytes": 0
+          },
+          "non-data": {
+            "rows": 0,
+            "tupleBytes": 0,
+            "jsonBytes": 0,
+            "allocatedBytes": 0
+          }
+        },
+        "allocatedBytes": 0,
+        "dataAllocatedBytes": 0,
+        "meanDataAllocatedBytesPerCapture": null
+      },
+      {
+        "before": "S4-B-prerequisites",
+        "after": "S5-B-baseline",
+        "unit": "fresh-core",
+        "captures": 1,
+        "groups": {
+          "per-league": {
+            "rows": 364,
+            "tupleBytes": 156698,
+            "jsonBytes": 248930,
+            "allocatedBytes": 344064
+          },
+          "shared": {
+            "rows": 20,
+            "tupleBytes": 1600,
+            "jsonBytes": 3298,
+            "allocatedBytes": 16384
+          },
+          "controls": {
+            "rows": 2,
+            "tupleBytes": 1815,
+            "jsonBytes": 2072,
+            "allocatedBytes": 0
+          },
+          "non-data": {
+            "rows": 0,
+            "tupleBytes": 0,
+            "jsonBytes": 0,
+            "allocatedBytes": 0
+          }
+        },
+        "allocatedBytes": 360448,
+        "dataAllocatedBytes": 360448,
+        "meanDataAllocatedBytesPerCapture": 360448
+      }
+    ],
+    "unchangedBatches": [
+      {
+        "phase": "S6-A-unchanged",
+        "captures": 16,
+        "rosterLinkGroupBytes": 2244608,
+        "otherPerLeagueBytes": 327680,
+        "sharedBytes": 65536,
+        "syntheticControlBytes": 114688
+      },
+      {
+        "phase": "S7-B-unchanged",
+        "captures": 16,
+        "rosterLinkGroupBytes": 2244608,
+        "otherPerLeagueBytes": 319488,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 122880
+      }
+    ],
+    "unchangedMeanAllocatedBytesPerCore": {
+      "rosterLinkGroupBytes": 140288,
+      "otherPerLeagueBytes": 20224,
+      "sharedBytes": 2048,
+      "syntheticControlBytes": 7424,
+      "dataBytes": 162560,
+      "withSyntheticControlsBytes": 169984
+    },
+    "unchangedDataMeanRangeBetweenTwoBatches": [
+      164864,
+      160256
+    ],
+    "correctionObservations": [
+      {
+        "phase": "S8-A-C1",
+        "correction": "C1",
+        "heldPlayers": 160,
+        "captures": 1,
+        "rosterLinkGroupBytes": 131072,
+        "otherPerLeagueBytes": 90112,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 0,
+        "delta": {
+          "before": "S7-B-unchanged",
+          "after": "S8-A-C1",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 321,
+              "tupleBytes": 146609,
+              "jsonBytes": 231834,
+              "allocatedBytes": 221184
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4812,
+              "allocatedBytes": 0
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 221184,
+          "dataAllocatedBytes": 221184,
+          "meanDataAllocatedBytesPerCapture": 221184
+        }
+      },
+      {
+        "phase": "S9-B-C1",
+        "correction": "C1",
+        "heldPlayers": 160,
+        "captures": 1,
+        "rosterLinkGroupBytes": 139264,
+        "otherPerLeagueBytes": 98304,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 8192,
+        "delta": {
+          "before": "S8-A-C1",
+          "after": "S9-B-C1",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 321,
+              "tupleBytes": 146609,
+              "jsonBytes": 231836,
+              "allocatedBytes": 237568
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4807,
+              "allocatedBytes": 8192
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 245760,
+          "dataAllocatedBytes": 237568,
+          "meanDataAllocatedBytesPerCapture": 237568
+        }
+      },
+      {
+        "phase": "S10-A-C2",
+        "correction": "C2",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 131072,
+        "otherPerLeagueBytes": 73728,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 8192,
+        "delta": {
+          "before": "S9-B-C1",
+          "after": "S10-A-C2",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 320,
+              "tupleBytes": 146040,
+              "jsonBytes": 230919,
+              "allocatedBytes": 204800
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4810,
+              "allocatedBytes": 8192
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 212992,
+          "dataAllocatedBytes": 204800,
+          "meanDataAllocatedBytesPerCapture": 204800
+        }
+      },
+      {
+        "phase": "S11-B-C2",
+        "correction": "C2",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 147456,
+        "otherPerLeagueBytes": 90112,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 0,
+        "delta": {
+          "before": "S10-A-C2",
+          "after": "S11-B-C2",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 320,
+              "tupleBytes": 146040,
+              "jsonBytes": 230917,
+              "allocatedBytes": 237568
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4810,
+              "allocatedBytes": 0
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 237568,
+          "dataAllocatedBytes": 237568,
+          "meanDataAllocatedBytesPerCapture": 237568
+        }
+      },
+      {
+        "phase": "S12-A-C3",
+        "correction": "C3",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 172032,
+        "otherPerLeagueBytes": 57344,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 32768,
+        "delta": {
+          "before": "S11-B-C2",
+          "after": "S12-A-C3",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 320,
+              "tupleBytes": 146064,
+              "jsonBytes": 230918,
+              "allocatedBytes": 229376
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4810,
+              "allocatedBytes": 32768
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 262144,
+          "dataAllocatedBytes": 229376,
+          "meanDataAllocatedBytesPerCapture": 229376
+        }
+      },
+      {
+        "phase": "S13-B-C3",
+        "correction": "C3",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 139264,
+        "otherPerLeagueBytes": 98304,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 0,
+        "delta": {
+          "before": "S12-A-C3",
+          "after": "S13-B-C3",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 320,
+              "tupleBytes": 146056,
+              "jsonBytes": 230917,
+              "allocatedBytes": 237568
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4801,
+              "allocatedBytes": 0
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 237568,
+          "dataAllocatedBytes": 237568,
+          "meanDataAllocatedBytesPerCapture": 237568
+        }
+      },
+      {
+        "phase": "S14-A-C4",
+        "correction": "C4",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 155648,
+        "otherPerLeagueBytes": 65536,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 8192,
+        "delta": {
+          "before": "S13-B-C3",
+          "after": "S14-A-C4",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 317,
+              "tupleBytes": 145571,
+              "jsonBytes": 229882,
+              "allocatedBytes": 221184
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4810,
+              "allocatedBytes": 8192
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 229376,
+          "dataAllocatedBytes": 221184,
+          "meanDataAllocatedBytesPerCapture": 221184
+        }
+      },
+      {
+        "phase": "S15-B-C4",
+        "correction": "C4",
+        "heldPlayers": 159,
+        "captures": 1,
+        "rosterLinkGroupBytes": 139264,
+        "otherPerLeagueBytes": 106496,
+        "sharedBytes": 0,
+        "syntheticControlBytes": 0,
+        "delta": {
+          "before": "S14-A-C4",
+          "after": "S15-B-C4",
+          "unit": "fresh-core",
+          "captures": 1,
+          "groups": {
+            "per-league": {
+              "rows": 317,
+              "tupleBytes": 145571,
+              "jsonBytes": 229880,
+              "allocatedBytes": 245760
+            },
+            "shared": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            },
+            "controls": {
+              "rows": 6,
+              "tupleBytes": 3603,
+              "jsonBytes": 4806,
+              "allocatedBytes": 0
+            },
+            "non-data": {
+              "rows": 0,
+              "tupleBytes": 0,
+              "jsonBytes": 0,
+              "allocatedBytes": 0
+            }
+          },
+          "allocatedBytes": 245760,
+          "dataAllocatedBytes": 245760,
+          "meanDataAllocatedBytesPerCapture": 245760
+        }
+      }
+    ],
+    "correctionMeanAllocatedBytesPerCore": {
+      "rosterLinkGroupBytes": 144384,
+      "otherPerLeagueBytes": 84992,
+      "sharedBytes": 0,
+      "syntheticControlBytes": 7168,
+      "dataBytes": 229376,
+      "withSyntheticControlsBytes": 236544
+    },
+    "firstToFinal": {
+      "rows": 21717,
+      "allocatedBytes": 40263680
+    },
+    "finalReadDelta": {
+      "before": "S15-B-C4",
+      "after": "S16-read-only",
+      "unit": "no-capture",
+      "captures": 0,
+      "groups": {
+        "per-league": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 0
+        },
+        "shared": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 0
+        },
+        "controls": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 0
+        },
+        "non-data": {
+          "rows": 0,
+          "tupleBytes": 0,
+          "jsonBytes": 0,
+          "allocatedBytes": 0
+        }
+      },
+      "allocatedBytes": 0,
+      "dataAllocatedBytes": 0,
+      "meanDataAllocatedBytesPerCapture": null
+    }
+  },
+  "modeledCoreExposure": [
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 48384,
+        "inactiveEvents": 11120,
+        "coreEvents": 59504,
+        "unchangedEvents": 59504,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 8347697152,
+        "otherPerLeagueBytes": 1203408896,
+        "sharedBytes": 121864192,
+        "syntheticControlBytes": 441757696
+      },
+      "coreDataBytes": 9672970240,
+      "coreDataGiB": 9.008655548095703,
+      "corePlusSyntheticControlBytes": 10114727936,
+      "corePlusSyntheticControlGiB": 9.420074462890625,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 9704255488,
+      "exceeds10GiBInThisPartialSensitivity": false,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 193536,
+        "inactiveEvents": 11120,
+        "coreEvents": 204656,
+        "unchangedEvents": 204656,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 28710780928,
+        "otherPerLeagueBytes": 4138962944,
+        "sharedBytes": 419135488,
+        "syntheticControlBytes": 1519366144
+      },
+      "coreDataBytes": 33268879360,
+      "coreDataGiB": 30.984058380126953,
+      "corePlusSyntheticControlBytes": 34788245504,
+      "corePlusSyntheticControlGiB": 32.399078369140625,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 33300164608,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 580608,
+        "inactiveEvents": 11120,
+        "coreEvents": 591728,
+        "unchangedEvents": 591728,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 83012337664,
+        "otherPerLeagueBytes": 11967107072,
+        "sharedBytes": 1211858944,
+        "syntheticControlBytes": 4392988672
+      },
+      "coreDataBytes": 96191303680,
+      "coreDataGiB": 89.58513259887695,
+      "corePlusSyntheticControlBytes": 100584292352,
+      "corePlusSyntheticControlGiB": 93.67642211914062,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 96222588928,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 1209600,
+        "inactiveEvents": 278000,
+        "coreEvents": 1487600,
+        "unchangedEvents": 1487600,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 208692428800,
+        "otherPerLeagueBytes": 30085222400,
+        "sharedBytes": 3046604800,
+        "syntheticControlBytes": 11043942400
+      },
+      "coreDataBytes": 241824256000,
+      "coreDataGiB": 225.21638870239258,
+      "corePlusSyntheticControlBytes": 252868198400,
+      "corePlusSyntheticControlGiB": 235.50186157226562,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 241855541248,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 4838400,
+        "inactiveEvents": 278000,
+        "coreEvents": 5116400,
+        "unchangedEvents": 5116400,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 717769523200,
+        "otherPerLeagueBytes": 103474073600,
+        "sharedBytes": 10478387200,
+        "syntheticControlBytes": 37984153600
+      },
+      "coreDataBytes": 831721984000,
+      "coreDataGiB": 774.6014595031738,
+      "corePlusSyntheticControlBytes": 869706137600,
+      "corePlusSyntheticControlGiB": 809.9769592285156,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 831753269248,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0,
+      "expectedEvents": {
+        "activeEvents": 14515200,
+        "inactiveEvents": 278000,
+        "coreEvents": 14793200,
+        "unchangedEvents": 14793200,
+        "correctionEvents": 0
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 2075308441600,
+        "otherPerLeagueBytes": 299177676800,
+        "sharedBytes": 30296473600,
+        "syntheticControlBytes": 109824716800
+      },
+      "coreDataBytes": 2404782592000,
+      "coreDataGiB": 2239.628314971924,
+      "corePlusSyntheticControlBytes": 2514607308800,
+      "corePlusSyntheticControlGiB": 2341.9105529785156,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 2404813877248,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    }
+  ],
+  "correctionMixSensitivities": [
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 48384,
+        "inactiveEvents": 11120,
+        "coreEvents": 59504,
+        "unchangedEvents": 58908.96,
+        "correctionEvents": 595.04
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 8350134435.839999,
+        "otherPerLeagueBytes": 1241948446.72,
+        "sharedBytes": 120645550.08,
+        "syntheticControlBytes": 441605365.76000005
+      },
+      "coreDataBytes": 9712728432.64,
+      "coreDataGiB": 9.045683250427246,
+      "corePlusSyntheticControlBytes": 10154333798.4,
+      "corePlusSyntheticControlGiB": 9.456960296630859,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 9744013680.64,
+      "exceeds10GiBInThisPartialSensitivity": false,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 48384,
+        "inactiveEvents": 11120,
+        "coreEvents": 59504,
+        "unchangedEvents": 56528.799999999996,
+        "correctionEvents": 2975.2000000000003
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 8359883571.2,
+        "otherPerLeagueBytes": 1396106649.6,
+        "sharedBytes": 115770982.39999999,
+        "syntheticControlBytes": 440996044.8
+      },
+      "coreDataBytes": 9871761203.199999,
+      "coreDataGiB": 9.193794059753417,
+      "corePlusSyntheticControlBytes": 10312757247.999998,
+      "corePlusSyntheticControlGiB": 9.604503631591795,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 9903046451.199999,
+      "exceeds10GiBInThisPartialSensitivity": false,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 193536,
+        "inactiveEvents": 11120,
+        "coreEvents": 204656,
+        "unchangedEvents": 202609.44,
+        "correctionEvents": 2046.56
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 28719163637.760002,
+        "otherPerLeagueBytes": 4271514542.08,
+        "sharedBytes": 414944133.12,
+        "syntheticControlBytes": 1518842224.6399999
+      },
+      "coreDataBytes": 33405622312.960003,
+      "coreDataGiB": 31.111410179138186,
+      "corePlusSyntheticControlBytes": 34924464537.600006,
+      "corePlusSyntheticControlGiB": 32.525942230224615,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 33436907560.960003,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 193536,
+        "inactiveEvents": 11120,
+        "coreEvents": 204656,
+        "unchangedEvents": 194423.19999999998,
+        "correctionEvents": 10232.800000000001
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 28752694476.8,
+        "otherPerLeagueBytes": 4801720934.4,
+        "sharedBytes": 398178713.59999996,
+        "syntheticControlBytes": 1516746547.2
+      },
+      "coreDataBytes": 33952594124.799995,
+      "coreDataGiB": 31.6208173751831,
+      "corePlusSyntheticControlBytes": 35469340671.99999,
+      "corePlusSyntheticControlGiB": 33.03339767456054,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 33983879372.799995,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 580608,
+        "inactiveEvents": 11120,
+        "coreEvents": 591728,
+        "unchangedEvents": 585810.72,
+        "correctionEvents": 5917.28
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 83036574842.88,
+        "otherPerLeagueBytes": 12350357463.039999,
+        "sharedBytes": 1199740354.56,
+        "syntheticControlBytes": 4391473848.32
+      },
+      "coreDataBytes": 96586672660.48,
+      "coreDataGiB": 89.95334865570068,
+      "corePlusSyntheticControlBytes": 100978146508.79999,
+      "corePlusSyntheticControlGiB": 94.0432273864746,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 96617957908.48,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 580608,
+        "inactiveEvents": 11120,
+        "coreEvents": 591728,
+        "unchangedEvents": 562141.6,
+        "correctionEvents": 29586.4
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 83133523558.40001,
+        "otherPerLeagueBytes": 13883359027.2,
+        "sharedBytes": 1151265996.8,
+        "syntheticControlBytes": 4385414553.599999
+      },
+      "coreDataBytes": 98168148582.40001,
+      "coreDataGiB": 91.42621288299561,
+      "corePlusSyntheticControlBytes": 102553563136.00002,
+      "corePlusSyntheticControlGiB": 95.51044845581056,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 98199433830.40001,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 1209600,
+        "inactiveEvents": 278000,
+        "coreEvents": 1487600,
+        "unchangedEvents": 1472724,
+        "correctionEvents": 14876
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 208753360896,
+        "otherPerLeagueBytes": 31048711168,
+        "sharedBytes": 3016138752,
+        "syntheticControlBytes": 11040134144
+      },
+      "coreDataBytes": 242818210816,
+      "coreDataGiB": 226.14208126068115,
+      "corePlusSyntheticControlBytes": 253858344960,
+      "corePlusSyntheticControlGiB": 236.42400741577148,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 242849496064,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 1209600,
+        "inactiveEvents": 278000,
+        "coreEvents": 1487600,
+        "unchangedEvents": 1413220,
+        "correctionEvents": 74380
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 208997089280,
+        "otherPerLeagueBytes": 34902666240,
+        "sharedBytes": 2894274560,
+        "syntheticControlBytes": 11024901120
+      },
+      "coreDataBytes": 246794030080,
+      "coreDataGiB": 229.84485149383545,
+      "corePlusSyntheticControlBytes": 257818931200,
+      "corePlusSyntheticControlGiB": 240.11259078979492,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 246825315328,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 4838400,
+        "inactiveEvents": 278000,
+        "coreEvents": 5116400,
+        "unchangedEvents": 5065236,
+        "correctionEvents": 51164
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 717979090944,
+        "otherPerLeagueBytes": 106787863552,
+        "sharedBytes": 10373603328,
+        "syntheticControlBytes": 37971055616
+      },
+      "coreDataBytes": 835140557824,
+      "coreDataGiB": 777.7852544784546,
+      "corePlusSyntheticControlBytes": 873111613440,
+      "corePlusSyntheticControlGiB": 813.1485557556152,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 835171843072,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 4838400,
+        "inactiveEvents": 278000,
+        "coreEvents": 5116400,
+        "unchangedEvents": 4860580,
+        "correctionEvents": 255820
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 718817361920,
+        "otherPerLeagueBytes": 120043023360,
+        "sharedBytes": 9954467840,
+        "syntheticControlBytes": 37918663680
+      },
+      "coreDataBytes": 848814853120,
+      "coreDataGiB": 790.5204343795776,
+      "corePlusSyntheticControlBytes": 886733516800,
+      "corePlusSyntheticControlGiB": 825.8349418640137,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 848846138368,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0.01,
+      "expectedEvents": {
+        "activeEvents": 14515200,
+        "inactiveEvents": 278000,
+        "coreEvents": 14793200,
+        "unchangedEvents": 14645268,
+        "correctionEvents": 147932
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 2075914371072,
+        "otherPerLeagueBytes": 308758936576,
+        "sharedBytes": 29993508864,
+        "syntheticControlBytes": 109786846208
+      },
+      "coreDataBytes": 2414666816512,
+      "coreDataGiB": 2248.833716392517,
+      "corePlusSyntheticControlBytes": 2524453662720,
+      "corePlusSyntheticControlGiB": 2351.0806846618652,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 2414698101760,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "correctionFraction": 0.05,
+      "expectedEvents": {
+        "activeEvents": 14515200,
+        "inactiveEvents": 278000,
+        "coreEvents": 14793200,
+        "unchangedEvents": 14053540,
+        "correctionEvents": 739660
+      },
+      "componentBytes": {
+        "rosterLinkGroupBytes": 2078338088960,
+        "otherPerLeagueBytes": 347083975680,
+        "sharedBytes": 28781649920,
+        "syntheticControlBytes": 109635363840
+      },
+      "coreDataBytes": 2454203714560,
+      "coreDataGiB": 2285.65532207489,
+      "corePlusSyntheticControlBytes": 2563839078400,
+      "corePlusSyntheticControlGiB": 2387.7612113952637,
+      "initialCatalogDeltaOnceBytes": 31285248,
+      "partialDataPlusInitialCatalogBytes": 2454234999808,
+      "exceeds10GiBInThisPartialSensitivity": true,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false,
+      "freshnessProven": false
+    }
+  ],
+  "rosterLinkOccupancySensitivity": [
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 160,
+      "coreEvents": 59504,
+      "rosterLinkGroupBytes": 8347697152,
+      "rosterLinkGroupGiB": 7.7743988037109375,
+      "otherCoreDataBytesHeldFixed": 1325273088,
+      "conditionalCoreDataBytes": 9672970240,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 320,
+      "coreEvents": 59504,
+      "rosterLinkGroupBytes": 16695394304,
+      "rosterLinkGroupGiB": 15.548797607421875,
+      "otherCoreDataBytesHeldFixed": 1325273088,
+      "conditionalCoreDataBytes": 18020667392,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 600,
+      "coreEvents": 59504,
+      "rosterLinkGroupBytes": 31303864320,
+      "rosterLinkGroupGiB": 29.153995513916016,
+      "otherCoreDataBytesHeldFixed": 1325273088,
+      "conditionalCoreDataBytes": 32629137408,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 160,
+      "coreEvents": 204656,
+      "rosterLinkGroupBytes": 28710780928,
+      "rosterLinkGroupGiB": 26.738998413085938,
+      "otherCoreDataBytesHeldFixed": 4558098432,
+      "conditionalCoreDataBytes": 33268879360,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 320,
+      "coreEvents": 204656,
+      "rosterLinkGroupBytes": 57421561856,
+      "rosterLinkGroupGiB": 53.477996826171875,
+      "otherCoreDataBytesHeldFixed": 4558098432,
+      "conditionalCoreDataBytes": 61979660288,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 600,
+      "coreEvents": 204656,
+      "rosterLinkGroupBytes": 107665428480,
+      "rosterLinkGroupGiB": 100.27124404907227,
+      "otherCoreDataBytesHeldFixed": 4558098432,
+      "conditionalCoreDataBytes": 112223526912,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 160,
+      "coreEvents": 591728,
+      "rosterLinkGroupBytes": 83012337664,
+      "rosterLinkGroupGiB": 77.31126403808594,
+      "otherCoreDataBytesHeldFixed": 13178966016,
+      "conditionalCoreDataBytes": 96191303680,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 320,
+      "coreEvents": 591728,
+      "rosterLinkGroupBytes": 166024675328,
+      "rosterLinkGroupGiB": 154.62252807617188,
+      "otherCoreDataBytesHeldFixed": 13178966016,
+      "conditionalCoreDataBytes": 179203641344,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 16,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 600,
+      "coreEvents": 591728,
+      "rosterLinkGroupBytes": 311296266240,
+      "rosterLinkGroupGiB": 289.91724014282227,
+      "otherCoreDataBytesHeldFixed": 13178966016,
+      "conditionalCoreDataBytes": 324475232256,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 160,
+      "coreEvents": 1487600,
+      "rosterLinkGroupBytes": 208692428800,
+      "rosterLinkGroupGiB": 194.35997009277344,
+      "otherCoreDataBytesHeldFixed": 33131827200,
+      "conditionalCoreDataBytes": 241824256000,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 320,
+      "coreEvents": 1487600,
+      "rosterLinkGroupBytes": 417384857600,
+      "rosterLinkGroupGiB": 388.7199401855469,
+      "otherCoreDataBytesHeldFixed": 33131827200,
+      "conditionalCoreDataBytes": 450516684800,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 60,
+      "heldPlayers": 600,
+      "coreEvents": 1487600,
+      "rosterLinkGroupBytes": 782596608000,
+      "rosterLinkGroupGiB": 728.8498878479004,
+      "otherCoreDataBytesHeldFixed": 33131827200,
+      "conditionalCoreDataBytes": 815728435200,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 160,
+      "coreEvents": 5116400,
+      "rosterLinkGroupBytes": 717769523200,
+      "rosterLinkGroupGiB": 668.4749603271484,
+      "otherCoreDataBytesHeldFixed": 113952460800,
+      "conditionalCoreDataBytes": 831721984000,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 320,
+      "coreEvents": 5116400,
+      "rosterLinkGroupBytes": 1435539046400,
+      "rosterLinkGroupGiB": 1336.9499206542969,
+      "otherCoreDataBytesHeldFixed": 113952460800,
+      "conditionalCoreDataBytes": 1549491507200,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 15,
+      "heldPlayers": 600,
+      "coreEvents": 5116400,
+      "rosterLinkGroupBytes": 2691635712000,
+      "rosterLinkGroupGiB": 2506.7811012268066,
+      "otherCoreDataBytesHeldFixed": 113952460800,
+      "conditionalCoreDataBytes": 2805588172800,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 160,
+      "coreEvents": 14793200,
+      "rosterLinkGroupBytes": 2075308441600,
+      "rosterLinkGroupGiB": 1932.7816009521484,
+      "otherCoreDataBytesHeldFixed": 329474150400,
+      "conditionalCoreDataBytes": 2404782592000,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 320,
+      "coreEvents": 14793200,
+      "rosterLinkGroupBytes": 4150616883200,
+      "rosterLinkGroupGiB": 3865.563201904297,
+      "otherCoreDataBytesHeldFixed": 329474150400,
+      "conditionalCoreDataBytes": 4480091033600,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    },
+    {
+      "uniqueLeagues": 400,
+      "activeRefreshMinutes": 5,
+      "heldPlayers": 600,
+      "coreEvents": 14793200,
+      "rosterLinkGroupBytes": 7782406656000,
+      "rosterLinkGroupGiB": 7247.931003570557,
+      "otherCoreDataBytesHeldFixed": 329474150400,
+      "conditionalCoreDataBytes": 8111880806400,
+      "qualification": "UNQUALIFIED",
+      "completeBudgetFitProven": false
+    }
+  ],
+  "unmeasured": [
+    "A complete 16-league all-family footprint remains unqualified. Historical full-family sensitivity is preserved separately; no old core proof/link/standings/raw components are added to this measured lane.",
+    "Only 32 unchanged cores in two 16-event batches and eight ordered correction cores were measured. Batch means and individual correction allocations reflect spare pages, ordering and index/TOAST steps, not stationary marginal slopes, confidence intervals or lower bounds.",
+    "The shared 2048 bytes/core mean has no new shared rows or logical bytes; it is an observed allocation-only residual. It includes catalog and scoring-entity page changes, not another accepted catalog version.",
+    "The initial catalog is counted once per fleet as a delta, never added again as the full catalog-table total. Repeated changed/unchanged catalog versions and observations have no measured rate and are excluded, not zero-cost.",
+    "The initial migrated allocation, first-core/prerequisite steps, further league onboarding and shared identity creation remain separately observed startup facts; they are not a 16-league startup model and are excluded from the partial exposure sum.",
+    "Exact periods, transactions, brackets, reports, drafts, manager directories, ordinary scheduling control fanout, failures and retries lack measured recurring rates here. Synthetic core controls are shown separately from DATA, not ordinary scheduler proof.",
+    "The full catalog retained 12229 entries;160/159 held-player fixture occupancy, 20 teams and these payload shapes are not league population bounds. Only the separate link sensitivity scales held-player fanout; proof, team metadata, catalog and other core bytes remain fixed.",
+    "MVCC, fragmentation, long-term page reuse, retention/restore operations, WAL/backups, account-specific capacity and billing remain unmeasured. There is no automatic purge, budget fit, freshness guarantee or new execution authority."
+  ],
+  "complete16LeagueCapacityProven": false,
+  "retentionPolicyProven": false
+}
