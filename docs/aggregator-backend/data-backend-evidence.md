@@ -1,5 +1,12 @@
 # DATA backend evidence and remaining qualification
 
+## CP28 approved lossless design — October 19, 2026
+
+The user approved the recommended design continuation with the 10-GiB planning ceiling, freshness targets and all retained observations/corrections unchanged. The [source-bound design](data-backend-cp28-lossless-storage-design.md) selects shared immutable resolved roster content within the current acceptance trigger, followed by a separately inventoried normalization of repeated immutable capture evidence. It preserves distinct event receipts and exact historical reads, specifies mixed-format rollout and retention/fence/collision tests, and derives the remaining byte budget from the accepted original measurement. This is design evidence; no storage-saving implementation or new SQL result is claimed. Overall CP28 remains INCOMPLETE / CAPACITY UNQUALIFIED. CP26/CP27/CP29 boundaries remain unchanged.
+
+The original two-league run and cleanup remain accepted; none was repeated. Local calculator and migrated-schema retention results below remain source-bound historical proofs. The approved design continuation changes documentation only. PR318 is still draft/open at 168a856; new local documentation is not published or CI/preview-qualified. No private production capacity/billing access, hosted execution, merge or production deployment occurred.
+
+
 ## CP28 accepted storage experiment and local capacity review — October 19, 2026
 
 **Focused two-league measurement: PASSED. Overall CP28 retention/growth checkpoint: INCOMPLETE / CAPACITY UNQUALIFIED.** This entry supersedes historical CP28 unexecuted/failed-only status statements while preserving each prior failure. The [current retention/capacity report](data-backend-cp28-retention.md#current-measured-update--october-19-2026) and its measured JSON artifacts separate observed allocation from horizon assumptions and the outstanding capacity decision. CP26 remains STOPPED / INCOMPLETE and CP27 DEFERRED / UNQUALIFIED; CP29 restore and later release steps remain separate.

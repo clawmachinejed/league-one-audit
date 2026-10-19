@@ -1,5 +1,10 @@
 # CP28 retention and storage growth analysis
 
+## Approved lossless design continuation — October 19, 2026
+
+The user selected the recommended design work with the 10-GiB budget and retained history unchanged. The [lossless storage design](data-backend-cp28-lossless-storage-design.md) specifies immutable shared roster content, compatible readers and a second capture-evidence normalization slice. Offline attribution shows the metadata remaining after ideal link elimination would still model 12.274 GiB DATA, or 16.365 GiB with the observed synthetic-control proxy; this makes metadata reduction a necessary investigation. The design does not claim measured savings or capacity fit. Implementation, new installed-schema proof and the complete all-family forecast remain outstanding. The measured calculator, original evidence and previous retention proof below are unchanged. No new SQL/hosted run, private Neon access, publication, merge or deployment is part of this continuation.
+
+
 ## Current measured update — October 19, 2026
 
 **Focused hosted experiment: PASSED. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The accepted measurement at `168a856ae44e7431393b0a8a9404483dda294ccc` replaces the need to repeat that experiment. This continuation incorporates its observations into a separately labeled measured forecast, reviews retention protection and prepares a capacity decision. It does not change the 16-league benchmark, five-minute active freshness target, 10-GiB planning ceiling, or retention of every accepted 2026 record/correction and required provenance through at least March 31, 2028. There is no automatic purge after that date.
