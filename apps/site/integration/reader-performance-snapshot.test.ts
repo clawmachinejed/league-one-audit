@@ -268,7 +268,42 @@ describe.skipIf(!localPostgresRequested)('CP28 opt-in local PostgreSQL 18 invent
     const history = new Map<string,string[]>(), connections: Awaited<ReturnType<typeof localSnapshotConnection>>[] = [];
     const connect = async () => { const connection = await localSnapshotConnection('cp28_snapshot_owner'); connections.push(connection); return connection; };
     const first = await readReaderStateSnapshot(connect, 30_000, { name: 'S0-empty', history });
+    const { assertStorageBaseline, STORAGE_RESOURCE_SERVICE_SEED_DIGEST } = await import('./reader-performance');
+    expect(()=>assertStorageBaseline(first.storage!)).not.toThrow();
+    const native = await localSnapshotConnection('cp28_snapshot_owner'), rejectedMutations: string[] = [];
+    try {
+      await native.database.query('BEGIN');
+      expect(await native.database.query('SELECT singleton,history_credit,active_reserved_http::text,history_reserved_http::text FROM public.public_data_resource_service'))
+        .toEqual([{singleton:true,history_credit:0,active_reserved_http:'0',history_reserved_http:'0'}]);
+      const nativeRows = () => native.database.query<{digest:string;tuple_bytes:string;json_bytes:string}>(
+        'SELECT md5(to_jsonb(row)::text) AS digest,pg_column_size(row)::text AS tuple_bytes,octet_length(to_jsonb(row)::text)::text AS json_bytes FROM public.public_data_resource_service row');
+      const seeded = await nativeRows();
+      expect(seeded).toHaveLength(1);
+      expect(md5(seeded.map(row=>row.digest).sort().join(''))).toBe(STORAGE_RESOURCE_SERVICE_SEED_DIGEST);
+      for (const [name,sql] of [
+        ['history-credit','UPDATE public.public_data_resource_service SET history_credit=1'],
+        ['active-reserved','UPDATE public.public_data_resource_service SET active_reserved_http=1'],
+        ['history-reserved','UPDATE public.public_data_resource_service SET history_reserved_http=1'],
+        ['missing-seed','DELETE FROM public.public_data_resource_service'],
+      ] as const) {
+        await native.database.query('SAVEPOINT cp28_baseline_mutation');
+        await native.database.query(sql);
+        const rows = await nativeRows();
+        const invalid = {relations:first.storage!.relations.map(row=>row.schema==='public'&&row.table==='public_data_resource_service'
+          ? {...row,rows:rows.length,digest:md5(rows.map(row=>row.digest).sort().join('')),
+            tupleBytes:rows.reduce((sum,row)=>sum+Number(row.tuple_bytes),0),jsonBytes:rows.reduce((sum,row)=>sum+Number(row.json_bytes),0)} : row)};
+        expect(()=>assertStorageBaseline(invalid)).toThrow(name==='missing-seed'
+          ? 'Unexpected CP28 control rows public_data_resource_service' : 'Unexpected CP28 migration-059 singleton values');
+        rejectedMutations.push(name);
+        await native.database.query('ROLLBACK TO SAVEPOINT cp28_baseline_mutation');
+      }
+    } finally {
+      try { await native.database.query('ROLLBACK'); } finally { await native.close(); }
+    }
+    expect(native.calls.at(-1)).toBe('ROLLBACK');expect(native.isClosed()).toBe(true);
+    expect(rejectedMutations).toEqual(['history-credit','active-reserved','history-reserved','missing-seed']);
     const second = await readReaderStateSnapshot(connect, 30_000, { name: 'S0-repeat', history });
+    expect(()=>assertStorageBaseline(second.storage!)).not.toThrow();
     expect(first.storage?.relations).toHaveLength(154); expect(second.storage?.relations).toHaveLength(154); expect(history.size).toBe(154);
     expect(second.digest).toBe(first.digest); expect(second.storage?.metadataDigest).toBe(first.storage?.metadataDigest);
     expect(first.storage?.relations.every(row => row.owner === 'cp28_snapshot_owner' && row.metadata?.kind === 'r')).toBe(true);
@@ -285,7 +320,8 @@ describe.skipIf(!localPostgresRequested)('CP28 opt-in local PostgreSQL 18 invent
       }
     }
     console.info('CP28 local snapshot verification', JSON.stringify({ serverVersion: setup.serverVersion, relationCount: first.storage!.relations.length,
-      totalRows: first.storage!.totalRows, snapshotDigest: first.digest, metadataDigest: first.storage!.metadataDigest, snapshots: 2 }));
+      totalRows: first.storage!.totalRows, snapshotDigest: first.digest, metadataDigest: first.storage!.metadataDigest, snapshots: 2,
+      migrationSeedDigest: STORAGE_RESOURCE_SERVICE_SEED_DIGEST, rejectedNativeMutations: rejectedMutations, mutationRollbackAcknowledged: native.isClosed() }));
     expect(connections).toHaveLength(2);
     for (const connection of connections) {
       expect(connection.calls[0]).toBe('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
@@ -337,7 +373,7 @@ describe('CP28 full-inventory controlled-latency regression', () => {
     const mock = storageMock(), history = new Map<string,string[]>(), latencyMs = 60;
     if (fixture === 'S0') {
       mock.contents.set('public.app_schema_migrations', Array.from({length:62},(_,index)=>md5('migration-'+index)));
-      mock.contents.set('public.scoring_profiles',[md5('seed')]);
+      mock.contents.set('public.public_data_resource_service',[md5('{"singleton": true, "history_credit": 0, "active_reserved_http": 0, "history_reserved_http": 0}')]);
     } else if (fixture === 'all-nonempty') for (const table of mock.contents.keys()) mock.contents.set(table,[md5(table)]);
     const delay=()=>new Promise<void>(resolve=>setTimeout(resolve,latencyMs));
     const connect=async()=>{

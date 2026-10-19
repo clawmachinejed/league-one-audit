@@ -310,6 +310,31 @@ export const STORAGE_MEASUREMENT_LIMITS = Object.freeze({ packagedBytes: 4 * 102
   statements: 40_000, readers: 200, catalogPages: 100, snapshotMs: 30_000, allocationBytes: 256 * 1024 * 1024 });
 export const STORAGE_PHASES = ['S0-empty', 'S1-catalog', 'S2-A-prerequisites', 'S3-A-baseline', 'S4-B-prerequisites', 'S5-B-baseline',
   'S6-A-unchanged', 'S7-B-unchanged', 'S8-A-C1', 'S9-B-C1', 'S10-A-C2', 'S11-B-C2', 'S12-A-C3', 'S13-B-C3', 'S14-A-C4', 'S15-B-C4', 'S16-read-only'] as const;
+
+// Migration 059 deliberately seeds this scheduler-control row. PostgreSQL's
+// to_jsonb(row)::text and the existing multiset digest bind all four values.
+const storageResourceServiceSeedJson = '{"singleton": true, "history_credit": 0, "active_reserved_http": 0, "history_reserved_http": 0}';
+export const STORAGE_RESOURCE_SERVICE_SEED_DIGEST = createHash('md5')
+  .update(createHash('md5').update(storageResourceServiceSeedJson).digest('hex')).digest('hex');
+const storageGrowingControls = new Set(['public_data_intakes','public_data_identity_observations','public_data_league_lists',
+  'public_data_league_candidates','public_data_dispatches','public_data_dispatch_outcomes']);
+export function assertStorageControlState(phase: Pick<StoragePhaseEvidence,'relations'>) {
+  assert.deepEqual(phase.relations.map(row=>row.schema+'.'+row.table),STORAGE_RELATIONS.map(row=>row.schema+'.'+row.table));
+  for (const row of phase.relations) {
+    if (row.schema !== 'public' || !row.table.startsWith('public_data_') || storageGrowingControls.has(row.table)) continue;
+    const seeded = row.table === 'public_data_resource_service';
+    assert.equal(row.rows,seeded ? 1 : 0,'Unexpected CP28 control rows '+row.table);
+    if (seeded) assert.equal(row.digest,STORAGE_RESOURCE_SERVICE_SEED_DIGEST,'Unexpected CP28 migration-059 singleton values');
+  }
+}
+export function assertStorageBaseline(phase: Pick<StoragePhaseEvidence,'relations'>) {
+  assertStorageControlState(phase);
+  for (const row of phase.relations) if (row.group !== 'non-data') {
+    const seeded = row.schema === 'public' && row.table === 'public_data_resource_service';
+    assert.equal(row.rows,seeded ? 1 : 0,'Unexpected CP28 baseline '+row.table);
+  }
+}
+
 export type StorageFixtureManifest = { kind: 'data-cp28-fixture-v1'; rawCatalogPath: string; rawSha256: string; rawBytes: number;
   entryCount: number; capturedAt: string; provenance: string; mapping: string[]; sourceBindings: string[]; fixtureDigest: string;
   packagedCatalog?: { path: typeof STORAGE_PACKAGED_CATALOG_PATH; sha256: string; bytes: number } };
@@ -476,7 +501,7 @@ export async function assertCompleteStorageMeasurementEvidence(value: StorageMea
   for (const capture of value.captures) { assert(uuid.test(capture.requestId)); assert(capture.receipts.every(id=>uuid.test(id))); assert(/^[0-9a-f]{64}$/u.test(capture.resultDigest)); }
   for (const replay of value.replays) assert([...replay.tupleDigests,replay.stateDigest].every(digest=>/^[0-9a-f]{64}$/u.test(digest)));
   const finalCounts = new Map(value.phases[16].relations.map(row=>[row.table,row.rows]));
-  for (const [table,count] of Object.entries({league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_contents:10,league_official_standings_teams:200,league_official_standings_captures:42,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_entries:manifest.entryCount,public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,projection_jobs:1,public_data_collection_reservations:0})) assert.equal(finalCounts.get(table),count,table);
+  for (const [table,count] of Object.entries({league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_contents:10,league_official_standings_teams:200,league_official_standings_captures:42,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_entries:manifest.entryCount,public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,projection_jobs:1,public_data_collection_reservations:0,public_data_resource_service:1})) assert.equal(finalCounts.get(table),count,table);
   for (const suffix of ['heads','attempts','contents','captures','source_slices','versions']) assert.equal(finalCounts.get('league_player_directory_'+suffix),1);
   assert.deepEqual(value.phases.map(phase => phase.name), STORAGE_PHASES);
   assert.equal(value.phases[15].digest, value.phases[16].digest); assert.deepEqual(value.limitations, STORAGE_LIMITATIONS);
@@ -531,8 +556,7 @@ export function assertStoragePhaseEvidence(phases: readonly StoragePhaseEvidence
   const cores=[0,0,0,1,1,2,18,34,35,36,37,38,39,40,41,42,42];
   for(const [index,phase]of phases.entries()){
     const counts=new Map(phase.relations.map(row=>[row.table,row.rows]));
-    if(index===0)for(const row of phase.relations)if(row.group!=='non-data')assert.equal(row.rows,0);
-    for(const row of phase.relations)if(row.table.startsWith('public_data_')&&!['public_data_intakes','public_data_identity_observations','public_data_league_lists','public_data_league_candidates','public_data_dispatches','public_data_dispatch_outcomes'].includes(row.table))assert.equal(row.rows,0);
+    if(index===0)assertStorageBaseline(phase);else assertStorageControlState(phase);
     for(const table of ['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'])assert.equal(counts.get(table),cores[index]*4);
     for(const table of ['league_roster_player_link_receipts','league_official_standings_captures'])assert.equal(counts.get(table),cores[index]);
   }

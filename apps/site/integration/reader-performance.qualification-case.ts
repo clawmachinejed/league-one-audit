@@ -1,8 +1,7 @@
 import { compatibleRevision } from '../lib/projections/shared/revision-compatibility';
-import { storageReplayAuditStatement } from './reader-performance';
+import { assertStorageBaseline, assertStorageControlState, storageReplayAuditStatement } from './reader-performance';
 import { fileURLToPath } from 'node:url';
 import { INTEGRATION_WORK_DEADLINE_ENV } from './integration-lifecycle-budget';
-import { STORAGE_RELATIONS } from './reader-performance-snapshot';
 import { STORAGE_MEASUREMENT_PROFILE, STORAGE_MEASUREMENT_SUITE, STORAGE_MEASUREMENT_TEST, STORAGE_MEASUREMENT_LIMITS, STORAGE_PHASES, STORAGE_LIMITATIONS, loadStorageFixture, storageReplayBoundary, writeStorageMeasurementEvidence, readerFailureDiagnostic, type StorageMeasurementEvidence } from './reader-performance';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -453,7 +452,7 @@ if (qualificationBinding()?.context.profile === STORAGE_MEASUREMENT_PROFILE) des
   }
   it(STORAGE_MEASUREMENT_TEST,async()=>{
     try {
-      const empty=await snapshot(); for(const row of empty.relations) if(row.group!=='non-data') assert.equal(row.rows,0,'Unexpected CP28 baseline '+row.table);
+      const empty=await snapshot(); assertStorageBaseline(empty);
       const catalog=await runPublicPlayerDirectoryStep(dependencies,AbortSignal.timeout(20_000)); assert.equal(catalog.status,'progress');assert.equal(catalog.providerRequests,1);assert.equal(catalog.result?.status,'accepted');
       await snapshot();
       let cursor:string|undefined,versionId:string|undefined;const entries:{id:string;digest:string}[]=[];
@@ -472,8 +471,8 @@ if (qualificationBinding()?.context.profile === STORAGE_MEASUREMENT_PROFILE) des
         const links=await read(()=>administration.readRosterPlayerLinks({rosterReceiptId:original.rosterReceiptId,leagueSeasonId:mapping.leagueSeasonId}));assert.equal(readerDigest(links),original.linksDigest);
         const standing=await read(()=>administration.readOfficialStandings!(mapping,{rosterReceiptId:original.rosterReceiptId}));assert(standing.status==='available');assert.equal(readerDigest(standing.teams),original.standingsDigest);}
       const final=await snapshot(),counts=new Map(final.relations.map(row=>[row.table,row.rows]));
-      for(const [table,expected] of Object.entries({public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,public_data_collection_reservations:0,projection_jobs:1,league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_captures:42,league_official_standings_contents:10,league_official_standings_teams:200,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_heads:1,league_player_directory_attempts:1,league_player_directory_contents:1,league_player_directory_captures:1,league_player_directory_source_slices:1,league_player_directory_versions:1,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_player_directory_entries:fixture.manifest.entryCount}))assert.equal(counts.get(table),expected,table);
-      for(const relation of STORAGE_RELATIONS)if(relation.table.startsWith('public_data_')&&!['public_data_intakes','public_data_identity_observations','public_data_league_lists','public_data_league_candidates','public_data_dispatches','public_data_dispatch_outcomes'].includes(relation.table))assert.equal(counts.get(relation.table),0,relation.table);
+      for(const [table,expected] of Object.entries({public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,public_data_collection_reservations:0,public_data_resource_service:1,projection_jobs:1,league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_captures:42,league_official_standings_contents:10,league_official_standings_teams:200,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_heads:1,league_player_directory_attempts:1,league_player_directory_contents:1,league_player_directory_captures:1,league_player_directory_source_slices:1,league_player_directory_versions:1,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_player_directory_entries:fixture.manifest.entryCount}))assert.equal(counts.get(table),expected,table);
+      assertStorageControlState(final);
       assert.equal(canonical.size,160);assert.equal(workers.length,43);assert.equal(evidence.fixtureResponses,85);assert.equal(evidence.phases.length,17);assert.equal(evidence.phases[15].digest,final.digest);
       evidence.state='passed';
     }catch(error){evidence.state='failed';evidence.failure=readerFailureDiagnostic(error);throw error;}finally{evidence.endedAt=new Date().toISOString();}

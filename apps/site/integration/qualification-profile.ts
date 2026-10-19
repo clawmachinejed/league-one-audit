@@ -233,7 +233,7 @@ export const READER_PERFORMANCE_SUPPORT_SOURCES = [
 // CP28 local-only selector. Historical CP27 source pins above deliberately remain unchanged.
 export const STORAGE_MEASUREMENT_PROFILE = 'data-storage-measurement-v1';
 export const STORAGE_MEASUREMENT_MODULE = 'integration/reader-performance.qualification-case.ts';
-export const STORAGE_MEASUREMENT_SOURCE_DIGEST = 'f43d0932da8961ce5d44869373b7579e5f916784edfbdf98910ec331bd68376b';
+export const STORAGE_MEASUREMENT_SOURCE_DIGEST = '317903b5fd4f727c31a1151d14c75eac669dad02cd4bce1e1e7d61c17e779466';
 export const STORAGE_MEASUREMENT_SUITE = 'bounded two league DATA storage measurement through witnessed core acceptance';
 export const STORAGE_MEASUREMENT_TESTS = ['measures the frozen catalog forty two cores four corrections and exact pre acknowledgment replays'] as const;
 export const STORAGE_MEASUREMENT_FULL_NAMES = STORAGE_MEASUREMENT_TESTS.map(name => STORAGE_MEASUREMENT_SUITE + ' > ' + name);
@@ -246,7 +246,7 @@ export const STORAGE_MEASUREMENT_SUPPORT_SOURCES = [
   { path: 'lib/league-administration/public-intake.ts', sourceDigest: '46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd' },
   { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479' },
   { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
-  { path: 'integration/reader-performance.ts', sourceDigest: '44e3e813d7ff2f213a93338f7a2625caf63369d14746ab9ddd6b4b0b1808e3b3' },
+  { path: 'integration/reader-performance.ts', sourceDigest: '7581745db06a6237c572c8a3b65ed765667fdae396d4efdd4dbf79c3481f4c9e' },
   { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
   { path: 'integration/neon-integration-harness.ts', sourceDigest: '1ea7875c3cae6785ae94572144391a0bce0206ebb575e11dfa4fb4cec3eb7933' },
   { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },

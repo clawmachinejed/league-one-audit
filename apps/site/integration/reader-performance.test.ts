@@ -250,13 +250,13 @@ import { readFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { STORAGE_RELATIONS, type StoragePhaseEvidence } from './reader-performance-snapshot';
-import { assertCompleteStorageMeasurementEvidence, storagePhaseDeltas, STORAGE_LIMITATIONS, STORAGE_MEASUREMENT_PROFILE,
+import { assertCompleteStorageMeasurementEvidence, assertStorageBaseline, storagePhaseDeltas, STORAGE_LIMITATIONS, STORAGE_MEASUREMENT_PROFILE, STORAGE_RESOURCE_SERVICE_SEED_DIGEST,
   storageReplayAuditStatement, type StorageMeasurementEvidence } from './reader-performance';
 import { compatibleRevision } from '../lib/projections/shared/revision-compatibility';
 async function cp28EvidenceSpecimen(){
   const fixture=JSON.parse(await readFile(new URL('../../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json',import.meta.url),'utf8'));
   const binding:QualificationBinding={directory:'/not-executed',context:{kind:'integration-qualification-context-v1',runId:'11111111-1111-4111-8111-111111111111',nonce:'22222222-2222-4222-8222-222222222222',gitSha:'a'.repeat(40),profile:STORAGE_MEASUREMENT_PROFILE,profileDigest:'b'.repeat(64),modules:[{path:'integration/reader-performance.qualification-case.ts',sourceDigest:'c'.repeat(64)}]}};
-  const final:Record<string,number>={league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_contents:10,league_official_standings_teams:200,league_official_standings_captures:42,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_entries:fixture.entryCount,public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,projection_jobs:1};
+  const final:Record<string,number>={league_roster_resource_attempts:168,league_roster_capture_receipts:168,league_roster_resource_acceptances:168,league_roster_player_link_receipts:42,league_roster_player_links:6714,league_official_standings_contents:10,league_official_standings_teams:200,league_official_standings_captures:42,league_administration_contents:12,league_administration_observations:12,league_administration_team_entries:200,league_administration_manager_entries:0,league_team_manager_entries:400,league_administration_memberships:208,league_team_manager_memberships:416,league_roster_resource_scopes:8,league_roster_resource_heads:8,league_season_teams:40,league_source_manager_accounts:42,scoring_entities:160,external_scoring_entity_ids:160,league_player_directory_entries:fixture.entryCount,public_data_intakes:42,public_data_identity_observations:42,public_data_league_lists:42,public_data_league_candidates:42,public_data_dispatches:42,public_data_dispatch_outcomes:42,projection_jobs:1,public_data_resource_service:1};
   for(const suffix of ['heads','attempts','contents','captures','source_slices','versions'])final['league_player_directory_'+suffix]=1;
   const cores=[0,0,0,1,1,2,18,34,35,36,37,38,39,40,41,42,42];
   const metadata=STORAGE_RELATIONS.map((row,index)=>({schemaname:row.schema,tablename:row.table,oid:String(index+1),relkind:'r',owner:'test_owner',dependencies:[],columns:[],constraints:[],indexes:[]}));
@@ -264,7 +264,8 @@ async function cp28EvidenceSpecimen(){
     const relations=STORAGE_RELATIONS.map((row,ordinal)=>{let rows=Math.floor((final[row.table]??0)*cores[index]/42);
       if(['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'].includes(row.table))rows=cores[index]*4;
       if(['league_roster_player_link_receipts','league_official_standings_captures'].includes(row.table))rows=cores[index];
-      return{...row,oid:ordinal+1,owner:'test_owner',dependencies:[],...(index===0?{metadata:{kind:'r',columns:[],constraints:[],indexes:[]}}:{}),rows,digest:readerDigest([row.table,rows]).slice(0,32),totalBytes:8192,tableBytes:8192,indexBytes:0,heapMainBytes:8192,heapFsmBytes:0,heapVmBytes:0,heapInitBytes:0,toastAndAuxBytes:0,tupleBytes:rows*100,jsonBytes:rows*120};});
+      const seeded=row.table==='public_data_resource_service';if(seeded)rows=1;
+      return{...row,oid:ordinal+1,owner:'test_owner',dependencies:[],...(index===0?{metadata:{kind:'r',columns:[],constraints:[],indexes:[]}}:{}),rows,digest:seeded?STORAGE_RESOURCE_SERVICE_SEED_DIGEST:readerDigest([row.table,rows]).slice(0,32),totalBytes:8192,tableBytes:8192,indexBytes:0,heapMainBytes:8192,heapFsmBytes:0,heapVmBytes:0,heapInitBytes:0,toastAndAuxBytes:0,tupleBytes:rows*(seeded?48:100),jsonBytes:rows*(seeded?95:120)};});
     return{name,digest:readerDigest(relations.map(row=>({table:row.schema+'.'+row.table,rows:row.rows,digest:row.digest}))),metadataDigest:readerDigest(metadata),relations,allocatedBytes:154*8192,databaseBytes:2000000,totalRows:relations.reduce((sum,row)=>sum+row.rows,0),elapsedMs:1};});
   const sequence=[{league:0,correction:0},{league:1,correction:0},...[0,1].flatMap(league=>Array.from({length:16},()=>({league,correction:0}))),...Array.from({length:4},(_,index)=>index+1).flatMap(correction=>[0,1].map(league=>({league,correction})))];
   const uuid=(value:number)=>'00000000-0000-4000-8000-'+String(value).padStart(12,'0');
@@ -274,6 +275,8 @@ async function cp28EvidenceSpecimen(){
 }
 describe('CP28 bounded companion acceptance, synthetic evidence only',()=>{
   it('accepts internally reconciled frozen evidence and computes16-capture finite differences',async()=>{const{binding,evidence}=await cp28EvidenceSpecimen();await expect(assertCompleteStorageMeasurementEvidence(evidence,binding)).resolves.toBeUndefined();
+    expect(()=>assertStorageBaseline(evidence.phases[0])).not.toThrow();
+    expect(evidence.phases.every(phase=>phase.relations.find(row=>row.table==='public_data_resource_service')?.rows===1)).toBe(true);
     expect(evidence.deltas?.[5]).toMatchObject({before:'S5-B-baseline',after:'S6-A-unchanged',captures:16,meanDataAllocatedBytesPerCapture:0});expect(Buffer.byteLength(JSON.stringify(evidence))).toBeLessThan(4*1024*1024);});
   it.each(['fixture','order','counter-type','elapsed-type','relation','allocation','digest','metadata','final-count','delta','missing-phase','cleanup'] as const)('rejects %s companion drift',async fault=>{
     const{binding,evidence}=await cp28EvidenceSpecimen();if(fault==='fixture')evidence.fixtureDigest='0'.repeat(64);if(fault==='order')[evidence.captures[0],evidence.captures[1]]=[evidence.captures[1],evidence.captures[0]];
@@ -282,6 +285,42 @@ describe('CP28 bounded companion acceptance, synthetic evidence only',()=>{
     if(fault==='metadata')evidence.phases[1].metadataDigest='0'.repeat(64);if(fault==='final-count')evidence.phases[16].relations.find(row=>row.table==='league_roster_player_links')!.rows--;
     if(fault==='delta')evidence.deltas![5].captures=1;if(fault==='missing-phase')evidence.phases.pop();if(fault==='cleanup')evidence.cleanupComplete=false;
     await expect(assertCompleteStorageMeasurementEvidence(evidence,binding)).rejects.toThrow();
+  });
+  it.each(['missing-seed','duplicate-seed','singleton-false','history-credit','active-reserved','history-reserved',
+    'late-removal','late-change','missing-relation','inactive-control','initial-core-row'] as const)
+  ('rejects rehashed %s baseline/control evidence',async fault=>{
+    const{binding,evidence}=await cp28EvidenceSpecimen();
+    const phase=evidence.phases[fault.startsWith('late-')||fault==='missing-relation'?8:0];
+    const service=phase.relations.find(row=>row.table==='public_data_resource_service')!;
+    const native={singleton:true,history_credit:0,active_reserved_http:0,history_reserved_http:0};
+    const md5=(text:string)=>createHash('md5').update(text).digest('hex');
+    if(fault==='singleton-false')native.singleton=false;
+    if(fault==='history-credit'||fault==='late-change')native.history_credit=1;
+    if(fault==='active-reserved')native.active_reserved_http=1;
+    if(fault==='history-reserved')native.history_reserved_http=1;
+    if(fault==='missing-seed'||fault==='late-removal')service.rows=0;
+    if(fault==='duplicate-seed')service.rows=2;
+    const nativeJson=JSON.stringify(native).replaceAll(':',': ').replaceAll(',',', ');
+    service.digest=md5(md5(nativeJson).repeat(service.rows));
+    service.tupleBytes=48*service.rows;service.jsonBytes=Buffer.byteLength(nativeJson)*service.rows;
+    if(fault==='missing-relation')phase.relations=phase.relations.filter(row=>row!==service);
+    if(fault==='inactive-control'||fault==='initial-core-row'){
+      const row=phase.relations.find(row=>row.table===(fault==='inactive-control'?'public_data_resource_selection_failures':'public_data_intakes'))!;
+      row.rows=1;row.digest=md5('unexpected-control');row.tupleBytes=100;row.jsonBytes=120;
+    }
+    phase.totalRows=phase.relations.reduce((sum,row)=>sum+row.rows,0);
+    phase.allocatedBytes=phase.relations.reduce((sum,row)=>sum+row.totalBytes,0);
+    phase.digest=readerDigest(phase.relations.map(row=>({table:row.schema+'.'+row.table,rows:row.rows,digest:row.digest})));
+    evidence.deltas=storagePhaseDeltas(evidence.phases);
+    if(fault==='missing-relation'){
+      await expect(assertCompleteStorageMeasurementEvidence(evidence,binding)).rejects.toMatchObject({actual:153,expected:154,operator:'strictEqual'});
+    }else{
+      const message=fault==='inactive-control'?'Unexpected CP28 control rows public_data_resource_selection_failures'
+        :fault==='initial-core-row'?'Unexpected CP28 baseline public_data_intakes'
+        :['missing-seed','duplicate-seed','late-removal'].includes(fault)?'Unexpected CP28 control rows public_data_resource_service'
+        :'Unexpected CP28 migration-059 singleton values';
+      await expect(assertCompleteStorageMeasurementEvidence(evidence,binding)).rejects.toThrow(message);
+    }
   });
   it('keeps raw-byte identity separate from JSONB source parity and bounds exact replay proof',()=>{
     const raw={z:null,a:{y:2,x:1}},stored=Object.assign(Object.create(null),{a:{x:1,y:2},z:null});expect(compatibleRevision(raw)).toBe(compatibleRevision(stored));expect(readerDigest(raw)).not.toBe(readerDigest(stored));
