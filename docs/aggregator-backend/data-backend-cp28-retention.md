@@ -1,5 +1,10 @@
 # CP28 retention and storage growth analysis
 
+## Current local B1 implementation — October 19, 2026
+
+**Population-evidence sharing: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [B1 implementation report](data-backend-cp28-population-evidence.md) records six passing selected cases against all 64 real migrations and three provisioners, one preserved fixture-assertion failure, 326 cumulative local resource reservations and verified cleanup. Across 32 matched fresh cores per layout, the directly affected receipt/parent tables allocated 458,752 bytes inline versus 360,448 shared (21.43% less); distinct receipts and provenance remain intact. The comparison kept Slice A legacy and does not establish combined A+B or retained-horizon growth. Both shared writers remain dormant; this candidate is local and unpublished. Combined storage proof and a complete all-family 10-GiB forecast remain outstanding. Earlier checkpoints below are preserved.
+
+
 ## Current local Slice A implementation — October 19, 2026
 
 **Shared roster content: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [Slice A implementation report](data-backend-cp28-shared-roster-content.md) records the additive schema and compatible reader, six passing selected cases against all 63 real migrations and three provisioners, matched roster-only storage observations, preserved failed attempts and verified local cleanup. The production writer remains legacy; this local candidate is unpublished and has no new CI, preview, hosted, merge or deployment qualification. Metadata reduction and a complete all-family 10-GiB forecast remain outstanding. The design-stage statements and accepted hosted evidence below describe their earlier checkpoints and are preserved unchanged.

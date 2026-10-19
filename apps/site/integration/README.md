@@ -828,7 +828,7 @@ unresolved source-evidence obligations. Record tested database version, source,
 duration, actual results and remaining gaps in the
 [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
 
-## CP13 retained-source and ordinary recovery candidate
+## CP13 retained-source and ordinary recovery candidate (historical)
 
 The earlier eight-case profile subsequently passed at `29be8bc` in run
 [38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033),
@@ -1259,3 +1259,10 @@ The local repair shares the exact baseline/control oracle between the live case 
 The existing guarded native PostgreSQL regression verifies all62 migration checksums, the actual four seed values and native fingerprint, and the shared baseline oracle on the full154-relation snapshot. Independent counter mutations and deletion must fail inside a transaction that is rolled back; the second complete snapshot must restore the original row/schema digests and history. Rehashed offline companion fixtures separately test missing, extra and changed seed evidence and unrelated control drift. This local proof does not qualify the hosted two-league workload or authorize another hosted run.
 
 Final local validation passed 358 tests across four focused files with zero failures or skips, including all three guarded PostgreSQL 18.6 cases. The native baseline contained exactly 62 migration-ledger rows and the one unchanged migration059 seed across 154 tables. All three counter mutations and seed deletion were rejected for their intended reasons; rollback restored the complete row/schema digests and independent post-test inspection found no additional rows or client sessions. The owned local process, listener, data and ephemeral credentials were removed; retained evidence passed a generated-secret scan. All 107 current CP28 support pins match, and independent source review found no blockers. This qualifies the local baseline repair only; the hosted two-league workload remains unqualified.
+
+
+## CP28 B1 local population-evidence inventory — October 19, 2026
+
+The current official-results module appends six B1 cases to the eight preserved CP13 cases. Its closed full inventory is fourteen; `data-official-results-played-v1` still selects only original cases 7 and 8, with twelve honestly filtered cases. The earlier CP13 runs above retain their original bytes and acceptance. The current source pin is separately reviewed; updating the inventory supplies no hosted run authority. Historical CP26/CP27/CP28 support pins remain unchanged and reject the changed candidate before provisioning.
+
+The B1 case body budgets are 120/120/120/60/60/300 seconds, totaling thirteen minutes. Combined with the original twenty-five minutes of case bodies and two two-minute hooks, the authored full-module allowance is **42 minutes**, before harness overhead. The protected work cap remains **30 minutes**; the combined profile is not qualified to fit. Local B1-only execution is a separate six-case proof through an owned loopback PostgreSQL adapter, with the original eight cases unselected. See the [B1 implementation report](../../../docs/aggregator-backend/data-backend-cp28-population-evidence.md) for actual results, storage accounting, failed attempts and cleanup.

@@ -153,8 +153,8 @@ export const INGESTION_PROFILE = 'data-core-ingestion-v1';
 export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const OFFICIAL_RESULTS_PROFILE = 'data-official-results-v1';
 export const OFFICIAL_RESULTS_MODULE = 'integration/official-results.integration-case.ts';
-// CP13 authored fixture, pinned after independent source review; hosted SQL qualification remains separate.
-export const OFFICIAL_RESULTS_SOURCE_DIGEST = '592d00ae4f076bddfef63202aebe4bae128ddd9d4fab34f490f666c34f0d2479';
+// CP13 cases plus six CP28 B1 local cases; reviewed source pin is separate from hosted SQL qualification.
+export const OFFICIAL_RESULTS_SOURCE_DIGEST = '38ce70c50c3d2f473fd1ce6a886c95b79d3db998921cd3a93c324122153d7c27';
 export const OFFICIAL_RESULTS_SUITE = 'official standings and results through restricted PostgreSQL';
 export const OFFICIAL_RESULTS_TESTS = [
   'stores provider record points and supplied placement through independent typed receipts',
@@ -165,10 +165,16 @@ export const OFFICIAL_RESULTS_TESTS = [
   'denies direct typed mutations and private helpers while stored reads remain source free',
   'composes native scores and reported bracket results without inferring outcomes or finality',
   'composes ordinary failed core recovery and changed refresh through immutable selected results',
+  'B1 preserves fresh provenance corrections replay and stored legacy and shared reads',
+  'B1 keeps null unproved and other-family population evidence inline',
+  'B1 rejects foreign bindings hash mismatches history mutation and unauthorized evidence access',
+  'B1 rolls back observed content waits after deadline or lease expiry',
+  'B1 reuses one committed evidence winner across concurrent eligible receipts',
+  'B1 measures matched witnessed cores while sharing only exact within-capture population evidence',
 ] as const;
 export const OFFICIAL_RESULTS_FULL_NAMES = OFFICIAL_RESULTS_TESTS.map(name => OFFICIAL_RESULTS_SUITE + ' > ' + name);
 export const OFFICIAL_RESULTS_PATTERN = closedPattern(OFFICIAL_RESULTS_FULL_NAMES);
-// Reuse only the two existing composition cases; retain the full eight-case source inventory.
+// Reuse only the two existing composition cases; retain the full fourteen-case source inventory.
 export const OFFICIAL_RESULTS_PLAYED_PROFILE = 'data-official-results-played-v1';
 export const OFFICIAL_RESULTS_PLAYED_FULL_NAMES = [OFFICIAL_RESULTS_FULL_NAMES[6], OFFICIAL_RESULTS_FULL_NAMES[7]];
 export const OFFICIAL_RESULTS_PLAYED_PATTERN = closedPattern(OFFICIAL_RESULTS_PLAYED_FULL_NAMES);
