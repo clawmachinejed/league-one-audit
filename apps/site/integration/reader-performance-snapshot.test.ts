@@ -121,20 +121,31 @@ describe('CP27 bounded full-state snapshot, offline query mocks only', () => {
     for (const value of [{ stage: 'secret', table: null, code: null }, { stage: 'fetch', table: 'sql;secret', code: null }, { stage: 'fetch', table: null, code: 'secret' }, { stage: 'fetch', table: null, code: null, message: 'secret' }]) expect(validReaderSnapshotDiagnostic(value)).toBe(false);
   });
 });
-import { STORAGE_RELATIONS, STORAGE_INVENTORY_SQL, STORAGE_SIZE_SQL, assertStorageHistory } from './reader-performance-snapshot';
-function storageMock(change?: (sql:string,rows:DatabaseRow[])=>DatabaseRow[]){
-  let table='',offset=0;const contents=new Map(STORAGE_RELATIONS.map(row=>[row.schema+'.'+row.table,[] as string[]]));
+import { STORAGE_RELATIONS, STORAGE_INVENTORY_SQL, STORAGE_SIZE_SQL, STORAGE_STATISTICS_SQL, assertStorageHistory } from './reader-performance-snapshot';
+function storageMock(change?: (sql:string,rows:DatabaseRow[])=>DatabaseRow[]|Promise<DatabaseRow[]>){
+  let table='',offset=0,stream:DatabaseRow[]=[],streamOrder=(rows:DatabaseRow[])=>rows;
+  const contents=new Map(STORAGE_RELATIONS.map(row=>[row.schema+'.'+row.table,[] as string[]]));
   const close=vi.fn(async()=>{}),calls:string[]=[];
   const query=async <Row extends DatabaseRow>(sql:string,parameters:readonly unknown[]=[]):Promise<readonly Row[]>=>{
     calls.push(sql);let rows:DatabaseRow[]=[];
     if(sql===STORAGE_INVENTORY_SQL)rows=STORAGE_RELATIONS.map((row,index)=>({schemaname:row.schema,tablename:row.table,oid:String(index+1),relkind:'r',owner:'test_owner',database_bytes:'2000000',dependencies:[],columns:['id:uuid:true:::'],constraints:['pk:PRIMARY KEY (id):true:false:false'],indexes:[]}));
+    else if(sql===STORAGE_STATISTICS_SQL)rows=[...contents].map(([relation_key,hashes])=>({relation_key,rows:String(hashes.length),bytes:'8192',table_bytes:'8192',index_bytes:'0',main_bytes:'8192',fsm_bytes:'0',vm_bytes:'0',init_bytes:'0'}));
+    else if(sql.startsWith('DECLARE cp28_state_rows')){
+      const keys=[...sql.matchAll(/SELECT '([^']+)' AS relation_key/gu)].map(match=>match[1]);
+      stream=streamOrder(keys.flatMap(relation_key=>contents.get(relation_key)!.map(digest=>({relation_key,digest,tuple_bytes:'100',json_bytes:'120'}))));offset=0;
+    }
+    else if(sql.startsWith('FETCH')&&sql.endsWith('cp28_state_rows')){rows=stream.slice(offset,offset+512);offset+=rows.length;}
     else if(sql.startsWith('SELECT count')){table=sql.split('FROM ')[1].replaceAll('"','');rows=[{rows:String(contents.get(table)!.length)}];}
-    else if(sql.startsWith('DECLARE'))offset=0;
-    else if(sql.startsWith('FETCH')){rows=contents.get(table)!.slice(offset,offset+512).map(digest=>({digest,tuple_bytes:'100',json_bytes:'120'}));offset+=rows.length;}
+    else if(sql.startsWith('DECLARE cp27_state_rows '))offset=0;
+    else if(sql.startsWith('FETCH')&&sql.endsWith('cp27_state_rows')){rows=contents.get(table)!.slice(offset,offset+512).map(digest=>({digest,tuple_bytes:'100',json_bytes:'120'}));offset+=rows.length;}
     else if(sql===STORAGE_SIZE_SQL){void parameters;rows=[{bytes:'8192',table_bytes:'8192',index_bytes:'0',main_bytes:'8192',fsm_bytes:'0',vm_bytes:'0',init_bytes:'0'}];}
-    return(change?change(sql,rows):rows)as Row[];
-  };return{contents,close,calls,connect:async()=>({database:{query},close})};
+    else if(!['BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY',"SET LOCAL statement_timeout = '10000ms'",
+      "SET LOCAL lock_timeout = '2000ms'",'CLOSE cp28_state_rows','CLOSE cp27_state_rows','ROLLBACK'].includes(sql))
+      throw new Error('Unexpected storage fixture SQL.');
+    return(await(change?change(sql,rows):rows))as Row[];
+  };return{contents,close,calls,connect:async()=>({database:{query},close}),reorder:(order:(rows:DatabaseRow[])=>DatabaseRow[])=>{streamOrder=order;}};
 }
+
 describe('CP28 complete attribution and append history, offline query doubles only',()=>{
   it('inventories all154 relations including website auth and canonical dependencies without double counting',async()=>{
     const mock=storageMock(),history=new Map<string,string[]>();mock.contents.set('public.scoring_entities',[md5('player')]);
@@ -150,7 +161,7 @@ describe('CP28 complete attribution and append history, offline query doubles on
       if(!changed)return rows;if(sql===STORAGE_INVENTORY_SQL&&fault==='missing')return rows.slice(1);
       if(sql===STORAGE_INVENTORY_SQL&&fault==='kind')return rows.map((row,index)=>index?row:{...row,relkind:'S'});
       if(sql===STORAGE_INVENTORY_SQL&&fault==='fk')return rows.map((row,index)=>index?row:{...row,constraints:['dropped']});
-      if(sql===STORAGE_SIZE_SQL&&fault==='allocation')return[{...rows[0],bytes:'16384'}];return rows;});
+      if(sql===STORAGE_STATISTICS_SQL&&fault==='allocation')return rows.map((row,index)=>index?row:{...row,bytes:'16384'});return rows;});
     const history=new Map<string,string[]>();mock.contents.set('public.league_roster_capture_receipts',[md5('old')]);await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});changed=true;
     if(fault==='non-data')mock.contents.set('website_auth.user',[md5('new')]);if(fault==='immutable')mock.contents.set('public.league_roster_capture_receipts',[md5('changed')]);
     await expect(readReaderStateSnapshot(mock.connect,30_000,{name:'S1-catalog',history})).rejects.toBeInstanceOf(ReaderStateSnapshotError);
@@ -317,5 +328,141 @@ describe('CP28 inventory SQLSTATE regression, offline only', () => {
     expect(String(failure)).not.toMatch(/secret|password|private/u);
     expect(JSON.stringify(failure)).not.toMatch(/secret|password|private|detail|hint|cause/u);
     expect(mock.calls.at(-1)).toBe('ROLLBACK'); expect(mock.close).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('CP28 full-inventory controlled-latency regression', () => {
+  it.each(['empty', 'S0', 'all-nonempty'] as const)('preserves the complete %s oracle at a deterministic 60ms per call', async fixture => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    const mock = storageMock(), history = new Map<string,string[]>(), latencyMs = 60;
+    if (fixture === 'S0') {
+      mock.contents.set('public.app_schema_migrations', Array.from({length:62},(_,index)=>md5('migration-'+index)));
+      mock.contents.set('public.scoring_profiles',[md5('seed')]);
+    } else if (fixture === 'all-nonempty') for (const table of mock.contents.keys()) mock.contents.set(table,[md5(table)]);
+    const delay=()=>new Promise<void>(resolve=>setTimeout(resolve,latencyMs));
+    const connect=async()=>{
+      await delay(); const connection=await mock.connect();
+      return { database: { query: async <Row extends DatabaseRow>(sql:string,parameters:readonly unknown[]=[])=>{
+        const rows=await connection.database.query<Row>(sql,parameters); await delay(); return rows;
+      } }, close:async()=>{await delay();await connection.close();} };
+    };
+    const pending=readReaderStateSnapshot(connect,30_000,{name:'S0-empty',history});
+    await vi.advanceTimersByTimeAsync(30_000); const result=await pending;
+    expectStorageFixture(result,mock);
+    expect(mock.calls.at(-1)).toBe('ROLLBACK');expect(mock.close).toHaveBeenCalledTimes(1);expect(history.size).toBe(154);
+    expect(mock.calls).toHaveLength(fixture==='empty'?6:10);
+    expect(result.storage!.elapsedMs).toBe(fixture==='empty'?360:600);
+    console.info('CP28 controlled latency candidate',JSON.stringify({fixture,latencyMs,queries:mock.calls.length,
+      snapshotWorkMs:result.storage!.elapsedMs,relations:result.storage!.relations.length,totalRows:result.storage!.totalRows,cleanupAcknowledged:true}));
+  });
+});
+function expectStorageFixture(result:Awaited<ReturnType<typeof readReaderStateSnapshot>>,mock:ReturnType<typeof storageMock>) {
+  const tables=Object.fromEntries(mock.contents);
+  expect(result.digest).toBe(original(tables));
+  expect(result.counts).toEqual([...mock.contents].map(([table,hashes])=>({table,rows:hashes.length,totalBytes:8192})));
+  expect(result.storage?.allocatedBytes).toBe(154*8192);expect(result.storage?.databaseBytes).toBe(2000000);
+  expect(result.storage?.totalRows).toBe([...mock.contents.values()].reduce((sum,hashes)=>sum+hashes.length,0));
+  expect(result.storage?.relations).toEqual(STORAGE_RELATIONS.map((relation,index)=>{
+    const hashes=mock.contents.get(relation.schema+'.'+relation.table)!;
+    return {...relation,oid:index+1,owner:'test_owner',dependencies:[],
+      metadata:{kind:'r',columns:['id:uuid:true:::'],constraints:['pk:PRIMARY KEY (id):true:false:false'],indexes:[]},
+      rows:hashes.length,digest:md5([...hashes].sort().join('')),totalBytes:8192,tableBytes:8192,indexBytes:0,
+      heapMainBytes:8192,heapFsmBytes:0,heapVmBytes:0,heapInitBytes:0,toastAndAuxBytes:0,tupleBytes:hashes.length*100,jsonBytes:hashes.length*120};
+  }));
+}
+
+describe('CP28 tagged cursor completeness and fail-closed boundaries',()=>{
+  it('rejects unexpected SQL in the storage query double',async()=>{
+    const connection=await storageMock().connect();
+    await expect(connection.database.query('SELECT unexpected_fixture_query')).rejects.toThrow('Unexpected storage fixture SQL.');
+  });
+  it('preserves independent per-relation multisets and bytes across interleaved pages and exact zero counts',async()=>{
+    const mock=storageMock(),keys=[...mock.contents.keys()],sizes=[0,1,2,511,512,513,1031];
+    for(const [index,size] of sizes.entries())mock.contents.set(keys[index],Array.from({length:size},(_,row)=>md5(String(row%7))));
+    mock.reorder(rows=>rows.sort((a,b)=>String(a.digest).localeCompare(String(b.digest))||String(b.relation_key).localeCompare(String(a.relation_key))));
+    const result=await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history:new Map()});expectStorageFixture(result,mock);
+    const declarations=mock.calls.filter(sql=>sql.startsWith('DECLARE'));
+    expect(declarations).toHaveLength(1);expect(declarations[0]).toContain('DECLARE cp28_state_rows NO SCROLL');
+    expect(declarations[0]).not.toContain("'"+keys[0]+"' AS relation_key");
+    expect(declarations[0]).not.toMatch(/ORDER BY|DISTINCT|LIMIT|string_agg|json_agg/iu);
+    expect(mock.calls.filter(sql=>sql===STORAGE_STATISTICS_SQL)).toHaveLength(1);
+    expect(mock.calls.filter(sql=>sql.startsWith('FETCH'))).toHaveLength(Math.ceil(sizes.reduce((a,b)=>a+b,0)/512)+1);
+    expect(mock.calls).toContain('CLOSE cp28_state_rows');expect(mock.close).toHaveBeenCalledTimes(1);
+  });
+  it('retains all154 empty relation digests and physical allocations without creating a cursor',async()=>{
+    const mock=storageMock(),result=await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history:new Map()});
+    expectStorageFixture(result,mock);expect(mock.calls.some(sql=>/^(?:DECLARE|FETCH|CLOSE)/u.test(sql))).toBe(false);
+    expect(mock.calls).toHaveLength(6);expect(mock.calls.at(-1)).toBe('ROLLBACK');
+  });
+  it.each(['stats-missing','stats-extra','stats-duplicate','stats-unknown','stats-negative','stats-table-cap','stats-total-cap',
+    'tag-unknown','tag-empty','tag-overfull','digest','bytes','page-oversized','extra','missing','allocation'] as const)
+  ('rejects %s without committing history or exposing an untrusted tag',async fault=>{
+    const keys=STORAGE_RELATIONS.slice(0,3).map(row=>row.schema+'.'+row.table);
+    const mock=storageMock((sql,rows)=>{
+      if(sql===STORAGE_STATISTICS_SQL){
+        if(fault==='stats-missing')return rows.slice(1);
+        if(fault==='stats-extra')return [...rows,rows[0]];
+        if(fault==='stats-duplicate')return rows.map((row,index)=>index===1?rows[0]:row);
+        if(fault==='stats-unknown')return rows.map((row,index)=>index?row:{...row,relation_key:'private-tag'});
+        if(fault==='stats-negative')return rows.map((row,index)=>index?row:{...row,rows:'-1'});
+        if(fault==='stats-table-cap')return rows.map((row,index)=>index?row:{...row,rows:'200001'});
+        if(fault==='stats-total-cap')return rows.map((row,index)=>index<6?{...row,rows:'200000'}:row);
+        if(fault==='allocation')return rows.map((row,index)=>index?row:{...row,bytes:'16384'});
+      }
+      if(sql.startsWith('FETCH')&&sql.endsWith('cp28_state_rows')){
+        if(!rows.length)return fault==='extra'?[{relation_key:keys[0],digest:md5('extra'),tuple_bytes:'100',json_bytes:'120'}]:rows;
+        if(fault==='tag-unknown')return [{...rows[0],relation_key:'private-tag'},...rows.slice(1)];
+        if(fault==='tag-empty')return [{...rows[0],relation_key:keys[2]},...rows.slice(1)];
+        if(fault==='tag-overfull')return rows.map(row=>({...row,relation_key:keys[0]}));
+        if(fault==='digest')return [{...rows[0],digest:'private-tag'},...rows.slice(1)];
+        if(fault==='bytes')return [{...rows[0],tuple_bytes:'-1'},...rows.slice(1)];
+        if(fault==='page-oversized')return [...rows,rows[0]];
+        if(fault==='missing')return rows.slice(1);
+      }return rows;
+    });
+    mock.contents.set(keys[0],Array(fault==='page-oversized'?600:1).fill(md5('first')) as string[]);
+    mock.contents.set(keys[1],[md5('second')]);const history=new Map<string,string[]>();
+    let failure:unknown;try{await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});}catch(error){failure=error;}
+    expect(failure).toBeInstanceOf(ReaderStateSnapshotError);expect(JSON.stringify(failure)).not.toContain('private-tag');
+    expect(history.size).toBe(0);expect(mock.calls.at(-1)).toBe('ROLLBACK');expect(mock.close).toHaveBeenCalledTimes(1);
+    if(fault.startsWith('stats-'))expect(mock.calls.some(sql=>sql.startsWith('DECLARE'))).toBe(false);
+  });
+  it.each(['cursor-close','rollback','connection-close'] as const)('does not commit history when %s acknowledgment fails',async fault=>{
+    const mock=storageMock((sql,rows)=>{if(sql===(fault==='cursor-close'?'CLOSE cp28_state_rows':fault==='rollback'?'ROLLBACK':''))throw new Error('fixture failure');return rows;});
+    mock.contents.set('public.scoring_entities',[md5('one')]);
+    if(fault==='connection-close')mock.close.mockRejectedValueOnce(new Error('fixture close failure'));
+    const history=new Map<string,string[]>();await expect(readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history})).rejects.toBeInstanceOf(ReaderStateSnapshotError);
+    expect(history.size).toBe(0);expect(mock.calls.at(-1)).toBe('ROLLBACK');expect(mock.close).toHaveBeenCalledTimes(1);
+  });
+  it.each(['statistics','fetch'] as const)('keeps the work deadline and cleanup reserve when %s stalls',async fault=>{
+    vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+    const mock=storageMock((sql,rows)=>((fault==='statistics'&&sql===STORAGE_STATISTICS_SQL)||(fault==='fetch'&&sql.startsWith('FETCH')))
+      ?new Promise<DatabaseRow[]>(()=>undefined):rows);
+    mock.contents.set('public.scoring_entities',[md5('one')]);const history=new Map<string,string[]>();
+    const pending=readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});
+    const checked=expect(pending).rejects.toMatchObject({diagnostic:{stage:fault==='statistics'?'count':'fetch',table:null,code:null},cleanupFailures:[]});
+    await vi.advanceTimersByTimeAsync(30_000);await checked;
+    expect(history.size).toBe(0);expect(mock.calls.at(-1)).toBe('ROLLBACK');expect(mock.close).toHaveBeenCalledTimes(1);
+  });
+  it.each(['sort','final-serialization'] as const)('does not accept a snapshot after CPU time expires during %s',async stage=>{
+    vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+    const mock=storageMock(),digest=md5('cpu-tail'),history=new Map<string,string[]>();
+    mock.contents.set('public.scoring_entities',[digest]);
+    await readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history});
+    const prior=[...history].map(([table,hashes])=>[table,[...hashes]]);
+    mock.contents.set('public.scoring_entities',[digest,md5('unacknowledged-player')]);
+    mock.contents.set('public.league_roster_capture_receipts',[md5('unacknowledged-receipt')]);
+    mock.calls.length=0;mock.close.mockClear();
+    const originalSort=Array.prototype.sort,originalStringify=JSON.stringify;
+    const spy=stage==='sort'?vi.spyOn(Array.prototype,'sort').mockImplementation(function(this:unknown[],compare){
+      const sorted=originalSort.call(this,compare);if(this.includes(digest))vi.advanceTimersByTime(20_000);return sorted;
+    }):vi.spyOn(JSON,'stringify').mockImplementation(value=>{
+      const serialized=originalStringify(value);
+      if(Array.isArray(value)&&value.length===154&&value.every(row=>row&&typeof row.table==='string'&&typeof row.digest==='string'))vi.advanceTimersByTime(20_000);
+      return serialized;
+    });
+    try{await expect(readReaderStateSnapshot(mock.connect,30_000,{name:'S0-empty',history})).rejects.toMatchObject({diagnostic:{stage:'timeout',code:null},cleanupFailures:[]});}
+    finally{spy.mockRestore();}
+    expect([...history]).toEqual(prior);expect(history.size).toBe(154);expect(mock.calls.at(-1)).toBe('ROLLBACK');expect(mock.close).toHaveBeenCalledTimes(1);
   });
 });

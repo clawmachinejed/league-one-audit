@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import type { DatabaseClient } from '../lib/database';
+import type { DatabaseClient, DatabaseRow } from '../lib/database';
 
 export const READER_SNAPSHOT_LIMITS = Object.freeze({ rowsPerTable: 200_000, pageRows: 512, maximumMs: 60_000, cleanupMs: 10_000, statementMs: 10_000 });
 const stages = ['connect', 'begin', 'timeout', 'inventory', 'count', 'declare', 'fetch', 'cursor-close', 'size', 'rollback', 'close'] as const;
@@ -74,6 +74,7 @@ export async function readReaderStateSnapshot(connect: () => Promise<SnapshotCon
     if (storage) assert.deepEqual(names.map(row => String(row.schemaname) + '.' + String(row.tablename)).sort(), STORAGE_RELATIONS.map(row => row.schema + '.' + row.table).sort(), 'CP28 physical relation inventory drift.');
     const metadataDigest = storage ? hash('sha256', JSON.stringify(names.map(({ database_bytes: _bytes, ...row }) => { void _bytes; return row; }))) : '';
     if (storage && storageMetadata.has(storage.history)) assert.equal(metadataDigest, storageMetadata.get(storage.history), 'CP28 schema metadata changed.');
+    const storageRead = storage ? await readStorageRows(query) : undefined;
     const storageRows: StorageRelationEvidence[] = [], nextHistory = new Map<string, string[]>();
     let totalRows = 0;
     const seen = new Set<string>(), records: { table: string; rows: number; digest: string }[] = [], counts: SnapshotResult['counts'] = [];
@@ -83,28 +84,32 @@ export async function readReaderStateSnapshot(connect: () => Promise<SnapshotCon
       const table = storage ? String(name.schemaname) + '.' + name.tablename : name.tablename; seen.add(table); currentTable = name.tablename;
       const relation = storage ? STORAGE_RELATIONS.find(row => row.schema + '.' + row.table === table)! : undefined;
       const qualified = storage ? '"' + relation!.schema + '"."' + relation!.table + '"' : 'public.' + table;
-      const counted = await query('count', `SELECT count(*)::text AS rows FROM ${qualified}`);
+      const stored = storageRead?.get(table);
+      const counted = stored ? [stored.statistics] : await query('count', `SELECT count(*)::text AS rows FROM ${qualified}`);
       if (counted.length !== 1 || typeof counted[0].rows !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(counted[0].rows)) throw new ReaderStateSnapshotError('count', table);
       const rows = Number(counted[0].rows);
       if (!Number.isSafeInteger(rows) || rows > READER_SNAPSHOT_LIMITS.rowsPerTable) throw new ReaderStateSnapshotError('count', table);
       totalRows += rows; if (storage) assert(totalRows <= 1_000_000, 'CP28 total row bound.');
-      await query('declare', `DECLARE cp27_state_rows NO SCROLL CURSOR FOR SELECT md5(to_jsonb(row)::text) AS digest${storage ? ', pg_column_size(row)::text AS tuple_bytes, octet_length(to_jsonb(row)::text)::text AS json_bytes' : ''} FROM ${qualified} row`);
-      const hashes: string[] = []; let tupleBytes = 0, jsonBytes = 0;
-      while (true) {
-        const page = await query('fetch', `FETCH FORWARD ${READER_SNAPSHOT_LIMITS.pageRows} FROM cp27_state_rows`);
-        if (page.length > READER_SNAPSHOT_LIMITS.pageRows || hashes.length + page.length > rows) throw new ReaderStateSnapshotError('fetch', table);
-        for (const item of page) {
-          if (typeof item.digest !== 'string' || !/^[0-9a-f]{32}$/u.test(item.digest)) throw new ReaderStateSnapshotError('fetch', table);
-          hashes.push(item.digest);
-          if (storage) { tupleBytes += storageInteger(item.tuple_bytes); jsonBytes += storageInteger(item.json_bytes); assert(Number.isSafeInteger(tupleBytes) && Number.isSafeInteger(jsonBytes)); }
+      const hashes: string[] = stored?.hashes ?? []; let tupleBytes = stored?.tupleBytes ?? 0, jsonBytes = stored?.jsonBytes ?? 0;
+      if (!stored) {
+        await query('declare', `DECLARE cp27_state_rows NO SCROLL CURSOR FOR SELECT md5(to_jsonb(row)::text) AS digest${storage ? ', pg_column_size(row)::text AS tuple_bytes, octet_length(to_jsonb(row)::text)::text AS json_bytes' : ''} FROM ${qualified} row`);
+        while (true) {
+          const page = await query('fetch', `FETCH FORWARD ${READER_SNAPSHOT_LIMITS.pageRows} FROM cp27_state_rows`);
+          if (page.length > READER_SNAPSHOT_LIMITS.pageRows || hashes.length + page.length > rows) throw new ReaderStateSnapshotError('fetch', table);
+          for (const item of page) {
+            if (typeof item.digest !== 'string' || !/^[0-9a-f]{32}$/u.test(item.digest)) throw new ReaderStateSnapshotError('fetch', table);
+            hashes.push(item.digest);
+            if (storage) { tupleBytes += storageInteger(item.tuple_bytes); jsonBytes += storageInteger(item.json_bytes); assert(Number.isSafeInteger(tupleBytes) && Number.isSafeInteger(jsonBytes)); }
+          }
+          if (!page.length) break;
         }
-        if (!page.length) break;
+        if (hashes.length !== rows) throw new ReaderStateSnapshotError('fetch', table);
+        await query('cursor-close', 'CLOSE cp27_state_rows');
       }
-      if (hashes.length !== rows) throw new ReaderStateSnapshotError('fetch', table);
-      await query('cursor-close', 'CLOSE cp27_state_rows');
       hashes.sort();
+      if (storage && performance.now() >= workDeadline) throw new ReaderStateSnapshotError('timeout', currentTable);
       const digest = createHash('md5'); for (const item of hashes) digest.update(item);
-      const sized = await query('size', storage ? STORAGE_SIZE_SQL : 'SELECT pg_total_relation_size($1::regclass)::text AS bytes', [storage ? qualified : 'public.' + table]);
+      const sized = stored ? [stored.statistics] : await query('size', storage ? STORAGE_SIZE_SQL : 'SELECT pg_total_relation_size($1::regclass)::text AS bytes', [storage ? qualified : 'public.' + table]);
       if (sized.length !== 1 || typeof sized[0].bytes !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(sized[0].bytes)) throw new ReaderStateSnapshotError('size', table);
       const totalBytes = Number(sized[0].bytes);
       if (!Number.isSafeInteger(totalBytes)) throw new ReaderStateSnapshotError('size', table);
@@ -132,6 +137,7 @@ export async function readReaderStateSnapshot(connect: () => Promise<SnapshotCon
       result.storage = { name: storage.name, digest: result.digest, metadataDigest, relations: storageRows, allocatedBytes,
         databaseBytes: storageInteger(names[0].database_bytes), totalRows, elapsedMs: performance.now() - started };
     }
+    if (storage && performance.now() >= workDeadline) throw new ReaderStateSnapshotError('timeout', currentTable);
   } catch (error) { failure = error instanceof ReaderStateSnapshotError ? error : new ReaderStateSnapshotError(currentStage, currentTable, error); }
   finally {
     if (connection) {
@@ -230,3 +236,57 @@ export const STORAGE_SIZE_SQL = `SELECT pg_total_relation_size($1::regclass)::te
   pg_table_size($1::regclass)::text AS table_bytes,pg_indexes_size($1::regclass)::text AS index_bytes,
   pg_relation_size($1::regclass,'main')::text AS main_bytes,pg_relation_size($1::regclass,'fsm')::text AS fsm_bytes,
   pg_relation_size($1::regclass,'vm')::text AS vm_bytes,pg_relation_size($1::regclass,'init')::text AS init_bytes`;
+
+export const STORAGE_STATISTICS_SQL = STORAGE_RELATIONS.map(({schema,table}) => {
+  const qualified = '"' + schema + '"."' + table + '"';
+  return `SELECT '${schema}.${table}' AS relation_key, count(*)::text AS rows,
+    pg_total_relation_size('${qualified}'::regclass)::text AS bytes,
+    pg_table_size('${qualified}'::regclass)::text AS table_bytes,pg_indexes_size('${qualified}'::regclass)::text AS index_bytes,
+    pg_relation_size('${qualified}'::regclass,'main')::text AS main_bytes,pg_relation_size('${qualified}'::regclass,'fsm')::text AS fsm_bytes,
+    pg_relation_size('${qualified}'::regclass,'vm')::text AS vm_bytes,pg_relation_size('${qualified}'::regclass,'init')::text AS init_bytes
+    FROM ${qualified}`;
+}).join('\nUNION ALL\n');
+type StorageRead = { rows: number; statistics: DatabaseRow; hashes: string[]; tupleBytes: number; jsonBytes: number };
+/** CP28 only: one statistics result and one bounded cursor, in the caller's
+ * unchanged pinned MVCC transaction. Tags are outside each source row's JSON. */
+async function readStorageRows(query: (stage: ReaderSnapshotDiagnostic['stage'], sql: string) => Promise<readonly DatabaseRow[]>) {
+  const statistics = await query('count', STORAGE_STATISTICS_SQL);
+  assert.equal(statistics.length, STORAGE_RELATIONS.length, 'CP28 statistics inventory changed.');
+  const expected = new Set(STORAGE_RELATIONS.map(({schema,table})=>schema+'.'+table)), tables = new Map<string,StorageRead>();
+  let expectedRows = 0;
+  for (const statistic of statistics) {
+    assert(typeof statistic.relation_key === 'string' && expected.has(statistic.relation_key) && !tables.has(statistic.relation_key), 'CP28 invalid statistics relation.');
+    const rows = storageInteger(statistic.rows); assert(rows <= READER_SNAPSHOT_LIMITS.rowsPerTable, 'CP28 table row bound.');
+    expectedRows += rows; assert(expectedRows <= 1_000_000, 'CP28 total row bound.');
+    tables.set(statistic.relation_key, { rows, statistics: statistic, hashes: [], tupleBytes: 0, jsonBytes: 0 });
+  }
+  const nonempty = STORAGE_RELATIONS.filter(({schema,table})=>tables.get(schema+'.'+table)!.rows > 0);
+  // An exact zero count under this same repeatable-read snapshot is the only
+  // reason a relation is omitted from the cursor. Its evidence remains below.
+  if (nonempty.length) {
+    const branches = nonempty.map(({schema,table})=>`SELECT '${schema}.${table}' AS relation_key,
+      md5(to_jsonb(row)::text) AS digest,pg_column_size(row)::text AS tuple_bytes,
+      octet_length(to_jsonb(row)::text)::text AS json_bytes FROM "${schema}"."${table}" row`);
+    await query('declare', 'DECLARE cp28_state_rows NO SCROLL CURSOR FOR ' + branches.join('\nUNION ALL\n'));
+    let received = 0;
+    while (true) {
+      const page = await query('fetch', `FETCH FORWARD ${READER_SNAPSHOT_LIMITS.pageRows} FROM cp28_state_rows`);
+      assert(page.length <= READER_SNAPSHOT_LIMITS.pageRows && received + page.length <= expectedRows, 'CP28 cursor row bound.');
+      for (const item of page) {
+        // Untrusted tags never become identifiers or diagnostic table names.
+        const table = typeof item.relation_key === 'string' ? tables.get(item.relation_key) : undefined;
+        assert(table && table.hashes.length < table.rows, 'CP28 invalid cursor relation or count.');
+        assert(typeof item.digest === 'string' && /^[0-9a-f]{32}$/u.test(item.digest), 'CP28 invalid row digest.');
+        table.hashes.push(item.digest);
+        table.tupleBytes += storageInteger(item.tuple_bytes); table.jsonBytes += storageInteger(item.json_bytes);
+        assert(Number.isSafeInteger(table.tupleBytes) && Number.isSafeInteger(table.jsonBytes), 'CP28 logical byte bound.');
+      }
+      received += page.length;
+      if (!page.length) break;
+    }
+    assert.equal(received, expectedRows, 'CP28 cursor total count mismatch.');
+    for (const table of tables.values()) assert.equal(table.hashes.length, table.rows, 'CP28 cursor table count mismatch.');
+    await query('cursor-close', 'CLOSE cp28_state_rows');
+  }
+  return tables;
+}
