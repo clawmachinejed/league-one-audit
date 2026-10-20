@@ -629,13 +629,13 @@ describe.sequential('official standings and results through restricted PostgreSQ
     // Retained before SQL, including failed and rollback-only reservations.
     console.info('CP28_B1_ATTEMPTS ' + JSON.stringify({ reserved: b1.attempts, limit }));
   }
-  const b1Roster = (corrected = false) => sourceRows(10, corrected).map((row, index) => ({
-    ...row, players: b1Players.slice(index * 8, index * 8 + 8),
-    starters: b1Players.slice(index * 8, index * 8 + 1),
+  const b1Roster = (corrected = false, playerIds: readonly string[] = b1Players, teamCount: 10 | 20 = 10) => sourceRows(teamCount, corrected).map((row, index) => ({
+    ...row, players: playerIds.slice(index * 8, index * 8 + 8),
+    starters: playerIds.slice(index * 8, index * 8 + 1),
   }));
-  async function b1Setup() {
+  async function b1Setup(playerIds: readonly string[] = b1Players) {
     if (b1.ready) return;
-    b1Reserve(1); await directoryPrerequisite(b1Players);
+    b1Reserve(1); await directoryPrerequisite(playerIds);
     b1.fixtures.push(await fixture(), await fixture()); expect(b1.fixtures).toHaveLength(2);
     expect((await ownerQuery(`SELECT tgfoid::regproc::text AS function FROM pg_trigger
       WHERE tgrelid='public.league_roster_resource_acceptances'::regclass AND tgname='roster_player_links_after_acceptance'`))[0])
@@ -675,13 +675,14 @@ describe.sequential('official standings and results through restricted PostgreSQ
       WHERE receipt.id=ANY($1::uuid[]) ORDER BY array_position($1::uuid[],receipt.id)`, [ids]);
   }
   async function b1Core(f: Fixture, corrected = false, replay = false, combined?: {
-    linkFormat: 'acceptance-v1' | 'shared-v1'; roster?: ReturnType<typeof b1Roster>; state: () => Promise<DatabaseRow[]>; provenance?: boolean;
+    linkFormat: 'acceptance-v1' | 'shared-v1'; roster?: ReturnType<typeof b1Roster>; state: () => Promise<DatabaseRow[]>; provenance?: boolean; teamCount?: 10 | 20;
     occurrence?: { requestId: string; resourceId: string; targetId: string };
     intercept?: (args: B1Write['args']) => Promise<B1Write['result']>; expectedFailure?: () => boolean;
   }) {
     b1Reserve(4); expect(++b1.cores).toBeLessThanOrEqual(80);
     const requestId = combined?.occurrence?.requestId ?? randomUUID(), manager = numericId(), username = 'cp28_b1_' + manager;
-    const league = leagueDocument(f.external, 10), roster = combined?.roster ?? b1Roster(corrected);
+    const teamCount = combined?.teamCount ?? 10;
+    const league = leagueDocument(f.external, teamCount), roster = combined?.roster ?? b1Roster(corrected);
     if (!combined?.occurrence) {
     await ownerQuery('INSERT INTO public.public_data_intakes(id,username,seasons) VALUES($1,$2,ARRAY[2026])', [requestId, username]);
     await ownerQuery("INSERT INTO public.league_source_manager_accounts(provider,external_manager_id) VALUES('sleeper',$1) ON CONFLICT DO NOTHING", [manager]);
@@ -794,7 +795,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       expect(standing.capture.provenance).toEqual(written[1].args[0].envelope.provenance);
       expect((await administration.readAcceptedLeagueSettings(f.mapping)).status).toBe('available');
       expect(await administration.readAcceptedCurrentRoster(f.mapping, { includePlayerLinks: true })).toMatchObject({
-        status: 'available', playerLinks: { status: 'available', counts: { teams: 10, held: 80, resolved: 80, unresolved: 0, conflict: 0 } } });
+        status: 'available', playerLinks: { status: 'available', counts: { teams: teamCount, held: teamCount * 8, resolved: teamCount * 8, unresolved: 0, conflict: 0 } } });
       expect((await administration.readAcceptedTeamManagers(f.mapping)).status).toBe('available');
       expect((await administration.readAcceptedTeamManagerEvidence!(f.mapping)).status).toBe('available');
       if (combined) {
@@ -1553,6 +1554,8 @@ describe.sequential('official standings and results through restricted PostgreSQ
   }, 300_000);
   // B2 is an isolated opt-in extension. Earlier case bodies and helper defaults
   // retain their original behavior; all three candidate writers restore on exit.
+  const b2Players = Array.from({ length: 160 }, numericId);
+  const b2Roster = (corrected = false) => b1Roster(corrected, b2Players, 20);
   const b2 = { bound: false, touched: false, successfulCores: 0, expectedFailedCores: 0,
     boundaries: [] as unknown[], saved: [] as { fixture: Fixture; value: Awaited<ReturnType<typeof b2Core>>;
       digest: readonly DatabaseRow[] }[] };
@@ -1661,9 +1664,10 @@ describe.sequential('official standings and results through restricted PostgreSQ
   }
   async function b2Core(f: Fixture, options: { score?: boolean; replay?: boolean; occurrenceOrigin?: string;
     intercept?: (args: B1Write['args']) => Promise<B1Write['result']>; expectedFailure?: () => boolean } = {}) {
+    expect(b1.cores).toBeLessThan(46);
     const occurrence = options.occurrenceOrigin ? await b2Occurrence(f, options.occurrenceOrigin) : undefined;
     const value = await b1Core(f, options.score, options.replay, { occurrence, linkFormat: abHasA(ab.mode) ? 'shared-v1' : 'acceptance-v1',
-      roster: b1Roster(options.score), state: b2State, provenance: true,
+      roster: b2Roster(options.score), state: b2State, provenance: true, teamCount: 20,
       intercept: options.intercept, expectedFailure: options.expectedFailure });
     const expected = value.written[1].args[0].envelope.provenance;
     const [settlement] = await connection.database.query(`SELECT outcome.outcome,
@@ -1728,7 +1732,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
   }
   it('B2 preserves exact provenance fresh receipts replay and historical reads across storage combinations', async () => {
     b2.boundaries.push(await b2Snapshot('empty-migrated-schema'));
-    await b1Setup(); b2.boundaries.push(await b2Snapshot('synthetic-prerequisites'));
+    await b1Setup(b2Players); b2.boundaries.push(await b2Snapshot('synthetic-prerequisites'));
     await b2Mode('AB', false, async () => {
       for (const f of b1.fixtures) await b2Remember(f, await b2Core(f));
       b2.boundaries.push(await b2Snapshot('baseline-AB'));
@@ -1773,7 +1777,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       other = b2.saved.find(saved => saved.fixture === b1.fixtures[1] && saved.value.rows[1].provenance_content_id !== null)!.value;
     const receiptId = first.ids[1], headerId = first.rows[1].provenance_content_id;
     await b2Mode('AB', true, async () => {
-      const plain = await b1Direct(b1.fixtures[0], { evidence: false });
+      const plain = await b1Direct(b1.fixtures[0], { evidence: false, count: 20, payload: b2Roster() });
       expect((await b1Receipts([plain.receipt], connection.database, true))[0]).toMatchObject({
         provenance_storage_format: 'inline-v1', provenance_content_id: null, provenance: plain.input.envelope.provenance,
         effective_provenance: plain.input.envelope.provenance });
@@ -1896,82 +1900,6 @@ describe.sequential('official standings and results through restricted PostgreSQ
   it('B2 rolls back provenance after downstream expiry and preserves concurrent writer history', async () => {
     const f = b1.fixtures[0];
     await b2Mode('AB', true, async () => {
-      for (const target of ['population', 'identity'] as const) {
-        const blocker = await createPinnedIntegrationDatabase('owner'), writer = await createPinnedIntegrationDatabase('runtime');
-        let open = false, verified = false, lastWait: DatabaseRow | undefined, callbackError: unknown;
-        let pending: Promise<{ result?: B1Write['result']; error?: unknown }> | undefined;
-        try {
-          const [blockerPid] = await blocker.database.query('SELECT pg_backend_pid() AS pid'),
-            [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
-          const identity = b2.saved.find(saved => saved.fixture === f)!.value.links.links[0].canonicalEntityId;
-          expect(identity).toBeTypeOf('string');
-          const outcome = await b2Core(f, { expectedFailure: () => verified, intercept: async args => {
-            try {
-            const started = performance.now(), originalFence = args[1]!;
-            const before = await b2State();
-            const [fresh] = await connection.database.query(`SELECT NOT EXISTS(SELECT 1 FROM public.league_roster_provenance_contents
-              WHERE league_season_id=$1 AND source_mapping_revision_id=$2
-                AND content_hash=encode(digest(convert_to($3::jsonb::text,'UTF8'),'sha256'),'hex')) AS absent`,
-            [f.leagueSeasonId, f.mapping.revisionId, JSON.stringify(args[0].envelope.provenance)]);
-            expect(fresh.absent).toBe(true);
-            await blocker.database.query('BEGIN'); open = true;
-            if (target === 'population') await blocker.database.query('LOCK TABLE public.league_roster_population_contents IN SHARE MODE');
-            else await blocker.database.query('SELECT id FROM public.scoring_entities WHERE id=$1 FOR UPDATE', [identity]);
-            pending = administrationFor(writer.database).recordObservation(...args).then(result => ({ result }), error => ({ error }));
-            let observed: DatabaseRow | undefined;
-            for (let poll = 0; poll < 150; poll++) {
-              const [row] = await blocker.database.query(`SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
-                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_provenance_contents'::regclass
-                  AND mode='RowExclusiveLock' AND granted) AS provenance_insert,
-                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
-                  AND mode='RowExclusiveLock' AND granted) AS population_insert,
-                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
-                  AND mode='RowExclusiveLock' AND NOT granted) AS population_wait,
-                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.scoring_entities'::regclass
-                  AND mode='RowExclusiveLock' AND granted) AS identity_write,
-                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_resource_acceptances'::regclass
-                  AND mode='RowExclusiveLock' AND granted) AS acceptance_insert,
-                EXISTS(SELECT 1 FROM pg_locks waiter JOIN pg_locks holder USING(transactionid)
-                  WHERE waiter.pid=$2::int AND holder.pid=$1::int AND waiter.locktype='transactionid'
-                    AND waiter.mode='ShareLock' AND NOT waiter.granted AND holder.granted) AS identity_wait`, [blockerPid.pid, writerPid.pid]);
-              lastWait = row;
-              if (row.blocked === true && row.provenance_insert === true && (target === 'population' ? row.population_wait === true
-                : row.population_insert === true && row.identity_write === true && row.acceptance_insert === true && row.identity_wait === true)) {
-                observed = row; break;
-              }
-              await delay(20);
-            }
-            expect(observed).toBeDefined();
-            await blocker.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM($1::timestamptz-clock_timestamp())))+0.025)`, [originalFence.deadlineAt]);
-            await blocker.database.query('COMMIT'); open = false;
-            const settled = await pending;
-            expect(String(settled.error)).toMatch(/fence.*(?:stale|expired)|deadline/iu);
-            expect(await b2State()).toEqual(before); verified = true;
-            console.info('CP28_B2_FENCE ' + JSON.stringify({ target, originalDeadlineAt: originalFence.deadlineAt,
-              elapsedMs: performance.now() - started, wait: target === 'population' ? 'B1 population relation lock' : 'A canonical identity transaction lock',
-              observed, freshProvenanceKeyAbsentBeforeWrite: true, provenanceInsertAttemptedBeforeWait: true,
-              uncommittedParentVisibilityNotClaimed: true, rejected: true, scopedStateRollback: true, scopedTables: before.map(row => row.name) }));
-            throw settled.error;
-            } catch (error) { if (!verified) callbackError = error; throw error; }
-          } }).then(() => ({ error: undefined as unknown }), error => ({ error }));
-          if (callbackError) throw callbackError;
-          expect(String(outcome.error)).toContain('B2 expected original-deadline core failure verified');
-          // The ordinary capture has now restored its fetch spy. Historical
-          // no-fetch checks must not reuse that spy's two earlier core calls.
-          await b2History(); b2.expectedFailedCores++;
-        } catch (error) {
-          if (open) { await blocker.database.query('ROLLBACK'); open = false; }
-          const settled = await pending, failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
-          const callback = callbackError as { name?: unknown; code?: unknown; message?: unknown } | undefined;
-          console.info('CP28_B2_FENCE_DIAGNOSTIC ' + JSON.stringify({ target, lastWait,
-            callbackError: callback ? { name: String(callback.name), code: String(callback.code), message: String(callback.message).slice(0,240) } : null,
-            pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null }));
-          throw error;
-        } finally {
-          try { if (open) await blocker.database.query('ROLLBACK'); }
-          finally { try { await pending; } finally { try { await writer.close(); } finally { await blocker.close(); } } }
-        }
-      }
       const first = await createPinnedIntegrationDatabase('runtime'), second = await createPinnedIntegrationDatabase('runtime');
       let open = false, lastWait: DatabaseRow | undefined, callbackError: unknown;
       let pending: Promise<{ result?: B1Write['result']; error?: unknown }> | undefined;
@@ -2040,15 +1968,114 @@ describe.sequential('official standings and results through restricted PostgreSQ
         try { if (open) await first.database.query('ROLLBACK'); }
         finally { try { await pending; } finally { try { await second.close(); } finally { await first.close(); } } }
       }
+      for (const target of ['population', 'identity'] as const) {
+        const blocker = await createPinnedIntegrationDatabase('owner'), writer = await createPinnedIntegrationDatabase('runtime');
+        let open = false, verified = false, lastWait: DatabaseRow | undefined, callbackError: unknown;
+        let pending: Promise<{ result?: B1Write['result']; error?: unknown }> | undefined;
+        try {
+          const [blockerPid] = await blocker.database.query('SELECT pg_backend_pid() AS pid'),
+            [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
+          const identity = b2.saved.find(saved => saved.fixture === f)!.value.links.links[0].canonicalEntityId;
+          expect(identity).toBeTypeOf('string');
+          const outcome = await b2Core(f, { expectedFailure: () => verified, intercept: async args => {
+            try {
+            const started = performance.now(), originalFence = args[1]!;
+            const before = await b2State();
+            const [fresh] = await connection.database.query(`SELECT NOT EXISTS(SELECT 1 FROM public.league_roster_provenance_contents
+              WHERE league_season_id=$1 AND source_mapping_revision_id=$2
+                AND content_hash=encode(digest(convert_to($3::jsonb::text,'UTF8'),'sha256'),'hex')) AS absent`,
+            [f.leagueSeasonId, f.mapping.revisionId, JSON.stringify(args[0].envelope.provenance)]);
+            expect(fresh.absent).toBe(true);
+            await blocker.database.query('BEGIN'); open = true;
+            if (target === 'population') await blocker.database.query('LOCK TABLE public.league_roster_population_contents IN SHARE MODE');
+            else await blocker.database.query('SELECT id FROM public.scoring_entities WHERE id=$1 FOR UPDATE', [identity]);
+            pending = administrationFor(writer.database).recordObservation(...args).then(result => ({ result }), error => ({ error }));
+            let observed: DatabaseRow | undefined;
+            for (let poll = 0; poll < 150; poll++) {
+              const [row] = await blocker.database.query(`SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_provenance_contents'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS provenance_insert,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS population_insert,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
+                  AND mode='RowExclusiveLock' AND NOT granted) AS population_wait,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.scoring_entities'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS identity_write,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_resource_acceptances'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS acceptance_insert,
+                EXISTS(SELECT 1 FROM pg_locks waiter JOIN pg_locks holder USING(transactionid)
+                  WHERE waiter.pid=$2::int AND holder.pid=$1::int AND waiter.locktype='transactionid'
+                    AND waiter.mode='ShareLock' AND NOT waiter.granted AND holder.granted) AS identity_wait`, [blockerPid.pid, writerPid.pid]);
+              lastWait = row;
+              if (row.blocked === true && row.provenance_insert === true && (target === 'population' ? row.population_wait === true
+                : row.population_insert === true && row.identity_write === true && row.acceptance_insert === true && row.identity_wait === true)) {
+                observed = row; break;
+              }
+              await delay(20);
+            }
+            expect(observed).toBeDefined();
+            await blocker.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM($1::timestamptz-clock_timestamp())))+0.025)`, [originalFence.deadlineAt]);
+            await blocker.database.query('COMMIT'); open = false;
+            const settled = await pending;
+            expect(String(settled.error)).toMatch(/fence.*(?:stale|expired)|deadline/iu);
+            expect(await b2State()).toEqual(before); verified = true;
+            console.info('CP28_B2_FENCE ' + JSON.stringify({ target, originalDeadlineAt: originalFence.deadlineAt,
+              elapsedMs: performance.now() - started, wait: target === 'population' ? 'B1 population relation lock' : 'A canonical identity transaction lock',
+              observed, freshProvenanceKeyAbsentBeforeWrite: true, provenanceInsertAttemptedBeforeWait: true,
+              uncommittedParentVisibilityNotClaimed: true, rejected: true, scopedStateRollback: true, scopedTables: before.map(row => row.name) }));
+            throw settled.error;
+            } catch (error) {
+              if (!verified) {
+                callbackError = error;
+                // Release the blocker before the intake's failure checkpoint waits on the writer's job row.
+                try { if (open) { await blocker.database.query('ROLLBACK'); open = false; } }
+                catch { throw error; }
+              }
+              throw error;
+            }
+          } }).then(() => ({ error: undefined as unknown }), error => ({ error }));
+          if (callbackError) throw callbackError;
+          expect(String(outcome.error)).toContain('B2 expected original-deadline core failure verified');
+          // The ordinary capture has now restored its fetch spy. Historical
+          // no-fetch checks must not reuse that spy's two earlier core calls.
+          await b2History(); b2.expectedFailedCores++;
+        } catch (error) {
+          if (open) { await blocker.database.query('ROLLBACK'); open = false; }
+          const settled = await pending, failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
+          const callback = callbackError as { name?: unknown; code?: unknown; message?: unknown } | undefined;
+          console.info('CP28_B2_FENCE_DIAGNOSTIC ' + JSON.stringify({ target, lastWait,
+            callbackError: callback ? { name: String(callback.name), code: String(callback.code), message: String(callback.message).slice(0,240) } : null,
+            pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null }));
+          throw error;
+        } finally {
+          try { if (open) await blocker.database.query('ROLLBACK'); }
+          finally { try { await pending; } finally { try { await writer.close(); } finally { await blocker.close(); } } }
+        }
+      }
       expect(b1.cores).toBe(12); expect(b2.successfulCores).toBe(10); expect(b2.expectedFailedCores).toBe(2);
       b2.boundaries.push(await b2Snapshot('after-security-and-witnessed-interactions')); await b2History();
     });
     await b2Verify(false); await abVerifyMode('legacy');
   }, 120_000);
-  it('B2 measures matched witnessed cores with receipt provenance sharing and bounded compression diagnostics', async () => {
+  function assertB2MeasurementWindow(environment: Record<string, string | undefined>, now: number) {
+    const startedAt = environment.CP28_LOCAL_CAMPAIGN_STARTED_AT, deadlineAt = environment.CP28_LOCAL_CAMPAIGN_DEADLINE_AT;
+    if (environment.CP28_LOCAL_CONSOLIDATED_CANDIDATE !== 'I_ACKNOWLEDGE_LOCAL_DISPOSABLE_DATABASE'
+      || !startedAt || !deadlineAt || !Number.isFinite(now)) throw new Error('Invalid candidate measurement campaign envelope.');
+    const started = Date.parse(startedAt), deadline = Date.parse(deadlineAt);
+    if (!Number.isFinite(started) || !Number.isFinite(deadline)
+      || new Date(started).toISOString() !== startedAt || new Date(deadline).toISOString() !== deadlineAt
+      || deadline - started !== 1_800_000 || started > now) throw new Error('Invalid candidate measurement campaign clock.');
+    const remainingMs = deadline - now;
+    if (remainingMs < 480_000) throw new Error('Candidate measurement requires 480000ms of the original campaign remaining.');
+    return remainingMs;
+  }
+  it('B2 measures absolute final candidate core storage and bounded compression diagnostics', async () => {
+    const checkedAt = Date.now(), remainingMs = assertB2MeasurementWindow(process.env, checkedAt);
+    console.info('CP28_B2_MEASUREMENT_WINDOW ' + JSON.stringify({ campaignStartedAt: process.env.CP28_LOCAL_CAMPAIGN_STARTED_AT,
+      campaignDeadlineAt: process.env.CP28_LOCAL_CAMPAIGN_DEADLINE_AT, checkedAt: new Date(checkedAt).toISOString(), remainingMs, minimumRemainingMs: 480_000 }));
     await b2History();
-    const measure = async (enabled: boolean) => b2Mode('AB', enabled, async () => {
-      const mode = enabled ? 'AB+B2' : 'AB', beforeWarm = await b2Snapshot(mode + '-before-warm');
+    const measure = async () => b2Mode('AB', true, async () => {
+      const mode = 'AB+B2', beforeWarm = await b2Snapshot(mode + '-before-warm');
       for (const f of b1.fixtures) await b2Core(f);
       const before = await b2Snapshot(mode + '-measured-start'), batches: { cores: number; snapshot: Awaited<ReturnType<typeof b2Snapshot>> }[] = [];
       const receipts = new Set<string>(), populations = new Set<string>(), provenances = new Set<string>(), links = new Set<string>();
@@ -2066,13 +2093,13 @@ describe.sequential('official standings and results through restricted PostgreSQ
       const after = batches.at(-1)!.snapshot;
       const rowDelta = (table: string) => after.relations.find(row => row.name === 'public.' + table)!.rows
         - before.relations.find(row => row.name === 'public.' + table)!.rows;
-      expect(receipts.size).toBe(128); expect(populations.size).toBe(32); expect(provenances.size).toBe(enabled ? 32 : 0); expect(links.size).toBe(2);
+      expect(receipts.size).toBe(128); expect(populations.size).toBe(32); expect(provenances.size).toBe(32); expect(links.size).toBe(2);
       for (const table of ['league_roster_capture_receipts', 'league_roster_resource_attempts', 'league_roster_resource_acceptances']) expect(rowDelta(table)).toBe(128);
-      expect(rowDelta('league_roster_population_contents')).toBe(32); expect(rowDelta('league_roster_provenance_contents')).toBe(enabled ? 32 : 0);
+      expect(rowDelta('league_roster_population_contents')).toBe(32); expect(rowDelta('league_roster_provenance_contents')).toBe(32);
       expect(rowDelta('league_roster_player_link_receipts')).toBe(32); expect(rowDelta('league_official_standings_captures')).toBe(32);
       for (const table of ['league_roster_player_links', 'league_roster_player_link_contents', 'league_roster_player_link_content_entries']) expect(rowDelta(table)).toBe(0);
       expect(Number(after.representations.populationSharedReceipts) - Number(before.representations.populationSharedReceipts)).toBe(96);
-      expect(Number(after.representations.provenanceSharedReceipts) - Number(before.representations.provenanceSharedReceipts)).toBe(enabled ? 96 : 0);
+      expect(Number(after.representations.provenanceSharedReceipts) - Number(before.representations.provenanceSharedReceipts)).toBe(96);
       expect(after.counters.witnessedCores - before.counters.witnessedCores).toBe(32);
       expect(after.counters.successfulWitnessedCores - before.counters.successfulWitnessedCores).toBe(32);
       expect(after.counters.resourceReservations - before.counters.resourceReservations).toBe(128);
@@ -2103,40 +2130,33 @@ describe.sequential('official standings and results through restricted PostgreSQ
       expect(compression).toHaveLength(4); await b2History();
       return { mode, beforeWarm, before, after, batches, historicalDigestChecksPassed: true, compression,
         reader: { standingsElapsedMs, linksElapsedMs, publicElapsedMs, standingsQueries: 1, linkQueries: 1,
-          publicQueries: publicRead.queries, publicResult: publicRead.result, teams: 10, held: 80 },
+          publicQueries: publicRead.queries, publicResult: publicRead.result, teams: 20, held: 160 },
         measured: { cores: 32, receipts: receipts.size, populationParents: populations.size, provenanceParents: provenances.size,
-          populationReferences: 96, provenanceReferences: enabled ? 96 : 0, reusedLinkContents: links.size } };
+          populationReferences: 96, provenanceReferences: 96, reusedLinkContents: links.size } };
     });
-    const baseline = await measure(false), candidate = await measure(true);
+    const candidate = await measure();
     await b2Verify(false); await abVerifyMode('legacy'); await b2History();
-    const affected = ['public.league_roster_capture_receipts', 'public.league_roster_provenance_contents'];
-    const delta = (phase: typeof baseline, names?: readonly string[]) => phase.after.relations.reduce((sum, row) =>
-      sum + (row.schema === 'public' && (!names || names.includes(row.name))
-        ? Number(row.total) - Number(phase.before.relations.find(old => old.name === row.name)!.total) : 0), 0);
-    console.info('CP28_B2_ALLOCATION ' + JSON.stringify({ schemaVersion: 1, kind: 'local-native-witnessed-core-provenance-b2-v1',
-      fixture: { leagues: 2, teamsPerLeague: 10, teamsTotal: 20, heldPerCore: 80, heldAcrossLeagues: 160, uniqueCatalogPlayers: 80 },
+    console.info('CP28_B2_ALLOCATION ' + JSON.stringify({ schemaVersion: 1, kind: 'local-native-cp28-candidate-capacity-v1',
+      fixture: { leagues: 2, teamsPerLeague: 20, teamsTotal: 40, heldPerCore: 160, heldAcrossLeagues: 320, uniqueCatalogPlayers: 160 },
       workload: { semanticCores: 9, interactionAttemptedCores: 3, expectedFailedCores: 2, warmCoresPerLayout: 2,
         measuredCoresPerLayout: 32, attemptsPerCore: 4, receiptsPerSuccessfulCore: 4, acceptedStandingsPerSuccessfulCore: 1,
         eligiblePopulationReceiptsPerCore: 3, eligibleProvenanceReceiptsPerCore: 3, boundaryReservationAllowance: 8 },
-      semanticBoundaries: b2.boundaries, baseline, candidate, affectedRelations: affected,
-      affectedAllocatedBytes: { baseline: delta(baseline, affected), candidate: delta(candidate, affected) },
-      allPublicAllocatedBytes: { baseline: delta(baseline), candidate: delta(candidate) },
+      semanticBoundaries: b2.boundaries, candidate,
       counters: { witnessedCores: b1.cores, successfulWitnessedCores: b2.successfulCores, expectedFailedCores: b2.expectedFailedCores,
         resourceReservations: b1.attempts, syntheticCoreHttpResponses: b1.cores * 2 },
       historicalDigestChecksPassed: true, restoredAllThreeWriters: true, externalProviderCalls: 0,
       limitations: ['synthetic prerequisites/admission/jobs; no cadence qualification',
-        'same expanded 65-migration/158-table schema in both layouts; warmed sequential allocation only',
+        '65-migration/158-table final candidate; warmed sequential allocation only, no paired savings comparison',
         'two expected failures use original witnessed core deadline; no separate lease-expiry claim',
-        'concurrency proves same-input exact replay under mapping advisory serialization, not content-key contention',
+        'concurrency proves same-input exact replay under job ownership row serialization, not content-key contention',
         'existing-row compression inspection only; no lower-target tuning experiment or causal compression claim',
-        'one local standings/link/public-reader timing per layout; no SLO',
+        'one local standings/link/public-reader timing for the candidate; no SLO',
         'proof-column datum/text diagnostics overlap whole-row tuple bytes and are not additive physical savings',
         'all-public includes synthetic controls and shared identities; classification required',
-        '10 teams/80 held per core differs from original hosted 20 teams/160 held per core',
+        '20 teams/160 held per core is one fixture geometry, not the 10000-membership bound or full fleet qualification',
         'four selected local cases only; full21-case profile remains unqualified',
         'fifteen missing-family prices and whole-horizon 10-GiB capacity remain unqualified'] }));
-    expect(b1.cores).toBe(80); expect(b2.successfulCores).toBe(78); expect(b2.expectedFailedCores).toBe(2);
-    expect(b1.attempts).toBeLessThanOrEqual(329);
-    expect(delta(candidate, affected)).toBeLessThan(delta(baseline, affected));
+    expect(b1.cores).toBe(46); expect(b2.successfulCores).toBe(44); expect(b2.expectedFailedCores).toBe(2);
+    expect(b1.attempts).toBe(187); expect(b1.attempts).toBeLessThanOrEqual(193);
   }, 300_000);
 });

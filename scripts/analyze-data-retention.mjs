@@ -803,7 +803,7 @@ function deriveNativeMeasurement(path,historical,contract){
   assert.equal(run.status,'passed');assert.deepEqual(run.summary,{success:true,total:contract.totalTests,passed:contract.passedTests,failed:0,pending:contract.pendingTests,files:1});
   assert.equal(run.selectedCases,contract.passedTests);assert.equal(run.originalCasesSelected,false);assert.equal(run.sourcesUnchanged,true);
   assert.deepEqual(run.sourceBefore,candidate.sources);assert.deepEqual(run.sourceAfter,candidate.sources);assert.deepEqual(setup.frozenSources,candidate.sources);
-  assert.equal(candidate.base,pin.base);assert.equal(candidate.sources.length,contract.sourceCount);assert.equal(helpers.sources.length,11);
+  assert.equal(candidate.base,pin.base);assert.equal(candidate.sources.length,contract.sourceCount);assert.equal(helpers.sources.length,contract.helperCount??11);
   assert.equal(run.actualReservedAttempts,contract.reservedAttempts);assert.equal(run.cloudCalls,0);assert.equal(run.hostedAttempts,0);
   assert.equal(run.externalNetworkBlockedExceptOwnedLoopback,true);assert.equal(run.inheritedEnvironmentScrubbed,true);
   assert.equal(run.host,'127.0.0.1');assert.equal(run.port,53125);assert.equal(run.database,'cp28_snapshot_test');
@@ -820,6 +820,7 @@ function deriveNativeMeasurement(path,historical,contract){
   assert.equal(cleanup.precleanupEstablishedClients,0);assert.equal(orchestration.testPassed,true);assert.equal(orchestration.cleanupPassed,true);assert.equal(orchestration.failure,null);
   const log=files['native-results.log'].toString('utf8').replace(/\x1B\[[0-?]*[ -/]*[@-~]/g,'');
   assert.match(contract.marker,/^[A-Z0-9_]+$/);const markers=[...log.matchAll(new RegExp('^'+contract.marker+' (\\{[^\\r\\n]*\\})$','gm'))];assert.equal(markers.length,1,'Missing or duplicate native allocation marker');
+  if(contract.validateWindow)contract.validateWindow(log,run);
   const allocation=contract.validateAllocation(JSON.parse(markers[0][1]),historical),results=parsed['native-results.json'];
   assert.equal(results.success,true);assert.equal(results.numPassedTests,contract.passedTests);assert.equal(results.numFailedTests,0);assert.equal(results.numPendingTests,contract.pendingTests);
   return {schemaVersion:1,kind:contract.measurementKind,qualification:'UNQUALIFIED',acceptedLocalExperiment:'PASSED',provenance:pin,
@@ -835,7 +836,7 @@ function nativeMeasuredPhase(p,inventory){const measured=abDelta(p.before,p.afte
     const incrementalBatches=p.batches.map((b,i)=>({cores:8,...abDelta(i?p.batches[i-1].snapshot:p.before,b.snapshot,inventory)}));
     return {mode:p.mode,warmup:{cores:2,delta:warm},measured:{cores:32,delta:measured},incrementalBatches,
       meanDataAllocatedBytesPerCore:measured.dataAllocatedBytes/32,meanSyntheticControlAllocatedBytesPerCore:measured.syntheticControlAllocatedBytes/32,meanAllRelationTupleBytesPerCore:measured.totals.tupleBytes/32,meanDataTupleBytesPerCore:(measured.groups['per-league'].tupleBytes+measured.groups.shared.tupleBytes)/32,meanSyntheticControlTupleBytesPerCore:measured.groups.controls.tupleBytes/32,reader:p.reader};}
-function nativeCapacityScenarios(combined,input,initialCatalogProxy,nextReduction='Review additional lossless metadata normalization (B2) or explicitly revise the capacity contract; finite local sensitivity is not a proven long-run bound.'){
+function nativeCapacityScenarios(combined,input,initialCatalogProxy,nextReduction='Review additional lossless metadata normalization (B2) or explicitly revise the capacity contract; finite local sensitivity is not a proven long-run bound.',fixture=AB_FIXTURE){
   return [5,4].map(minutes=>{
     const h=input.horizon,n=input.benchmarkUniqueLeagues,activeCoreEvents=n*h.activeDays*h.activeHoursPerDay*60/minutes,inactiveCoreEvents=n*h.inactiveDays;
     const volumes={coreEvents:activeCoreEvents+inactiveCoreEvents,earlierEvents:n*h.days*input.cadence.earlierPeriodsPerDailySweep,
@@ -845,7 +846,7 @@ function nativeCapacityScenarios(combined,input,initialCatalogProxy,nextReductio
       assumedBytes=number(sum(terms.map(t=>t.bytes??0)),'Assumed term sum'),unknown=terms.filter(t=>t.bytes===null).map(t=>t.id);
     number(pricedSubtotal+assumedBytes,'Conditional total');
     return {name:minutes===5?'five-minute-contract-benchmark-sensitivity':'four-minute-source-due-sensitivity',activeMinutes:minutes,status:'CONDITIONAL_UNQUALIFIED',cadenceObserved:false,
-      activeCoreEvents,inactiveCoreEvents,volumes,fixedLocalFixture:AB_FIXTURE,conditionalCoreDataBytes,conditionalCoreDataGiB:conditionalCoreDataBytes/GIB,
+      activeCoreEvents,inactiveCoreEvents,volumes,fixedLocalFixture:fixture,conditionalCoreDataBytes,conditionalCoreDataGiB:conditionalCoreDataBytes/GIB,
       historicalInitialCatalogProxyOnceBytes:initialCatalogProxy,pricedSubtotalBytes:pricedSubtotal,pricedSubtotalGiB:pricedSubtotal/GIB,terms,unknownTerms:unknown,
       equation:'conditional total = pricedSubtotalBytes + explicitlyAssumedBytes + U(unpriced terms)',explicitlyAssumedBytes:assumedBytes,
       numericConditionalTotalBytes:unknown.length?null:pricedSubtotal+assumedBytes,pricedAndAssumedBytes:pricedSubtotal+assumedBytes,remainingBudgetBeforeUBytes:input.budgetBytes-pricedSubtotal-assumedBytes,
@@ -942,12 +943,12 @@ function combinedMain(args){
   process.stdout.write(JSON.stringify(result,null,2)+'\n');
 }
 
-// B2a is a new source-bound lane. No accepted evidence is inferred from unit fixtures.
+// Candidate-only capacity is a new, unaccepted source-bound lane. Unit fixtures are never evidence.
 const PROVENANCE_PIN = null;
 const PROVENANCE_EXTRACTION_SHA = null;
 const PROVENANCE_DEFAULT = new URL('../docs/aggregator-backend/data-backend-cp28-provenance-measurement.json',import.meta.url);
 const PROVENANCE_COLUMNS = [...AB_COLUMNS,{name:'public.league_roster_provenance_contents',column:'provenance'}];
-const PROVENANCE_AFFECTED = ['public.league_roster_capture_receipts','public.league_roster_provenance_contents'];
+const PROVENANCE_FIXTURE = {leagues:2,teamsPerLeague:20,teamsTotal:40,heldPerCore:160,heldAcrossLeagues:320,uniqueCatalogPlayers:160};
 function provenanceInventory(historical){return new Map([...abInventory(historical),['public.league_roster_provenance_contents','per-league']]);}
 function provenanceTriggers(enabled){return enabled?[{name:'roster_metadata_intern_before_lineage',event_type:7,enabled:'O',exact_table:true,exact_function:true,unconditional_no_arguments:true}]:[];}
 function validateProvenanceSnapshot(s,inventory){
@@ -967,76 +968,79 @@ function validateProvenanceSnapshot(s,inventory){
 const PROVENANCE_WORKLOAD={semanticCores:9,interactionAttemptedCores:3,expectedFailedCores:2,warmCoresPerLayout:2,measuredCoresPerLayout:32,attemptsPerCore:4,receiptsPerSuccessfulCore:4,acceptedStandingsPerSuccessfulCore:1,eligiblePopulationReceiptsPerCore:3,eligibleProvenanceReceiptsPerCore:3,boundaryReservationAllowance:8};
 const PROVENANCE_BOUNDARIES=['empty-migrated-schema','synthetic-prerequisites','baseline-AB','candidate-legacy','candidate-A','candidate-B1','candidate-AB','cross-league-correction-return','after-security-and-witnessed-interactions'];
 const PROVENANCE_POLICIES=['sleeper-league-settings-v1','sleeper-current-players-v1','sleeper-current-team-managers-v1','sleeper-current-team-manager-evidence-v2'];
-const PROVENANCE_NATIVE_CONTRACT={pin:PROVENANCE_PIN,tableCount:158,migrationCount:65,sourceCount:null,totalTests:21,passedTests:4,pendingTests:17,reservedAttempts:null,marker:'CP28_B2_ALLOCATION',measurementKind:'cp28-source-bound-provenance-measurement',validateAllocation:validateProvenanceAllocation};
+const PROVENANCE_NATIVE_CONTRACT={pin:PROVENANCE_PIN,tableCount:158,migrationCount:65,sourceCount:null,helperCount:12,totalTests:21,passedTests:4,pendingTests:17,reservedAttempts:null,marker:'CP28_B2_ALLOCATION',measurementKind:'cp28-source-bound-candidate-capacity-measurement',validateAllocation:validateProvenanceAllocation,validateWindow:validateCandidateMeasurementWindow};
+function validateCandidateMeasurementWindow(log,run){
+  const matches=[...log.matchAll(/^CP28_B2_MEASUREMENT_WINDOW (\{[^\r\n]*\})$/gm)];
+  assert.equal(matches.length,1,'Missing or duplicate candidate measurement window');const w=JSON.parse(matches[0][1]);
+  exact(w,['campaignStartedAt','campaignDeadlineAt','checkedAt','remainingMs','minimumRemainingMs'],'candidate measurement window');
+  for(const k of ['campaignStartedAt','campaignDeadlineAt','checkedAt']){assert.ok(typeof w[k]==='string'&&Number.isFinite(Date.parse(w[k])),'Invalid measurement window timestamp');assert.equal(new Date(w[k]).toISOString(),w[k],'Measurement timestamps must be canonical ISO');}
+  const started=Date.parse(w.campaignStartedAt),deadline=Date.parse(w.campaignDeadlineAt),checked=Date.parse(w.checkedAt);
+  assert.equal(w.campaignStartedAt,run.campaign.startedAt,'Measurement campaign start mismatch');assert.equal(run.campaign.maximumMs,1800000);
+  assert.equal(deadline-started,1800000,'Measurement campaign deadline was extended');assert.ok(checked>=started&&checked>=Date.parse(run.startedAt)&&checked<=Date.parse(run.finishedAt),'Measurement check outside original run');
+  assert.equal(w.minimumRemainingMs,480000);assert.equal(w.remainingMs,deadline-checked,'Measurement remaining time mismatch');number(w.remainingMs,'Measurement remaining milliseconds',{integer:true,min:480000,max:1800000});return w;
+}
 function validateProvenanceAllocation(a,historical){
-  exact(a,['schemaVersion','kind','fixture','workload','semanticBoundaries','baseline','candidate','affectedRelations','affectedAllocatedBytes','allPublicAllocatedBytes','counters','historicalDigestChecksPassed','restoredAllThreeWriters','externalProviderCalls','limitations'],'provenance allocation');
-  assert.equal(a.schemaVersion,1);assert.equal(a.kind,'local-native-witnessed-core-provenance-b2-v1');assert.deepEqual(a.fixture,AB_FIXTURE);assert.deepEqual(a.workload,PROVENANCE_WORKLOAD);assert.deepEqual(a.affectedRelations,PROVENANCE_AFFECTED);
+  exact(a,['schemaVersion','kind','fixture','workload','semanticBoundaries','candidate','counters','historicalDigestChecksPassed','restoredAllThreeWriters','externalProviderCalls','limitations'],'candidate capacity allocation');
+  assert.equal(a.schemaVersion,1);assert.equal(a.kind,'local-native-cp28-candidate-capacity-v1');assert.deepEqual(a.fixture,PROVENANCE_FIXTURE);assert.deepEqual(a.workload,PROVENANCE_WORKLOAD);
   assert.equal(a.historicalDigestChecksPassed,true);assert.equal(a.restoredAllThreeWriters,true);assert.equal(a.externalProviderCalls,0);assert.ok(Array.isArray(a.limitations)&&a.limitations.length>=10);
-  exact(a.counters,['witnessedCores','successfulWitnessedCores','expectedFailedCores','resourceReservations','syntheticCoreHttpResponses'],'provenance terminal counters');
-  assert.deepEqual([a.counters.witnessedCores,a.counters.successfulWitnessedCores,a.counters.expectedFailedCores,a.counters.syntheticCoreHttpResponses],[80,78,2,160]);number(a.counters.resourceReservations,'total reservations',{integer:true,min:321,max:329});
+  exact(a.counters,['witnessedCores','successfulWitnessedCores','expectedFailedCores','resourceReservations','syntheticCoreHttpResponses'],'candidate terminal counters');
+  assert.deepEqual(a.counters,{witnessedCores:46,successfulWitnessedCores:44,expectedFailedCores:2,resourceReservations:187,syntheticCoreHttpResponses:92},'Candidate-only terminal counters mismatch');
   assert.deepEqual(a.semanticBoundaries.map(x=>x.boundary),PROVENANCE_BOUNDARIES,'Provenance semantic boundary inventory mismatch');
   assert.deepEqual(a.semanticBoundaries.map(x=>x.mode),['AB','AB','AB','AB+B2','AB+B2','AB+B2','AB+B2','AB+B2','AB+B2']);
   assert.deepEqual(a.semanticBoundaries.map(x=>x.writerMode),['legacy','legacy','AB','legacy','A','B1','AB','AB','AB']);
   assert.deepEqual(a.semanticBoundaries.map(x=>x.counters.witnessedCores),[0,0,2,3,4,5,6,9,12],'Semantic attempted core counts mismatch');
   assert.deepEqual(a.semanticBoundaries.map(x=>x.counters.successfulWitnessedCores),[0,0,2,3,4,5,6,9,10],'Semantic successful core counts mismatch');
-  assert.deepEqual(a.baseline.beforeWarm.counters,a.semanticBoundaries.at(-1).counters,'Semantic/baseline counter continuity mismatch');
-  assert.deepEqual(a.candidate.beforeWarm.counters,a.baseline.after.counters,'Baseline/candidate counter continuity mismatch');
-  const inventory=provenanceInventory(historical),snapshots=[...a.semanticBoundaries];
-  for(const [key,mode,enabled] of [['baseline','AB',false],['candidate','AB+B2',true]]){
-    const p=a[key];exact(p,['mode','beforeWarm','before','after','batches','historicalDigestChecksPassed','compression','reader','measured'],'provenance measured phase');
-    assert.equal(p.mode,mode);assert.equal(p.historicalDigestChecksPassed,true);assert.deepEqual(p.batches.map(b=>b.cores),[8,16,24,32]);assert.deepEqual(p.after,p.batches[3].snapshot,'Final boundary alias mismatch');
-    assert.deepEqual(p.measured,{cores:32,receipts:128,populationParents:32,provenanceParents:enabled?32:0,populationReferences:96,provenanceReferences:enabled?96:0,reusedLinkContents:2});
-    const chain=[p.beforeWarm,p.before,...p.batches.map(b=>b.snapshot)];snapshots.push(...chain);
-    assert.deepEqual(chain.map(x=>x.boundary),[mode+'-before-warm',mode+'-measured-start',...[8,16,24,32].map(n=>mode+'-measured-'+n)]);assert.ok(chain.every(x=>x.mode===mode&&x.writerMode==='AB'));
-    for(let i=1;i<chain.length;i++){const cores=i===1?2:8;for(const k of ['witnessedCores','successfulWitnessedCores'])assert.equal(chain[i].counters[k]-chain[i-1].counters[k],cores,'Measured successful core multiplicity mismatch');assert.equal(chain[i].counters.resourceReservations-chain[i-1].counters.resourceReservations,cores*4,'Measured reservation multiplicity mismatch');}
-    exact(p.reader,['standingsElapsedMs','linksElapsedMs','publicElapsedMs','standingsQueries','linkQueries','publicQueries','publicResult','teams','held'],'provenance reader evidence');
-    for(const k of ['standingsElapsedMs','linksElapsedMs','publicElapsedMs'])number(p.reader[k],k);
-    assert.deepEqual([p.reader.standingsQueries,p.reader.linkQueries,p.reader.publicQueries,p.reader.teams,p.reader.held],[1,1,2,10,80]);
-    assert.equal(p.reader.publicResult.captureBinding,'intake-dispatch');assert.equal(p.reader.publicResult.resource.status,'available');assert.equal(p.reader.publicResult.resource.teams.length,10);assert.ok(p.reader.publicResult.acquisition);
-    assert.equal(p.compression.length,4);assert.deepEqual(p.compression.map(c=>c.policy),PROVENANCE_POLICIES);
-    for(let i=0;i<p.compression.length;i++){const c=p.compression[i];exact(c,['policy','provenance_storage_format','receipt_tuple_bytes','logical_provenance_bytes','inline_provenance_bytes','provenance_compression','attempt_tuple_bytes','mapping_bytes','mapping_compression','fence_bytes','fence_compression'],'existing-row compression diagnostic');
-      assert.equal(c.provenance_storage_format,enabled&&i?'shared-v1':'inline-v1');for(const k of ['receipt_tuple_bytes','logical_provenance_bytes','attempt_tuple_bytes','mapping_bytes','fence_bytes'])number(c[k],k,{integer:true,min:1,max:1048576});
-      if(enabled&&i){assert.equal(c.inline_provenance_bytes,null);assert.equal(c.provenance_compression,null);}else number(c.inline_provenance_bytes,'inline provenance bytes',{integer:true,min:1,max:1048576});
-      for(const k of ['provenance_compression','mapping_compression','fence_compression'])assert.ok([null,'pglz','lz4'].includes(c[k]));
-    }
+  assert.deepEqual(a.candidate.beforeWarm.counters,a.semanticBoundaries.at(-1).counters,'Semantic/candidate counter continuity mismatch');
+  const inventory=provenanceInventory(historical),p=a.candidate,mode='AB+B2';
+  exact(p,['mode','beforeWarm','before','after','batches','historicalDigestChecksPassed','compression','reader','measured'],'candidate measured phase');
+  assert.equal(p.mode,mode);assert.equal(p.historicalDigestChecksPassed,true);assert.deepEqual(p.batches.map(b=>b.cores),[8,16,24,32]);assert.deepEqual(p.after,p.batches[3].snapshot,'Final boundary alias mismatch');
+  assert.deepEqual(p.measured,{cores:32,receipts:128,populationParents:32,provenanceParents:32,populationReferences:96,provenanceReferences:96,reusedLinkContents:2});
+  const chain=[p.beforeWarm,p.before,...p.batches.map(b=>b.snapshot)],snapshots=[...a.semanticBoundaries,...chain];
+  assert.equal(snapshots.length,15);assert.equal(new Set(snapshots.map(x=>x.boundary)).size,15,'Candidate snapshot boundaries must be unique');
+  assert.deepEqual(chain.map(x=>x.boundary),[mode+'-before-warm',mode+'-measured-start',...[8,16,24,32].map(n=>mode+'-measured-'+n)]);assert.ok(chain.every(x=>x.mode===mode&&x.writerMode==='AB'));
+  for(let i=1;i<chain.length;i++){const cores=i===1?2:8;for(const k of ['witnessedCores','successfulWitnessedCores'])assert.equal(chain[i].counters[k]-chain[i-1].counters[k],cores,'Measured successful core multiplicity mismatch');assert.equal(chain[i].counters.resourceReservations-chain[i-1].counters.resourceReservations,cores*4,'Measured reservation multiplicity mismatch');}
+  exact(p.reader,['standingsElapsedMs','linksElapsedMs','publicElapsedMs','standingsQueries','linkQueries','publicQueries','publicResult','teams','held'],'provenance reader evidence');
+  for(const k of ['standingsElapsedMs','linksElapsedMs','publicElapsedMs'])number(p.reader[k],k);
+  assert.deepEqual([p.reader.standingsQueries,p.reader.linkQueries,p.reader.publicQueries,p.reader.teams,p.reader.held],[1,1,2,20,160]);
+  assert.equal(p.reader.publicResult.captureBinding,'intake-dispatch');assert.equal(p.reader.publicResult.resource.status,'available');assert.equal(p.reader.publicResult.resource.teams.length,20);assert.ok(p.reader.publicResult.acquisition);
+  assert.equal(p.compression.length,4);assert.deepEqual(p.compression.map(c=>c.policy),PROVENANCE_POLICIES);
+  for(let i=0;i<p.compression.length;i++){const c=p.compression[i];exact(c,['policy','provenance_storage_format','receipt_tuple_bytes','logical_provenance_bytes','inline_provenance_bytes','provenance_compression','attempt_tuple_bytes','mapping_bytes','mapping_compression','fence_bytes','fence_compression'],'existing-row compression diagnostic');
+    assert.equal(c.provenance_storage_format,i?'shared-v1':'inline-v1');for(const k of ['receipt_tuple_bytes','logical_provenance_bytes','attempt_tuple_bytes','mapping_bytes','fence_bytes'])number(c[k],k,{integer:true,min:1,max:1048576});
+    if(i){assert.equal(c.inline_provenance_bytes,null);assert.equal(c.provenance_compression,null);}else number(c.inline_provenance_bytes,'inline provenance bytes',{integer:true,min:1,max:1048576});
+    for(const k of ['provenance_compression','mapping_compression','fence_compression'])assert.ok([null,'pglz','lz4'].includes(c[k]));
   }
   snapshots.forEach(x=>validateProvenanceSnapshot(x,inventory));const first=snapshots[0];assert.equal(sum(first.relations.map(r=>r.rows)),66,'Migrated baseline requires65 ledger rows and singleton');
-  for(const s of snapshots){
-    assert.deepEqual(s.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),first.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),'Auth baseline changed');
-    for(const r of s.relations.filter(r=>inventory.get(r.name)==='non-data')){const before=first.relations.find(x=>x.name===r.name);assert.deepEqual([r.rows,r.tupleBytes],[before.rows,before.tupleBytes],'Non-DATA logical baseline changed');}
+  for(let i=1;i<snapshots.length;i++)assert.ok(snapshots[i].counters.resourceReservations>=snapshots[i-1].counters.resourceReservations,'Reservation counters must never reset');
+  for(const snapshot of snapshots){
+    assert.deepEqual(snapshot.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),first.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),'Auth baseline changed');
+    for(const r of snapshot.relations.filter(r=>inventory.get(r.name)==='non-data')){const before=first.relations.find(x=>x.name===r.name);assert.deepEqual([r.rows,r.tupleBytes],[before.rows,before.tupleBytes],'Non-DATA logical baseline changed');}
   }
-  for(const key of ['baseline','candidate']){
-    const p=a[key],enabled=key==='candidate',d=abDelta(p.before,p.after,inventory),rows=t=>d.relations.find(r=>r.name==='public.'+t).rows;
-    for(const t of ['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'])assert.equal(rows(t),128,'Fresh typed multiplicity mismatch');
-    assert.equal(rows('league_roster_population_contents'),32);assert.equal(rows('league_roster_provenance_contents'),enabled?32:0);
-    for(const t of ['league_roster_player_link_receipts','league_official_standings_captures'])assert.equal(rows(t),32);
-    for(const t of ['league_roster_player_links','league_roster_player_link_contents','league_roster_player_link_content_entries'])assert.equal(rows(t),0,'Warmed link reuse mismatch');
-    assert.equal(p.after.representations.populationSharedReceipts-p.before.representations.populationSharedReceipts,96,'Population reference multiplicity mismatch');
-    assert.equal(p.after.representations.provenanceSharedReceipts-p.before.representations.provenanceSharedReceipts,enabled?96:0,'Provenance reference multiplicity mismatch');
-    assert.equal(a.affectedAllocatedBytes[key],sum(d.relations.filter(r=>PROVENANCE_AFFECTED.includes(r.name)).map(r=>r.total)),'Affected allocation mismatch');
-    assert.equal(a.allPublicAllocatedBytes[key],sum(d.relations.filter(r=>r.name.startsWith('public.')).map(r=>r.total)),'All-public allocation mismatch');
-  }
-  assert.ok(a.affectedAllocatedBytes.candidate<a.affectedAllocatedBytes.baseline,'Passing native experiment requires observed affected reduction');
-  assert.deepEqual(a.candidate.after.counters,{witnessedCores:80,resourceReservations:a.counters.resourceReservations,syntheticCoreHttpResponses:160,successfulWitnessedCores:78});return a;
+  const d=abDelta(p.before,p.after,inventory),rows=t=>d.relations.find(r=>r.name==='public.'+t).rows;
+  for(const t of ['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'])assert.equal(rows(t),128,'Fresh typed multiplicity mismatch');
+  assert.equal(rows('league_roster_population_contents'),32);assert.equal(rows('league_roster_provenance_contents'),32);
+  for(const t of ['league_roster_player_link_receipts','league_official_standings_captures'])assert.equal(rows(t),32);
+  for(const t of ['league_roster_player_links','league_roster_player_link_contents','league_roster_player_link_content_entries'])assert.equal(rows(t),0,'Warmed link reuse mismatch');
+  assert.equal(p.after.representations.populationSharedReceipts-p.before.representations.populationSharedReceipts,96,'Population reference multiplicity mismatch');
+  assert.equal(p.after.representations.provenanceSharedReceipts-p.before.representations.provenanceSharedReceipts,96,'Provenance reference multiplicity mismatch');
+  assert.deepEqual(p.after.counters,{witnessedCores:46,resourceReservations:a.counters.resourceReservations,syntheticCoreHttpResponses:92,successfulWitnessedCores:44});return a;
 }
 function deriveProvenance(path,historical){return deriveNativeMeasurement(path,historical,PROVENANCE_NATIVE_CONTRACT);}
 function validateProvenance(m,historical,pinned=true){
   assert.ok(PROVENANCE_PIN,'No accepted provenance evidence');exact(m,['schemaVersion','kind','qualification','acceptedLocalExperiment','provenance','executedOverlay','helperSources','terminal','allocation'],'provenance measurement');
-  assert.equal(m.schemaVersion,1);assert.equal(m.kind,'cp28-source-bound-provenance-measurement');assert.equal(m.qualification,'UNQUALIFIED');assert.equal(m.acceptedLocalExperiment,'PASSED');assert.deepEqual(m.provenance,PROVENANCE_PIN);
+  assert.equal(m.schemaVersion,1);assert.equal(m.kind,'cp28-source-bound-candidate-capacity-measurement');assert.equal(m.qualification,'UNQUALIFIED');assert.equal(m.acceptedLocalExperiment,'PASSED');assert.deepEqual(m.provenance,PROVENANCE_PIN);
   validateProvenanceAllocation(m.allocation,historical);assert.equal(m.terminal.actualReservedAttempts,m.allocation.counters.resourceReservations);
   if(pinned)assert.equal(sha(JSON.stringify(m)),PROVENANCE_EXTRACTION_SHA,'Pinned provenance extraction mismatch');return m;
 }
 function provenanceForecast(m,input,historical,originalVerified){
-  const a=m.allocation,inventory=provenanceInventory(historical),baseline=nativeMeasuredPhase(a.baseline,inventory),candidate=nativeMeasuredPhase(a.candidate,inventory),catalog=historical.deltas[0].groups.shared.allocatedBytes;assert.equal(catalog,31285248);
-  const scenarios=nativeCapacityScenarios(candidate,input,catalog,'Review further lossless representation changes or explicitly revise the capacity contract; this finite local sensitivity does not prove a long-run bound.');
-  const d=candidate.measured.delta,affected=a.affectedAllocatedBytes.baseline-a.affectedAllocatedBytes.candidate,allPublic=a.allPublicAllocatedBytes.baseline-a.allPublicAllocatedBytes.candidate;
-  return {schemaVersion:1,kind:'cp28-provenance-all-family-conditional-forecast',qualification:'UNQUALIFIED',inventoryComplete:true,ratesComplete:input.terms.every(t=>t.rate.bytesPerEvent!==null),capacityQualified:false,
+  const a=m.allocation,inventory=provenanceInventory(historical),candidate=nativeMeasuredPhase(a.candidate,inventory),catalog=historical.deltas[0].groups.shared.allocatedBytes;assert.equal(catalog,31285248);
+  const scenarios=nativeCapacityScenarios(candidate,input,catalog,'Review further lossless representation changes or explicitly revise the capacity contract; this finite local sensitivity does not prove a long-run bound.',PROVENANCE_FIXTURE);
+  const d=candidate.measured.delta;
+  return {schemaVersion:1,kind:'cp28-candidate-capacity-all-family-conditional-forecast',qualification:'UNQUALIFIED',inventoryComplete:true,ratesComplete:input.terms.every(t=>t.rate.bytesPerEvent!==null),capacityQualified:false,
     originalEvidenceVerification:originalVerified?'ACCEPTED_LOCAL_ORIGINAL_BYTES_AND_EXTRACTION_VERIFIED':'PINNED_EXTRACTION_VALIDATED_ORIGINAL_NOT_REVERIFIED',
     provenance:{measurement:m.provenance,extractionSha256:PROVENANCE_EXTRACTION_SHA,capacityInputsCanonicalSha256:sha(JSON.stringify(input)),historicalCatalog:{...MEASUREMENT_PIN,extractionSha256:MEASUREMENT_SHA,phase:'S0-empty to S1-catalog',sharedDeltaBytes:catalog}},
     budgetBytes:input.budgetBytes,horizon:input.horizon,fixture:a.fixture,officialFamilies:input.officialFamilies,workloadCoverage:input.workloads,
-    observed:{uniqueSnapshots:21,relationObservations:21*158,semanticAndStartupBoundaries:a.semanticBoundaries.map((s,i)=>({boundary:s.boundary,mode:s.mode,writerMode:s.writerMode,counters:s.counters,deltaFromPrevious:i?abDelta(a.semanticBoundaries[i-1],s,inventory):null})),baseline,candidate,
-      affectedAllocationDifferenceBytes:affected,allPublicAllocationDifferenceBytes:allPublic,otherAllocationDifferenceBytes:allPublic-affected,counters:a.counters,terminal:m.terminal,
-      representationMultiplicities:{baseline:a.baseline.measured,candidate:a.candidate.measured},existingRowCompressionDiagnostics:{baseline:a.baseline.compression,candidate:a.candidate.compression,interpretation:'Retained-row inspection only; no compression-target tuning, rewrite or causal compression-savings experiment. Composite/column datum sizes are nonadditive diagnostics.'}},scenarios,
+    observed:{uniqueSnapshots:15,relationObservations:15*158,semanticAndStartupBoundaries:a.semanticBoundaries.map((s,i)=>({boundary:s.boundary,mode:s.mode,writerMode:s.writerMode,counters:s.counters,deltaFromPrevious:i?abDelta(a.semanticBoundaries[i-1],s,inventory):null})),candidate,counters:a.counters,terminal:m.terminal,
+      representationMultiplicities:{candidate:a.candidate.measured},existingRowCompressionDiagnostics:{candidate:a.candidate.compression,interpretation:'Retained-row inspection only; no compression-target tuning, rewrite or causal compression-savings experiment. Composite/column datum sizes are nonadditive diagnostics.'}},scenarios,
     residualMetadataAttribution:{status:'OBSERVED_FINITE_PHASE_ATTRIBUTION_NOT_FUTURE_SAVINGS',fixtureSpecificSharedAccountGrowth:d.relations.find(r=>r.name==='public.league_source_manager_accounts'),relationDeltasDescendingAllocation:[...d.relations].sort((x,y)=>y.total-x.total||x.name.localeCompare(y.name)),nonadditiveColumnDiagnostics:d.nonadditiveColumnDiagnostics,
       instruction:'Columns overlap tuples; tuples are pg_column_size(row), not allocation. Neither is additive to heap/index/TOAST totals. All attempts retain full source mappings/fences. Additional factoring savings are unmeasured.'},
     operationalMultiplicity:{core:'4 fresh typed receipts per successful core;3 B1 references/1 population parent;3 B2 references/1 full-provenance parent in the candidate. The complete candidate DATA mean replaces the earlier AB rate.',
@@ -1044,18 +1048,18 @@ function provenanceForecast(m,input,historical,originalVerified){
       drafts:'For D source-exposed drafts,2+3D typed captures per complete cycle plus selection links per applicable acceptance; D and pick counts remain unpriced source inventory.',
       historyControls:'Period/history/checkpoint and ordinary controls/failures remain U; synthetic prerequisites cannot price ordinary operations.',rosterEpochs:'Mapping/directory/resolver epochs and corrections can require new content; warmed unchanged reuse does not price those events.'},
     limitations:[
-      'Local successful B2 experiment is separate from CP28 capacity qualification, all-family rates, full-profile qualification and release activation.',
-      'One10-team/80-held local core cannot be scaled as the hosted20-team/160-held fixture; benchmarkGeometryAdjustment remains U.',
-      'Four8-core measured batches after2 warm cores/layout are finite ordered page/index/TOAST allocations, not stationary slopes, causal allocation guarantees, confidence intervals or lower bounds.',
-      'Candidate whole-core DATA replaces earlier whole-core/raw/proof/link/standings rates. No independent A/B1/B2 savings are added or subtracted. Outside the two affected tables, allocation differences are not solely attributed to B2.',
+      'A successful local candidate-only experiment is separate from CP28 capacity qualification, all-family rates, full-profile qualification and release activation. No matched baseline or savings percentage is measured.',
+      'Each local core represents 20 teams/160 held players; two leagues contain 40 teams/320 held players and 160 shared catalog identities. 160 held is a declared fixture, not a maximum for every supported 20-team league; benchmarkGeometryAdjustment remains U for other held/category/payload distributions.',
+      'Four 8-core measured candidate batches after 2 warm cores are finite ordered page/index/TOAST allocations, not stationary slopes, causal allocation guarantees, confidence intervals or lower bounds.',
+      'Candidate whole-core DATA replaces earlier whole-core/raw/proof/link/standings rates. No independent A/B1/B2 savings or historical baseline differences are added or subtracted.',
       'All15 original unpriced terms remain explicit; core correction/epoch premiums, noncore family costs, startup, ordinary failures and maintenance are not assumed zero.',
       'Fresh synthetic manager accounts remain in measured shared DATA. Zero allocated-page delta is free-page use, not zero tuple cost or projected savings.',
       'Historical full-catalog first-load allocation is a once-per-fleet startup proxy. Local catalog, warmup and semantic setup are not also charged; other startup remains U.',
       'Five-minute and four-minute schedules are conditional sensitivities, not observed cadence. Bundled settings receive no daily cadence credit.',
       'Synthetic control sensitivity is separate and cannot replace or be added to ordinary control/failure pricing.',
-      '80 attempted witnessed cores include two expected failures;78 succeeded. Measured32+32 and warm2+2 cores all succeeded; failed probes are outside measured phase denominators.',
+      '46 attempted witnessed cores include two expected failures; 44 succeeded. The measured 32 and warm 2 candidate cores all succeeded; failed probes are outside the measured denominator. 187 actual reservations fit the 193 declared workload ceiling; unused 353-run capacity is not authority for unspecified family work.',
       'All original JSON, observation-specific clocks, receipt/attempt IDs, witnesses, mapping/fence and retained history remain required. B2 parents share only exact within-capture roster provenance; settings and other families stay inline.',
-      'Existing-row compression inspection and one local reader timing/layout prove neither a TOAST tuning benefit nor a latency SLO. No storage target changed.',
+      'Existing-row compression inspection and one local candidate reader timing prove neither a TOAST tuning benefit nor a latency SLO. No storage target changed.',
       'Retention through March31,2028,CP29 restore proof, WAL/backups/billing, long-run maintenance and production geometry remain separate. No provider/hosted/publication/deployment action is authorized by this report.'
     ]};
 }
@@ -1085,6 +1089,13 @@ function provenanceUnitTests(historical,input){
   test(()=>assert.equal(scenarios[0].separateSyntheticControlSensitivity.bytes,591728*678));
   test(()=>assert.ok(scenarios.every(x=>x.unknownTerms.length===15&&x.numericConditionalTotalBytes===null&&!x.capacityQualified)));
   test(()=>assert.ok(scenarios.every(x=>!x.cadenceObserved&&!x.ratesComplete&&x.inventoryComplete)));
+  const window={campaignStartedAt:'2026-10-20T00:00:00.000Z',campaignDeadlineAt:'2026-10-20T00:30:00.000Z',checkedAt:'2026-10-20T00:22:00.000Z',remainingMs:480000,minimumRemainingMs:480000};
+  const run={startedAt:'2026-10-20T00:01:00.000Z',finishedAt:'2026-10-20T00:29:00.000Z',campaign:{startedAt:window.campaignStartedAt,maximumMs:1800000}},line=w=>'CP28_B2_MEASUREMENT_WINDOW '+JSON.stringify(w)+'\n';
+  test(()=>assert.deepEqual(validateCandidateMeasurementWindow(line(window),run),window));
+  for(const mutate of [w=>{w.checkedAt='2026-10-20T00:22:00.001Z';w.remainingMs=479999;},w=>{w.campaignStartedAt='2026-10-20T00:01:00.000Z';},
+    w=>{w.campaignDeadlineAt='2026-10-20T00:31:00.000Z';w.remainingMs=540000;},w=>{w.checkedAt='2026-10-20T00:22:00Z';},w=>{w.remainingMs++;},w=>{w.minimumRemainingMs=479999;},
+    w=>{w.checkedAt='2026-10-19T23:59:00.000Z';w.remainingMs=1860000;}])test(()=>{const bad=structuredClone(window);mutate(bad);assert.throws(()=>validateCandidateMeasurementWindow(line(bad),run));});
+  test(()=>assert.throws(()=>validateCandidateMeasurementWindow('',run)));test(()=>assert.throws(()=>validateCandidateMeasurementWindow(line(window)+line(window),run)));
   return passed;
 }
 
@@ -1101,31 +1112,35 @@ function provenanceUnitAllocation(historical){
     const receiptBytes=(successful-shared)*8192+shared*4096;row('league_roster_capture_receipts').heap=String(receiptBytes);row('league_roster_capture_receipts').total=String(receiptBytes);
     row('league_roster_provenance_contents').heap=String(shared*1024);row('league_roster_provenance_contents').total=String(shared*1024);return x;
   };
-  const semanticBoundaries=PROVENANCE_BOUNDARIES.map((boundary,i)=>{attempted=[0,0,2,3,4,5,6,9,12][i];successful=[0,0,2,3,4,5,6,9,10][i];reservations=i?attempted*4+(i===8?7:1):0;return snapshot(boundary,['legacy','legacy','AB','legacy','A','B1','AB','AB','AB'][i],i>=3);});
+  const semanticBoundaries=PROVENANCE_BOUNDARIES.map((boundary,i)=>{attempted=[0,0,2,3,4,5,6,9,12][i];successful=[0,0,2,3,4,5,6,9,10][i];reservations=i?attempted*4+(i===8?3:1):0;return snapshot(boundary,['legacy','legacy','AB','legacy','A','B1','AB','AB','AB'][i],i>=3);});
   const phase=enabled=>{const mode=enabled?'AB+B2':'AB',beforeWarm=snapshot(mode+'-before-warm','AB',enabled);const advance=cores=>{attempted+=cores;successful+=cores;reservations+=4*cores;if(enabled)shared+=cores;};advance(2);const before=snapshot(mode+'-measured-start','AB',enabled),batches=[];
     for(const cores of [8,16,24,32]){advance(8);batches.push({cores,snapshot:snapshot(mode+'-measured-'+cores,'AB',enabled)});}
     return {mode,beforeWarm,before,after:structuredClone(batches[3].snapshot),batches,historicalDigestChecksPassed:true,
       compression:PROVENANCE_POLICIES.map((policy,i)=>({policy,provenance_storage_format:enabled&&i?'shared-v1':'inline-v1',receipt_tuple_bytes:200,logical_provenance_bytes:100,inline_provenance_bytes:enabled&&i?null:100,provenance_compression:null,attempt_tuple_bytes:150,mapping_bytes:50,mapping_compression:null,fence_bytes:30,fence_compression:null})),
-      reader:{standingsElapsedMs:1,linksElapsedMs:1,publicElapsedMs:2,standingsQueries:1,linkQueries:1,publicQueries:2,publicResult:{captureBinding:'intake-dispatch',resource:{status:'available',teams:Array.from({length:10},()=>({}))},acquisition:{testOnly:true}},teams:10,held:80},
+      reader:{standingsElapsedMs:1,linksElapsedMs:1,publicElapsedMs:2,standingsQueries:1,linkQueries:1,publicQueries:2,publicResult:{captureBinding:'intake-dispatch',resource:{status:'available',teams:Array.from({length:20},()=>({}))},acquisition:{testOnly:true}},teams:20,held:160},
       measured:{cores:32,receipts:128,populationParents:32,provenanceParents:enabled?32:0,populationReferences:96,provenanceReferences:enabled?96:0,reusedLinkContents:2}};
   };
-  const baseline=phase(false),candidate=phase(true),inventory=provenanceInventory(historical),bytes=p=>abDelta(p.before,p.after,inventory).dataAllocatedBytes;
-  return {schemaVersion:1,kind:'local-native-witnessed-core-provenance-b2-v1',fixture:AB_FIXTURE,workload:PROVENANCE_WORKLOAD,semanticBoundaries,baseline,candidate,affectedRelations:PROVENANCE_AFFECTED,
-    affectedAllocatedBytes:{baseline:bytes(baseline),candidate:bytes(candidate)},allPublicAllocatedBytes:{baseline:bytes(baseline),candidate:bytes(candidate)},counters:{witnessedCores:80,successfulWitnessedCores:78,expectedFailedCores:2,resourceReservations:327,syntheticCoreHttpResponses:160},historicalDigestChecksPassed:true,restoredAllThreeWriters:true,externalProviderCalls:0,limitations:Array.from({length:10},()=> 'UNIT_TEST_ONLY_NOT_OBSERVED')};
+  const candidate=phase(true);
+  return {schemaVersion:1,kind:'local-native-cp28-candidate-capacity-v1',fixture:PROVENANCE_FIXTURE,workload:PROVENANCE_WORKLOAD,semanticBoundaries,candidate,counters:{witnessedCores:46,successfulWitnessedCores:44,expectedFailedCores:2,resourceReservations:187,syntheticCoreHttpResponses:92},historicalDigestChecksPassed:true,restoredAllThreeWriters:true,externalProviderCalls:0,limitations:Array.from({length:10},()=> 'UNIT_TEST_ONLY_NOT_OBSERVED')};
 }
 function provenanceAllocationTests(a,historical,input){
   let passed=0;const test=f=>{f();passed++;};test(()=>validateProvenanceAllocation(a,historical));
-  for(const mutate of [x=>x.semanticBoundaries.pop(),x=>{x.workload.receiptsPerSuccessfulCore=3;},x=>{x.counters.successfulWitnessedCores=80;},x=>{x.counters.resourceReservations=330;},
+  for(const mutate of [x=>x.semanticBoundaries.pop(),x=>{x.workload.receiptsPerSuccessfulCore=3;},x=>{x.counters.successfulWitnessedCores=46;},x=>{x.counters.resourceReservations=194;},
     x=>{x.restoredAllThreeWriters=false;},x=>{x.externalProviderCalls=1;},x=>{x.historicalDigestChecksPassed=false;},
     x=>{x.semanticBoundaries[2].counters.successfulWitnessedCores--;},x=>{x.semanticBoundaries.at(-1).counters.resourceReservations++;},
-    x=>{for(const q of [x.baseline.beforeWarm,x.baseline.before,...x.baseline.batches.map(b=>b.snapshot)]){q.counters.witnessedCores++;q.counters.successfulWitnessedCores++;q.counters.syntheticCoreHttpResponses+=2;}x.baseline.after=structuredClone(x.baseline.batches[3].snapshot);},
-    x=>{x.candidate.measured.provenanceParents=31;},x=>{x.baseline.measured.provenanceReferences=96;},x=>{x.candidate.after=x.candidate.before;},
+    x=>{for(const q of [x.candidate.beforeWarm,x.candidate.before,...x.candidate.batches.map(b=>b.snapshot)]){q.counters.witnessedCores++;q.counters.successfulWitnessedCores++;q.counters.syntheticCoreHttpResponses+=2;}x.candidate.after=structuredClone(x.candidate.batches[3].snapshot);},
+    x=>{x.candidate.measured.provenanceParents=31;},x=>{x.candidate.measured.provenanceReferences=95;},x=>{x.candidate.after=x.candidate.before;},
     x=>{x.candidate.batches[0].snapshot.counters.successfulWitnessedCores--;},x=>{x.candidate.batches[0].snapshot.counters.resourceReservations++;},
     x=>{x.candidate.reader.publicQueries=1;},x=>{x.candidate.reader.publicResult.resource.status='unavailable';},
     x=>{x.candidate.compression[1].provenance_storage_format='inline-v1';},x=>{x.candidate.compression[1].provenance_compression='pglz';},
-    x=>{x.affectedAllocatedBytes.candidate++;},x=>{x.allPublicAllocatedBytes.baseline++;},
+    x=>{x.baseline=structuredClone(x.candidate);},x=>{x.affectedAllocatedBytes={baseline:100,candidate:50};},
+    x=>{x.allPublicAllocatedBytes={baseline:100,candidate:50};},x=>{x.affectedRelations=[];},
+    x=>{x.kind='local-native-witnessed-core-provenance-b2-v1';},x=>{x.fixture=structuredClone(AB_FIXTURE);},
+    x=>{x.fixture.heldAcrossLeagues=160;},x=>{x.fixture.teamsTotal=20;},x=>{x.fixture.uniqueCatalogPlayers=320;},
+    x=>{x.candidate.reader.teams=10;},x=>{x.candidate.reader.held=80;},x=>{x.candidate.reader.publicResult.resource.teams.pop();},
+    x=>{x.counters.witnessedCores=80;},x=>{x.counters.syntheticCoreHttpResponses=160;},x=>{x.counters.expectedFailedCores=0;},x=>{x.counters.resourceReservations=186;},
     x=>{x.candidate.before.representations.provenanceSharedReceipts++;},x=>{x.candidate.before.relations.find(r=>r.name==='public.league_roster_provenance_contents').rows++;},
-    x=>{x.candidate.before.relations.find(r=>r.schema==='website_auth').rows++;},x=>{x.baseline.before.relations.find(r=>r.name==='public.app_schema_migrations').tupleBytes='1';},
+    x=>{x.candidate.before.relations.find(r=>r.schema==='website_auth').rows++;},x=>{x.candidate.before.relations.find(r=>r.name==='public.app_schema_migrations').tupleBytes='1';},
   ])test(()=>{const bad=structuredClone(a);mutate(bad);assert.throws(()=>validateProvenanceAllocation(bad,historical));});
   const inventory=provenanceInventory(historical),p=nativeMeasuredPhase(a.candidate,inventory),scenarios=nativeCapacityScenarios(p,input,31285248);
   test(()=>assert.equal(sum(p.incrementalBatches.map(b=>b.dataAllocatedBytes)),p.measured.delta.dataAllocatedBytes));
@@ -1133,6 +1148,12 @@ function provenanceAllocationTests(a,historical,input){
   test(()=>assert.equal(scenarios[0].conditionalCoreDataBytes,p.meanDataAllocatedBytesPerCore*591728));
   test(()=>assert.equal(scenarios[1].pricedSubtotalBytes,736880*p.meanDataAllocatedBytesPerCore+31285248));
   test(()=>{const bad=structuredClone(input);bad.terms[0].rate={status:'assumed',bytesPerEvent:1024**4,provenance:'Unit overflow check'};assert.throws(()=>nativeCapacityScenarios(p,bad,31285248),/Assumed term product/);});
+  test(()=>{const bad=structuredClone(a);bad.semanticBoundaries[4].counters.resourceReservations=bad.semanticBoundaries[3].counters.resourceReservations-1;assert.throws(()=>validateProvenanceAllocation(bad,historical),/Reservation counters must never reset/);});
+  const forecast=provenanceForecast({allocation:a,provenance:null,terminal:{testDataOnly:true}},input,historical,false);
+  test(()=>assert.deepEqual([forecast.observed.uniqueSnapshots,forecast.observed.relationObservations],[15,2370]));
+  test(()=>assert.deepEqual(forecast.scenarios.map(x=>x.fixedLocalFixture),[PROVENANCE_FIXTURE,PROVENANCE_FIXTURE]));
+  test(()=>{for(const key of ['baseline','affectedAllocationDifferenceBytes','allPublicAllocationDifferenceBytes','otherAllocationDifferenceBytes'])assert.equal(Object.hasOwn(forecast.observed,key),false,'Candidate-only forecast must not report savings');});
+  test(()=>assert.ok(!forecast.capacityQualified&&!forecast.ratesComplete&&forecast.scenarios.every(x=>x.unknownTerms.length===15&&x.numericConditionalTotalBytes===null)));
   return passed;
 }
 function provenanceSelfTest(m,input,historical,originalPath){

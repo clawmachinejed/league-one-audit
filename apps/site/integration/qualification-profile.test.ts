@@ -1957,7 +1957,7 @@ it('binds the official results evidence profile to two exact cases and original 
   expect(full.modules).toHaveLength(70);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   const original = await officialResultsFixture();
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(original.binding.context.modules).toEqual([{ path: OFFICIAL_RESULTS_MODULE, sourceDigest: OFFICIAL_RESULTS_SOURCE_DIGEST }]);
   expect(original.binding.context.profileDigest).not.toBe(binding.context.profileDigest);
   expect(qualificationArguments(OFFICIAL_RESULTS_PROFILE, '/reporter')).toEqual([
@@ -2109,7 +2109,7 @@ it('binds the weekly reports profile to eight exact source ordered cases and unc
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: WEEKLY_REPORTS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects report profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2283,7 +2283,7 @@ it('binds the transaction period intake profile to three exact source ordered ca
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: TRANSACTION_PERIOD_INTAKE_PROFILE, collected: 3, executed: 3, passed: 3, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects transaction period intake profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2491,7 +2491,7 @@ it('binds the draft metadata profile to eight exact source ordered cases and unc
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: DRAFT_METADATA_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects draft metadata profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2605,7 +2605,7 @@ it('binds the draft selections profile to eight exact source ordered cases and u
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: DRAFT_SELECTIONS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects draft selections profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2722,7 +2722,7 @@ it('binds the traded picks profile to seven exact source ordered cases and uncha
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: TRADED_PICKS_PROFILE, collected: 7, executed: 7, passed: 7, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('7db5ed992af0a299566f284dda822b67bcafffd90e3608d358924944c8ce550d');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects traded picks profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -4614,4 +4614,44 @@ it('CP28 rejects every selector expansion and missing companion',async()=>{
   for(const extra of ['--retry=1','--repeat=2','--testNamePattern=.*','--profile=full'])expect(()=>parseQualificationArguments(['--profile='+STORAGE_MEASUREMENT_PROFILE,extra])).toThrow();
   const{binding,evidence}=await storageReportFixture();await writeQualificationArtifact(binding,'report',evidence);await qualificationCleanup(async()=>{},binding);
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
+});
+
+
+it('CP28 candidate allocation preserves the fixed campaign and cleanup reserve at exact time boundaries', async () => {
+  const path = new URL('./official-results.integration-case.ts', import.meta.url);
+  const source = await readFile(path, 'utf8');
+  const tree = ts.createSourceFile(path.pathname, source, ts.ScriptTarget.Latest, true);
+  const guards: string[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'assertB2MeasurementWindow') guards.push(node.getText(tree));
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
+  expect(guards).toHaveLength(1);
+  const executable = ts.transpileModule(guards[0], { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const invoke = (environment: Record<string, string | undefined>, now: number): number =>
+    runInNewContext(executable + '\nassertB2MeasurementWindow(environment, now);', { environment, now }, { timeout: 1_000 });
+  const start = Date.parse('2026-10-20T12:00:00.000Z'), deadline = start + 1_800_000;
+  const environment = { CP28_LOCAL_CONSOLIDATED_CANDIDATE: 'I_ACKNOWLEDGE_LOCAL_DISPOSABLE_DATABASE',
+    CP28_LOCAL_CAMPAIGN_STARTED_AT: new Date(start).toISOString(),
+    CP28_LOCAL_CAMPAIGN_DEADLINE_AT: new Date(deadline).toISOString() };
+  expect(invoke(environment, start)).toBe(1_800_000);
+  expect(invoke(environment, deadline - 480_000)).toBe(480_000);
+  expect(() => invoke(environment, deadline - 479_999)).toThrow(/480000ms/);
+  expect(() => invoke(environment, deadline + 1)).toThrow(/480000ms/);
+  expect(() => invoke(environment, start - 1)).toThrow(/campaign clock/);
+  for (const now of [Number.NaN, Number.POSITIVE_INFINITY]) {
+    expect(() => invoke(environment, now)).toThrow(/campaign envelope/);
+  }
+  for (const key of Object.keys(environment)) {
+    expect(() => invoke({ ...environment, [key]: undefined }, start)).toThrow(/campaign envelope/);
+  }
+  expect(() => invoke({ ...environment, CP28_LOCAL_CONSOLIDATED_CANDIDATE: 'yes' }, start)).toThrow(/campaign envelope/);
+  for (const value of ['not-a-time', '2026-10-20T12:00:00Z', '2026-10-20T08:00:00.000-04:00']) {
+    expect(() => invoke({ ...environment, CP28_LOCAL_CAMPAIGN_STARTED_AT: value }, start)).toThrow(/campaign clock/);
+  }
+  for (const shift of [-1, 1]) {
+    expect(() => invoke({ ...environment, CP28_LOCAL_CAMPAIGN_DEADLINE_AT: new Date(deadline + shift).toISOString() }, start))
+      .toThrow(/campaign clock/);
+  }
 });
