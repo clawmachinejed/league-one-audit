@@ -1,0 +1,859 @@
+{
+  "schemaVersion": 1,
+  "kind": "cp28-complete-conditional-accounting-manifest-v1",
+  "qualification": "PLANNING_UNQUALIFIED",
+  "budgetBytes": 10737418240,
+  "horizon": {
+    "start": "2026-01-01",
+    "endExclusive": "2028-04-01",
+    "days": 821,
+    "activeDays": 126,
+    "inactiveDays": 695,
+    "activeHoursPerDay": 24
+  },
+  "leagueCount": 16,
+  "geometry": {
+    "teamsPerLeague": 20,
+    "heldPerLeague": 160,
+    "sharedCatalogEntries": 12229,
+    "usersPerLeague": 21,
+    "transactionEntriesPerCollection": 20,
+    "exactPeriods": 18,
+    "transactionPeriodsIncludingZero": 19,
+    "reportPeriods": 18,
+    "draftsPerLeague": 1,
+    "picksPerDraft": 20,
+    "bracketMatchesPerPair": 3,
+    "bracketEdgesPerPair": 0
+  },
+  "cadence": {
+    "activeMinutes": [
+      5,
+      4
+    ],
+    "inactivePerDay": 1,
+    "earlierExactPeriodsPerDay": 17,
+    "earlierTransactionOneToEighteenPerDay": 17,
+    "transactionWeekZeroPerDay": 1,
+    "earlierReportPeriodsPerDay": 17,
+    "resultActiveMinutes": 15,
+    "draftCyclesPerDay": 1,
+    "directoryPerDay": 1,
+    "catalogAttemptsPerDay": 1
+  },
+  "scenarios": [
+    {
+      "id": "historical-base-transition-sensitivity",
+      "catalogDistinctFraction": 0.5
+    },
+    {
+      "id": "lower-catalog-transition-sensitivity",
+      "catalogDistinctFraction": 0.1
+    }
+  ],
+  "transitionFractions": {
+    "core": 0.01,
+    "exactCurrent": 0.05,
+    "earlier": 0.001,
+    "transactionsCurrent": 0.01,
+    "brackets": 0.01,
+    "reportsCurrent": 0.05,
+    "drafts": 0.01,
+    "directory": 0.01
+  },
+  "transitionInterpretation": "Numerical fractions are explicitly chosen sensitivities reusing historicalbase/low magnitudes. Apply bundled content+observation ratios to every declared transition, including return-to-prior content; this can overallow reused content and is not a measured transition frequency. Fresh unchanged typed captures retain proof separately. Daily successful catalog versions create Aepochs independent of distinct catalog content fraction. The declared core membership transitions occur outside each league's first capture after a daily catalog-version change, so the two charged A-content event sets are disjoint. This is a scenario assumption, not an observed intersection rate.",
+  "sources": {
+    "cp27Original": {
+      "artifactSha256": "acaaf6ab5493e9193c45a8ea4fd7c181aeb63d09cd6b7b585cabbe5ff17450fe",
+      "artifactBytes": 1038171,
+      "gitSha": "b41fca034e9982014f3396f960c91c3a718b0169",
+      "datasetDigest": "627a597e81d7a762ec7c1258eff43471065ba18277fd064a6209d3b59ff843c4",
+      "tableCountsSha256": "a0593e7de6257cb420ebb4da347951b856f7fd044e9b4f5dbf1d564317a9ce4e"
+    },
+    "jsonInputs": [
+      {
+        "path": "docs/aggregator-backend/data-backend-cp28-seed.json",
+        "canonicalSha256": "96f532af5f61b01d908561448b1902b657535c4de8149db7f1ad980b1c2a50a0"
+      },
+      {
+        "path": "docs/aggregator-backend/data-backend-cp28-assumptions.json",
+        "canonicalSha256": "01ea051930d466f3001f6442d23a4b49005d3ada5a8c5a3df7a4695cce64c28b"
+      },
+      {
+        "path": "docs/aggregator-backend/data-backend-cp28-capacity-inputs.json",
+        "canonicalSha256": "ce98bfc63daf2acef94923231271dcb6009b6bc581e681ce5eb8ed4739108e40"
+      },
+      {
+        "path": "docs/aggregator-backend/data-backend-cp28-measurement.json",
+        "canonicalSha256": "5a389413238a786f90e9b3003499d8d981dc70905853d97216e3ef3cbeb9a377"
+      }
+    ],
+    "currentFiles": [
+      {
+        "path": "apps/site/lib/league-administration/public-intake.ts",
+        "gitLfSha256": "46894f0f359611cb9f2dad5b0dcd213ae30c1ac891890683caae3859ea92b3dd"
+      },
+      {
+        "path": "apps/site/lib/league-administration/neon/public-intake.ts",
+        "gitLfSha256": "c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479"
+      },
+      {
+        "path": "apps/site/lib/league-administration/runtime.ts",
+        "gitLfSha256": "e4ff88d3d46741a89cc3f457ec0583663cc08a251a06818ce353127beb35a1c5"
+      },
+      {
+        "path": "apps/site/lib/aggregator/roster-player-links.ts",
+        "gitLfSha256": "c89487c6a393c84cbbfe469073c6f75453b76f67f0bf30b7c6fc16af20f2386b"
+      },
+      {
+        "path": "apps/site/migrations/026_source_mapping_revisions.sql",
+        "gitLfSha256": "0785d8d1ddb10c3dfd298edaeb429a88411391fc8f71964000c79a4242bf193e"
+      },
+      {
+        "path": "apps/site/migrations/041_shared_player_directory.sql",
+        "gitLfSha256": "f8e2a34fa0bee75094b8afb276c72e6630f3a3cdc155e6dafd2cbe8e4ff0cdbf"
+      },
+      {
+        "path": "apps/site/migrations/048_official_standings.sql",
+        "gitLfSha256": "5d5052a19970592fdfdf3db090b734ddde9b164caf2b92c846e3f7c8f7ba8059"
+      },
+      {
+        "path": "apps/site/migrations/050_public_report_intake.sql",
+        "gitLfSha256": "db12d902acb9e898ee351fff41bfbcc62040a2e29e866864dde8b45b24a9e609"
+      },
+      {
+        "path": "apps/site/migrations/052_public_transaction_history.sql",
+        "gitLfSha256": "c6e20295bc21a04158cb0cf1ec83b642d2ece51074613a2c96ac5a87394058b9"
+      },
+      {
+        "path": "apps/site/migrations/053_draft_metadata.sql",
+        "gitLfSha256": "27b5a34d1b3b1a56424cfffe907f71d1b453e6934a9d70b4eba08986851d736e"
+      },
+      {
+        "path": "apps/site/migrations/054_draft_selections.sql",
+        "gitLfSha256": "adea290105f31e8b08e7c35d1de03dc304a365461691b008ed46500a9d71b453"
+      },
+      {
+        "path": "apps/site/migrations/056_public_draft_intake.sql",
+        "gitLfSha256": "83d709a4132e585642f57cbcec89b23406239474515355ed544b272135b35a00"
+      },
+      {
+        "path": "apps/site/migrations/059_public_data_resource_schedule.sql",
+        "gitLfSha256": "97449430a4f8e48df14c9deefa1170ee0eae8c517abd0612b4cc758560b598f8"
+      },
+      {
+        "path": "apps/site/migrations/062_public_data_settled_request_budget.sql",
+        "gitLfSha256": "e9f22e0704ec3fc0c2a72b9a3341ac75e06e03ca9356409b40bb814cb76714b3"
+      },
+      {
+        "path": "apps/site/migrations/063_roster_player_link_contents.sql",
+        "gitLfSha256": "86f92a4100383ac708a20ca01b12ec491f29ad56bdc9092bb6aec00277e33ad6"
+      },
+      {
+        "path": "apps/site/migrations/064_roster_population_contents.sql",
+        "gitLfSha256": "5598586c948bcac01d706c07b65a6bf0ad99cc50a354e965e6c93e318edcea00"
+      },
+      {
+        "path": "apps/site/migrations/065_roster_provenance_contents.sql",
+        "gitLfSha256": "57d28d751b0b31e07b8b407b657560d5eb68e993d76efbdde0d4bd0c8a796b33"
+      },
+      {
+        "path": "apps/site/migrations/044_public_data_period_inventory.sql",
+        "gitLfSha256": "7562ebe5f48cde351742144bc72dbbd5f6b4aece87d0edec7463c375fda7f76b"
+      }
+    ]
+  },
+  "terms": [
+    {
+      "id": "coreChangeAndEpochPremium",
+      "package": "candidate-and-envelope",
+      "eventUnit": "coreEvents",
+      "boundary": "Additional DATA beyond the warmed unchanged core for distinct corrections, mapping changes and directory-version epochs, including new A content. Do not add the whole corrected core again.",
+      "components": [
+        "core.changed-raw",
+        "core.changed-team-rows",
+        "core.changed-standings",
+        "core.changed-link-content",
+        "core.catalog-version-link-epochs"
+      ],
+      "residual": {
+        "id": "configuration-manager-and-mapping-growth",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Current correction, configuration, manager, mapping/resolver epoch costs outside the transferred raw/team/standings/link proxies.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "exactCurrent",
+      "package": "other-families",
+      "eventUnit": "coreEvents",
+      "boundary": "DATA incremental to core, including its own observations/receipts; shared tables attributed only to these events.",
+      "components": [
+        "exactCurrent.proof",
+        "exactCurrent.raw",
+        "exactCurrent.values",
+        "exactCurrent.teams"
+      ],
+      "residual": {
+        "id": "exact-current-unpriced-dependencies",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Any additional current exact-family dependencies outside the three transferred proof/raw/team/value table groups; transfer-price differences are signed separately.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "exactEarlier",
+      "package": "other-families",
+      "eventUnit": "earlierEvents",
+      "boundary": "Daily 17-earlier-period assumption; excludes current period.",
+      "components": [
+        "exactEarlier.proof",
+        "exactEarlier.raw",
+        "exactEarlier.values",
+        "exactEarlier.teams"
+      ],
+      "residual": {
+        "id": "exact-history-unpriced-dependencies",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Any additional historical exact-family dependencies outside the transferred table groups; applicability or price differences for the priced groups are signed separately.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "transactionsCurrent",
+      "package": "other-families",
+      "eventUnit": "coreEvents",
+      "boundary": "Includes events, corrections, removals and provenance; excludes ordinary scheduler controls.",
+      "components": [
+        "transactionsCurrent.proof",
+        "transactionsCurrent.raw",
+        "transactionsCurrent.entries"
+      ],
+      "residual": {
+        "id": "transactions-current-additional-events",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional collection elements, removal/return events or failed/partial work outside the declared twenty-entry successful-transition scenario.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "transactionsEarlier",
+      "package": "other-families",
+      "eventUnit": "earlierEvents",
+      "boundary": "Daily 17-earlier-period assumption; excludes current period.",
+      "components": [
+        "transactionsEarlier.proof",
+        "transactionsEarlier.raw",
+        "transactionsEarlier.entries"
+      ],
+      "residual": {
+        "id": "transactions-history-additional-events",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional historical collection elements or correction events outside the declared successful-transition scenario.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "brackets",
+      "package": "other-families",
+      "eventUnit": "resultEvents",
+      "boundary": "Both obtainable bracket resources and their typed evidence; no additional full shared table totals.",
+      "components": [
+        "brackets.proof",
+        "brackets.raw",
+        "brackets.values"
+      ],
+      "residual": {
+        "id": "bracket-shape-growth",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Retained fixture has three matches and no edges; richer source-exposed bracket structures are not bounded.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "reports",
+      "package": "other-families",
+      "eventUnit": "resultEvents",
+      "boundary": "All source-exposed required reports for the declared period inventory, not an assumed single row.",
+      "components": [
+        "reports.proof",
+        "reports.raw",
+        "reports.values"
+      ],
+      "residual": {
+        "id": "report-additional-elements",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional report elements outside the declared twenty-team report shape; price differences for the priced shape are signed separately.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "drafts",
+      "package": "other-families",
+      "eventUnit": "dailyLeagueEvents",
+      "boundary": "All source-exposed 2026 drafts/picks/traded-pick references in one league cycle; historical one-draft/20-pick fixture is not a source bound.",
+      "components": [
+        "drafts.proof",
+        "drafts.raw",
+        "drafts.values",
+        "drafts.selection-links"
+      ],
+      "residual": {
+        "id": "draft-shape-and-new-identities",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional drafts/picks/traded-pick references and newly created stable draft/selection/asset identities.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "managerDirectory",
+      "package": "other-families",
+      "eventUnit": "dailyLeagueEvents",
+      "boundary": "Independent user-directory observations; core manager facts already priced in core.",
+      "components": [
+        "directory.capture",
+        "directory.raw",
+        "directory.values"
+      ],
+      "residual": {
+        "id": "directory-shape-growth",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional co-owners, vacancies, users and identity/configuration changes beyond the twenty-one-user fixture.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "catalogRecurring",
+      "package": "catalog-and-operations",
+      "eventUnit": "catalogEvents",
+      "boundary": "Once per fleet; includes failed/unchanged attempts, captures/slices/versions, and whole distinct catalog content versions. Excludes separately priced initial hosted catalog delta.",
+      "components": [
+        "catalog.observation",
+        "catalog.distinct-content"
+      ],
+      "residual": {
+        "id": "catalog-additional-work",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Failed catalog attempts and additional entries or versions beyond the declared successful-attempt/distinct-version scenario.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "ordinaryControlsAndFailures",
+      "package": "catalog-and-operations",
+      "eventUnit": "one",
+      "boundary": "Ordinary scheduler/intake/dispatch/job controls and failed/retried work not already in family DATA terms; replaces synthetic-control sensitivity, never adds both.",
+      "components": [
+        "controls.dispatch-pairs"
+      ],
+      "residual": {
+        "id": "ordinary-controls-failures-and-retries",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Occurrences, selections, cycles, tasks, checkpoints, intake/discovery fanout, failures and retries beyond transferred dispatch/outcome pairs.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "startupAndOnboarding",
+      "package": "candidate-and-envelope",
+      "eventUnit": "one",
+      "boundary": "Migrated DATA allocation, actual 16-league onboarding and all other startup, excluding the once-only historical catalog proxy and recurring events. Historical scoped startup plus initial catalog establish an assumed starting state; all821-day recurring event volumes are subsequent additions, not events already present in that starting state.",
+      "components": [
+        "startup.historical-scoped-seed"
+      ],
+      "residual": {
+        "id": "current-startup-omitted-relations",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Current startup relations or onboarding work absent from the priced historical noncatalog seed; differences in the priced seed allocation are signed separately.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "otherSharedAndMaintenance",
+      "package": "inventory-and-maintenance",
+      "eventUnit": "one",
+      "boundary": "Additional shared identities/configurations and physical maintenance/MVCC allocation not already attributed to any event term. WAL/backups/billing are separate operational gaps.",
+      "components": [],
+      "residual": {
+        "id": "shared-and-maintenance-growth",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Unattributed shared identities/dependencies, dead tuples, fragmentation and index/TOAST maintenance; no arbitrary reserve is a measured bound.",
+        "signedProxyDeviationBytes": "NOT_APPLICABLE_NO_PRICED_PROXY",
+        "deviationClassification": "NOT_APPLICABLE",
+        "deviationReason": "No historical price is assigned to this term; its omitted physical cost remains unknown."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "beyondAssumedPeriodInventory",
+      "package": "inventory-and-maintenance",
+      "eventUnit": "one",
+      "boundary": "Price the known extra daily transaction period0 separately: current+17 noncurrent1..18 plusweek0 covers nineteen transaction periods. Any further source-exposed inventory remains explicit residual.",
+      "components": [
+        "beyondAssumedPeriodInventory.proof",
+        "beyondAssumedPeriodInventory.raw",
+        "beyondAssumedPeriodInventory.entries"
+      ],
+      "residual": {
+        "id": "additional-source-inventory",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Additional source-exposed exact/report/transaction periods beyond the declared eighteen exact/reports and nineteen transaction periods.",
+        "signedProxyDeviationBytes": null,
+        "deviationClassification": "UNMEASURED_SIGNED_TRANSFER_DEVIATION",
+        "deviationReason": "Actual current marginal allocation may be lower or higher than finite historical transfer proxies; this is not a nonnegative correction or a confidence interval."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    },
+    {
+      "id": "benchmarkGeometryAdjustment",
+      "package": "candidate-and-envelope",
+      "eventUnit": "one",
+      "boundary": "The candidate sample is twenty teams/160 held per league. Complete source category and payload occupancy beyond that declared sample remains unresolved; no80-to160 core scaling.",
+      "components": [],
+      "residual": {
+        "id": "outside-declared-geometry",
+        "additionalPhysicalBytes": null,
+        "additionalClassification": "UNMEASURED_NONNEGATIVE_OMITTED_COST",
+        "additionalReason": "Held/reserve/taxi/category/payload distributions beyond the twenty-team/160-held sample; runtime10000-held limit is not a priced fleet bound.",
+        "signedProxyDeviationBytes": "NOT_APPLICABLE_NO_PRICED_PROXY",
+        "deviationClassification": "NOT_APPLICABLE",
+        "deviationReason": "No historical price is assigned to this term; its omitted physical cost remains unknown."
+      },
+      "uncertainty": "Priced components are declared point assumptions transferred from finite physical snapshots, not measured current slopes or statistical bounds."
+    }
+  ],
+  "components": [
+    {
+      "id": "core.changed-raw",
+      "term": "coreChangeAndEpochPremium",
+      "volume": "coreTransitions",
+      "rate": "rawObservations",
+      "multiplier": 2,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "core.changed-raw"
+    },
+    {
+      "id": "core.changed-team-rows",
+      "term": "coreChangeAndEpochPremium",
+      "volume": "coreTransitions",
+      "rate": "rawTeamEntries",
+      "multiplier": 20,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "core.changed-team-rows"
+    },
+    {
+      "id": "core.changed-standings",
+      "term": "coreChangeAndEpochPremium",
+      "volume": "coreTransitions",
+      "rate": "standingsContent",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "core.changed-standings"
+    },
+    {
+      "id": "core.changed-link-content",
+      "term": "coreChangeAndEpochPremium",
+      "volume": "coreTransitions",
+      "rate": "legacyLinkContentOnly",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "core.changed-link-content"
+    },
+    {
+      "id": "core.catalog-version-link-epochs",
+      "term": "coreChangeAndEpochPremium",
+      "volume": "catalogLeagueEpochs",
+      "rate": "legacyLinkContentOnly",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "core.catalog-version-link-epochs"
+    },
+    {
+      "id": "exactCurrent.proof",
+      "term": "exactCurrent",
+      "volume": "exactCurrent",
+      "rate": "proof",
+      "multiplier": 2,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactCurrent.proof"
+    },
+    {
+      "id": "exactCurrent.raw",
+      "term": "exactCurrent",
+      "volume": "exactCurrentTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactCurrent.raw"
+    },
+    {
+      "id": "exactCurrent.values",
+      "term": "exactCurrent",
+      "volume": "exactCurrentTransitions",
+      "rate": "exactValues",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactCurrent.values"
+    },
+    {
+      "id": "exactCurrent.teams",
+      "term": "exactCurrent",
+      "volume": "exactCurrentTransitions",
+      "rate": "rawTeamEntries",
+      "multiplier": 20,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactCurrent.teams"
+    },
+    {
+      "id": "exactEarlier.proof",
+      "term": "exactEarlier",
+      "volume": "exactEarlier",
+      "rate": "proof",
+      "multiplier": 2,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactEarlier.proof"
+    },
+    {
+      "id": "exactEarlier.raw",
+      "term": "exactEarlier",
+      "volume": "exactEarlierTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactEarlier.raw"
+    },
+    {
+      "id": "exactEarlier.values",
+      "term": "exactEarlier",
+      "volume": "exactEarlierTransitions",
+      "rate": "exactValues",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactEarlier.values"
+    },
+    {
+      "id": "exactEarlier.teams",
+      "term": "exactEarlier",
+      "volume": "exactEarlierTransitions",
+      "rate": "rawTeamEntries",
+      "multiplier": 20,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "exactEarlier.teams"
+    },
+    {
+      "id": "transactionsCurrent.proof",
+      "term": "transactionsCurrent",
+      "volume": "transactionsCurrent",
+      "rate": "proof",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsCurrent.proof"
+    },
+    {
+      "id": "transactionsCurrent.raw",
+      "term": "transactionsCurrent",
+      "volume": "transactionCurrentTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsCurrent.raw"
+    },
+    {
+      "id": "transactionsCurrent.entries",
+      "term": "transactionsCurrent",
+      "volume": "transactionCurrentTransitions",
+      "rate": "transactionEntries",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsCurrent.entries"
+    },
+    {
+      "id": "transactionsEarlier.proof",
+      "term": "transactionsEarlier",
+      "volume": "transactionsEarlier",
+      "rate": "proof",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsEarlier.proof"
+    },
+    {
+      "id": "transactionsEarlier.raw",
+      "term": "transactionsEarlier",
+      "volume": "transactionEarlierTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsEarlier.raw"
+    },
+    {
+      "id": "transactionsEarlier.entries",
+      "term": "transactionsEarlier",
+      "volume": "transactionEarlierTransitions",
+      "rate": "transactionEntries",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "transactionsEarlier.entries"
+    },
+    {
+      "id": "beyondAssumedPeriodInventory.proof",
+      "term": "beyondAssumedPeriodInventory",
+      "volume": "transactionWeekZero",
+      "rate": "proof",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "beyondAssumedPeriodInventory.proof"
+    },
+    {
+      "id": "beyondAssumedPeriodInventory.raw",
+      "term": "beyondAssumedPeriodInventory",
+      "volume": "transactionWeekZeroTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "beyondAssumedPeriodInventory.raw"
+    },
+    {
+      "id": "beyondAssumedPeriodInventory.entries",
+      "term": "beyondAssumedPeriodInventory",
+      "volume": "transactionWeekZeroTransitions",
+      "rate": "transactionEntries",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "beyondAssumedPeriodInventory.entries"
+    },
+    {
+      "id": "brackets.proof",
+      "term": "brackets",
+      "volume": "brackets",
+      "rate": "proof",
+      "multiplier": 2,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "brackets.proof"
+    },
+    {
+      "id": "brackets.raw",
+      "term": "brackets",
+      "volume": "bracketTransitions",
+      "rate": "rawObservations",
+      "multiplier": 2,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "brackets.raw"
+    },
+    {
+      "id": "brackets.values",
+      "term": "brackets",
+      "volume": "bracketTransitions",
+      "rate": "brackets",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "brackets.values"
+    },
+    {
+      "id": "reports.proof",
+      "term": "reports",
+      "volume": "reports",
+      "rate": "proof",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "reports.proof"
+    },
+    {
+      "id": "reports.raw",
+      "term": "reports",
+      "volume": "reportTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "reports.raw"
+    },
+    {
+      "id": "reports.values",
+      "term": "reports",
+      "volume": "reportTransitions",
+      "rate": "reports",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "reports.values"
+    },
+    {
+      "id": "drafts.proof",
+      "term": "drafts",
+      "volume": "draftCaptures",
+      "rate": "proof",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "drafts.proof"
+    },
+    {
+      "id": "drafts.raw",
+      "term": "drafts",
+      "volume": "draftTransitionCaptures",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "drafts.raw"
+    },
+    {
+      "id": "drafts.values",
+      "term": "drafts",
+      "volume": "draftTransitions",
+      "rate": "draftValues",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "drafts.values"
+    },
+    {
+      "id": "drafts.selection-links",
+      "term": "drafts",
+      "volume": "draftSelectionAcceptances",
+      "rate": "draftLinks",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "drafts.selection-links"
+    },
+    {
+      "id": "directory.capture",
+      "term": "managerDirectory",
+      "volume": "directory",
+      "rate": "directoryCapture",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "directory.capture"
+    },
+    {
+      "id": "directory.raw",
+      "term": "managerDirectory",
+      "volume": "directoryTransitions",
+      "rate": "rawObservations",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "directory.raw"
+    },
+    {
+      "id": "directory.values",
+      "term": "managerDirectory",
+      "volume": "directoryTransitions",
+      "rate": "directoryContent",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "directory.values"
+    },
+    {
+      "id": "catalog.observation",
+      "term": "catalogRecurring",
+      "volume": "catalogSuccesses",
+      "rate": "hostedCatalogObservation",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "catalog.observation"
+    },
+    {
+      "id": "catalog.distinct-content",
+      "term": "catalogRecurring",
+      "volume": "catalogDistinctVersions",
+      "rate": "hostedCatalogContent",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "catalog.distinct-content"
+    },
+    {
+      "id": "controls.dispatch-pairs",
+      "term": "ordinaryControlsAndFailures",
+      "volume": "dispatches",
+      "rate": "dispatch",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "controls.dispatch-pairs"
+    },
+    {
+      "id": "startup.historical-scoped-seed",
+      "term": "startupAndOnboarding",
+      "volume": "once",
+      "rate": "historicalScopedStartup",
+      "multiplier": 1,
+      "classification": "ASSUMED_HISTORICAL_TRANSFER",
+      "doubleCountKey": "startup.historical-scoped-seed"
+    }
+  ],
+  "postrun": {
+    "sourceFrozenDuringCampaign": true,
+    "manualCoreNumberAccepted": false,
+    "acceptedPinsCurrentlyPresent": false,
+    "acceptance": "After a separately authorized passing native run and independent original-artifact/cleanup review, bind PROVENANCE_PIN and extraction hash offline; no source edits during campaign.",
+    "deriveArguments": [
+      "--derive-provenance",
+      "--provenance-evidence",
+      "<original native-run-evidence.json>"
+    ],
+    "completionArguments": [
+      "--completion",
+      "--provenance-evidence",
+      "<same original native-run-evidence.json>"
+    ],
+    "noEvidenceArguments": [
+      "--completion"
+    ],
+    "selfTestArguments": [
+      "--completion-self-test"
+    ]
+  },
+  "decision": {
+    "completeTermInventory": true,
+    "numericTotalRequiresAllResidualsResolved": true,
+    "capacityQualified": false,
+    "additionalFamilySqlRequiredForConditionalResponse": false,
+    "additionalNativeMeasurementPurpose": "The187-reservation candidate run tests B2 correctness and gives candidate absolute core allocation. It cannot establish ordinary traffic, all-family marginal slopes, full source bounds or long-run maintenance. If a declared historic-proxy subtotal already exceeds10GiB, it cannot rescue that scenario.",
+    "capacityCertificationNeeds": "Replace material transfer assumptions with justified current measurements/bounds and declare the full source/traffic envelope. Missing facts are not zero. Retain all provenance/history; no cadence reduction or destructive cleanup.",
+    "scenarioVersusActual": "A frozen-proxy conditional scenario may exceed budget before unknown core/omitted costs. Actual cost also has unknown signed transfer deviations, so that conditional result is never a lower bound on a current deployment. Complete term/source inventory describes this declared planning scenario, not a live census of sixteen leagues. Additional source periods, drafts, picks, held/category occupancy and payloads remain unresolved."
+  }
+}
