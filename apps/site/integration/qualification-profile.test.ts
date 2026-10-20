@@ -1764,7 +1764,7 @@ async function officialResultsFixture(): Promise<{ binding: QualificationBinding
   };
   return { binding: { context, directory }, evidence };
 }
-it('binds the official results profile to seventeen exact cases and original cleanup gates while full discovery includes its module', async () => {
+it('binds the official results profile to twenty-one exact cases and original cleanup gates while full discovery includes its module', async () => {
   expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_PROFILE])).toBe(OFFICIAL_RESULTS_PROFILE);
   expect(qualificationArguments(OFFICIAL_RESULTS_PROFILE, '/reporter')).toEqual([
     '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PATTERN]);
@@ -1782,7 +1782,7 @@ it('binds the official results profile to seventeen exact cases and original cle
   const older = await fixture(INGESTION_PROFILE);
   expect(older.context.modules.map(module => module.path)).toEqual([SELECTED_MODULE]);
   const regex = new RegExp(OFFICIAL_RESULTS_PATTERN);
-  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(17);
+  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(21);
   for (const name of OFFICIAL_RESULTS_FULL_NAMES) {
     expect(regex.test(name.replaceAll(' > ', ' '))).toBe(true);
     expect(regex.test('prefix ' + name.replaceAll(' > ', ' '))).toBe(false);
@@ -1794,7 +1794,7 @@ it('binds the official results profile to seventeen exact cases and original cle
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_PROFILE,
-    collected: 17, executed: 17, passed: 17, skipped: 0, filtered: 0 });
+    collected: 21, executed: 21, passed: 21, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout');
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
 });
@@ -1852,8 +1852,9 @@ it('independently inventories the official results SQL fixture source and hooks 
   expect(budgets.slice(0, 7)).toEqual(Array(7).fill('60_000'));
   expect(['18 * 60_000', '1_080_000', '1080_000', '1080000']).toContain(budgets[7]);
   expect(budgets.slice(8, 14)).toEqual(['120_000', '120_000', '120_000', '60_000', '60_000', '300_000']);
-  expect(budgets.slice(14)).toEqual(['180_000', '120_000', '300_000']);
-  expect(budgets).toHaveLength(17);
+  expect(budgets.slice(14, 17)).toEqual(['180_000', '120_000', '300_000']);
+  expect(budgets.slice(17)).toEqual(['180_000', '120_000', '120_000', '300_000']);
+  expect(budgets).toHaveLength(21);
   const workflow = await readFile(new URL('../../../.github/workflows/integration.yml', import.meta.url), 'utf8');
   expect(workflow.match(/^\s+- data-official-results-v1$/gmu)).toHaveLength(1);
   expect(workflow.match(/^\s+workflow_dispatch:data-official-results-v1\)$/gmu)).toHaveLength(1);
@@ -1956,13 +1957,13 @@ it('binds the official results evidence profile to two exact cases and original 
   expect(full.modules).toHaveLength(70);
   expect(full.modules.some(module => module.path.endsWith('.live-integration-case.ts'))).toBe(false);
   const original = await officialResultsFixture();
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(original.binding.context.modules).toEqual([{ path: OFFICIAL_RESULTS_MODULE, sourceDigest: OFFICIAL_RESULTS_SOURCE_DIGEST }]);
   expect(original.binding.context.profileDigest).not.toBe(binding.context.profileDigest);
   expect(qualificationArguments(OFFICIAL_RESULTS_PROFILE, '/reporter')).toEqual([
     '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PATTERN]);
   expect(qualificationIncludes({ ...env, [QUALIFICATION_CONTEXT_ENV]: JSON.stringify(original.binding.context) })).toEqual([OFFICIAL_RESULTS_MODULE]);
-  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(17);
+  expect(OFFICIAL_RESULTS_FULL_NAMES).toHaveLength(21);
   const originalPattern = new RegExp(OFFICIAL_RESULTS_PATTERN);
   expect(OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES.every(name => !originalPattern.test(name.replaceAll(' > ', ' ')))).toBe(true);
   const older = await fixture(INGESTION_PROFILE);
@@ -2108,7 +2109,7 @@ it('binds the weekly reports profile to eight exact source ordered cases and unc
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: WEEKLY_REPORTS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects report profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2180,7 +2181,7 @@ async function officialResultsPlayedFixture() {
   }
   return { binding, evidence };
 }
-it('qualifies only the two existing stored played-result cases with fifteen honestly filtered cases', async () => {
+it('qualifies only the two existing stored played-result cases with nineteen honestly filtered cases', async () => {
   expect(parseQualificationArguments(['--profile=' + OFFICIAL_RESULTS_PLAYED_PROFILE])).toBe(OFFICIAL_RESULTS_PLAYED_PROFILE);
   expect(qualificationArguments(OFFICIAL_RESULTS_PLAYED_PROFILE, '/reporter')).toEqual([
     '--reporter', 'verbose', '--reporter', '/reporter', OFFICIAL_RESULTS_MODULE, '--testNamePattern', OFFICIAL_RESULTS_PLAYED_PATTERN]);
@@ -2199,7 +2200,7 @@ it('qualifies only the two existing stored played-result cases with fifteen hone
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow();
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: OFFICIAL_RESULTS_PLAYED_PROFILE,
-    collected: 17, executed: 2, passed: 2, skipped: 15, filtered: 15 });
+    collected: 21, executed: 2, passed: 2, skipped: 19, filtered: 19 });
   await markQualificationFailure(binding, 'process-timeout');
   await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
 });
@@ -2282,7 +2283,7 @@ it('binds the transaction period intake profile to three exact source ordered ca
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: TRANSACTION_PERIOD_INTAKE_PROFILE, collected: 3, executed: 3, passed: 3, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects transaction period intake profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2490,7 +2491,7 @@ it('binds the draft metadata profile to eight exact source ordered cases and unc
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: DRAFT_METADATA_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects draft metadata profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2604,7 +2605,7 @@ it('binds the draft selections profile to eight exact source ordered cases and u
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: DRAFT_SELECTIONS_PROFILE, collected: 8, executed: 8, passed: 8, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects draft selections profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -2721,7 +2722,7 @@ it('binds the traded picks profile to seven exact source ordered cases and uncha
   await qualificationCleanup(async () => {}, binding);
   await expect(validateQualificationArtifacts(binding)).resolves.toMatchObject({ profile: TRADED_PICKS_PROFILE, collected: 7, executed: 7, passed: 7, skipped: 0, filtered: 0 });
   await markQualificationFailure(binding, 'process-timeout'); await expect(validateQualificationArtifacts(binding)).rejects.toThrow('Sticky');
-  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8');
+  expect(OFFICIAL_RESULTS_SOURCE_DIGEST).toBe('31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b');
   expect(OFFICIAL_RESULTS_EVIDENCE_SOURCE_DIGEST).toBe('342f44ca993a2c442f2ffb0075ffb47f8713243e7b5a5d203ac09ffb0598e8ae');
 });
 it('rejects traded picks profile inventory hook retry source substitution and cleanup evidence drift', async () => {
@@ -4312,9 +4313,10 @@ it('CP26 fleet binds frozen support bytes rejects current harness and supervisor
  const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
   if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
  }
- // Shared roster links and population evidence change support readers; accepted CP26 pins remain historical.
+ // Shared roster links, population evidence and provenance change support readers; accepted CP26 pins remain historical.
  const sharedStorageDrift=['lib/league-administration/neon/roster-player-links.ts','scripts/provision-runtime-role.sql',
-  'lib/league-administration/neon/official-standings.ts','lib/league-administration/neon/exact-period-context.ts'];
+  'lib/league-administration/neon/official-standings.ts','lib/league-administration/neon/exact-period-context.ts',
+  'lib/league-administration/neon/current-roster.ts'];
  expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath,...sharedStorageDrift].sort());
  expect(qualificationSourceDigest(historicalHarness)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===harnessPath)!.sourceDigest);
  await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+changed[0]);
@@ -4589,9 +4591,9 @@ it('CP28 preserves the accepted historical profile and rejects shared-storage so
   expect(qualificationArguments(STORAGE_MEASUREMENT_PROFILE,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter','--configLoader','runner',STORAGE_MEASUREMENT_MODULE,'--testNamePattern',STORAGE_MEASUREMENT_PATTERN]);
   expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([STORAGE_MEASUREMENT_MODULE]);
   const root=fileURLToPath(new URL('..',import.meta.url));
-  // The accepted 168a856 measurement keeps its original 107 support pins. Slice A
-  // intentionally changes this reader; a future run requires separately reviewed pins.
-  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/neon/roster-player-links.ts';
+  // The accepted 168a856 measurement keeps its original 107 support pins. B2 changes
+  // the first differing reader; a future run requires separately reviewed pins.
+  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/public-official-results-reader.ts';
   await expect(assertStorageMeasurementSupportSources(root)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');

@@ -16,6 +16,7 @@ import { OFFICIAL_STANDINGS_POPULATION_TIME_SQL } from '../lib/league-administra
 import { runPublicIntakeStep, runPublicDataRefreshStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
 import { readPublicSleeperIntake } from '../lib/league-administration/public-intake-reader';
 import { readPublicDataRefresh } from '../lib/league-administration/public-refresh-reader';
+import { readPublicOfficialStandings } from '../lib/league-administration/public-official-results-reader';
 import { PUBLIC_INTAKE_JOB, PUBLIC_PLAYOFF_BRACKETS } from '../lib/league-administration/public-intake-contracts';
 import { createProjectionStore } from '../lib/projection-store';
 import { loadCompletePlayerCatalog } from '../lib/sleeper-player-catalog';
@@ -50,7 +51,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       session_user: 'league_one_runtime', rolsuper: false, rolcreaterole: false, rolcreatedb: false });
   }, 120_000);
   afterAll(async () => {
-    try { try { await restoreABWriter(); } finally { await restoreB1Writer(); } } finally {
+    try { try { await restoreB2Writer(); } finally { try { await restoreABWriter(); } finally { await restoreB1Writer(); } } } finally {
       vi.restoreAllMocks();
       try {
       if (jobsToClose.length) await ownerQuery(`UPDATE projection_jobs SET state='failed',lease_owner=NULL,
@@ -665,19 +666,23 @@ describe.sequential('official standings and results through restricted PostgreSQ
     return database.query(tables.map(table => `SELECT '${table}' AS name,count(*)::int AS rows,
       md5(COALESCE(string_agg(to_jsonb(t)::text,'' ORDER BY to_jsonb(t)::text),'')) AS digest FROM public.${table} t`).join(' UNION ALL '));
   }
-  async function b1Receipts(ids: readonly string[], database = connection.database) {
+  async function b1Receipts(ids: readonly string[], database = connection.database, provenance = false) {
     return database.query(`SELECT receipt.*,public.roster_capture_population_evidence(receipt) AS effective_population,
+      ${provenance ? 'public.roster_capture_provenance(receipt) AS effective_provenance,' : ''}
       to_jsonb(attempt) AS attempt,scope.identity FROM public.league_roster_capture_receipts receipt
       JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
       JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id
       WHERE receipt.id=ANY($1::uuid[]) ORDER BY array_position($1::uuid[],receipt.id)`, [ids]);
   }
   async function b1Core(f: Fixture, corrected = false, replay = false, combined?: {
-    linkFormat: 'acceptance-v1' | 'shared-v1'; roster?: ReturnType<typeof b1Roster>; state: () => Promise<DatabaseRow[]>;
+    linkFormat: 'acceptance-v1' | 'shared-v1'; roster?: ReturnType<typeof b1Roster>; state: () => Promise<DatabaseRow[]>; provenance?: boolean;
+    occurrence?: { requestId: string; resourceId: string; targetId: string };
+    intercept?: (args: B1Write['args']) => Promise<B1Write['result']>; expectedFailure?: () => boolean;
   }) {
     b1Reserve(4); expect(++b1.cores).toBeLessThanOrEqual(80);
-    const requestId = randomUUID(), manager = numericId(), username = 'cp28_b1_' + manager;
+    const requestId = combined?.occurrence?.requestId ?? randomUUID(), manager = numericId(), username = 'cp28_b1_' + manager;
     const league = leagueDocument(f.external, 10), roster = combined?.roster ?? b1Roster(corrected);
+    if (!combined?.occurrence) {
     await ownerQuery('INSERT INTO public.public_data_intakes(id,username,seasons) VALUES($1,$2,ARRAY[2026])', [requestId, username]);
     await ownerQuery("INSERT INTO public.league_source_manager_accounts(provider,external_manager_id) VALUES('sleeper',$1) ON CONFLICT DO NOTHING", [manager]);
     await ownerQuery(`INSERT INTO public.public_data_identity_observations(intake_id,source_manager_account_id,username,display_name,payload,request_started_at,request_completed_at)
@@ -689,7 +694,9 @@ describe.sequential('official standings and results through restricted PostgreSQ
     await ownerQuery(`INSERT INTO public.public_data_league_candidates(intake_id,season,external_league_id,name,stage,league_season_id,bootstrap_payload,bootstrap_started_at,bootstrap_completed_at)
       VALUES($1,2026,$2,$3,'core',$4,$5::jsonb,clock_timestamp(),clock_timestamp())`,
     [requestId, f.external, league.name, f.leagueSeasonId, JSON.stringify(league)]);
+    }
     const intake = createPublicIntakeStore(connection.database), jobs = createProjectionStore(connection.database);
+    const invocation = combined?.occurrence ? Date.now() : undefined;
     const written: B1Write[] = []; let responses = 0, replayed = false;
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
       const url = String(input), base = 'https://api.sleeper.app/v1/league/' + f.external;
@@ -698,13 +705,23 @@ describe.sequential('official standings and results through restricted PostgreSQ
     });
     try {
       const outcome = await runPublicIntakeStep(requestId, { managerEvidenceVersion: 'v2',
+        ...(invocation === undefined ? {} : { deadlineAt: new Date(invocation + 20_000).toISOString() }),
         administration: { ...administration, recordObservation: async (...args) => {
-          const result = await administration.recordObservation(...args); written.push({ args, result }); return result;
+          const result = combined?.intercept && args[0].envelope.family === 'rosters'
+            ? await combined.intercept(args) : await administration.recordObservation(...args);
+          written.push({ args, result }); return result;
         } },
         intake: { ...intake, admit: async (work, owner) => {
           expect(work.kind).toBe('core'); expect(work.requestId).toBe(requestId); expect(b1.workers).toContain(owner.workerId);
-          await ownerQuery(`INSERT INTO public.public_data_dispatches(worker_id,generation,intake_id,revision,resource,work,max_requests)
-            VALUES($1,$2,$3,$4,'core',$5::jsonb,2)`, [owner.workerId, owner.generation, requestId, work.revision, JSON.stringify(work)]);
+          if (combined?.occurrence) {
+            await ownerQuery(`INSERT INTO public.public_data_resource_selections(worker_id,generation,intake_id,lane,resource_id,target_id,configuration_revision)
+              VALUES($1,$2,$3,'active',$4,$5,1)`, [owner.workerId, owner.generation, requestId, combined.occurrence.resourceId, combined.occurrence.targetId]);
+            await ownerQuery(`UPDATE public.projection_jobs SET payload=payload||jsonb_build_object('resourceSelection',
+              (SELECT public.public_data_resource_selection_json(selection) FROM public.public_data_resource_selections selection
+                WHERE worker_id=$2 AND generation=$3)) WHERE job_key=$1`, [PUBLIC_INTAKE_JOB, owner.workerId, owner.generation]);
+          }
+          await ownerQuery(`INSERT INTO public.public_data_dispatches(worker_id,generation,intake_id,revision,resource,work,max_requests${combined?.provenance ? ',request_budget_policy' : ''})
+            VALUES($1,$2,$3,$4,'core',$5::jsonb,2${combined?.provenance ? ",'public-data-settled-request-budget-v1'" : ''})`, [owner.workerId, owner.generation, requestId, work.revision, JSON.stringify(work)]);
           return true;
         }, completeCore: async (...args) => {
           if (replay) {
@@ -728,30 +745,41 @@ describe.sequential('official standings and results through restricted PostgreSQ
         } },
         jobs: { ...jobs, acquireJob: async input => {
           expect(input.jobKey).toBe(PUBLIC_INTAKE_JOB); expect(input.leaseSeconds).toBe(25);
+          const payload = invocation === undefined ? input.payload : { requestId, policy: 'public-data-refresh-v1', mode: 'recurring',
+            batchMode: 'recurring', batchPolicy: 'public-data-batch-v1', schedulingPolicy: 'public-data-resource-schedule-v1',
+            batchInvocationStartedAt: new Date(invocation).toISOString(), batchAdmissionDeadlineAt: new Date(invocation + 10_000).toISOString(),
+            batchWorkDeadlineAt: new Date(invocation + 20_000).toISOString(), batchCleanupDeadlineAt: new Date(invocation + 22_000).toISOString() };
           const [row] = await ownerQuery(`INSERT INTO public.projection_jobs(job_key,job_type,scheduled_for,state,lease_owner,lease_until,attempt_count,payload)
-            VALUES($1,$1,clock_timestamp(),'running',$2,clock_timestamp()+interval '25 seconds',1,$3::jsonb)
+            VALUES($1,$1,clock_timestamp(),'running',$2,COALESCE($4::timestamptz,clock_timestamp()+interval '25 seconds'),1,$3::jsonb)
             ON CONFLICT(job_key) DO UPDATE SET state='running',lease_owner=EXCLUDED.lease_owner,lease_until=EXCLUDED.lease_until,
               attempt_count=projection_jobs.attempt_count+1,payload=EXCLUDED.payload,scheduled_for=EXCLUDED.scheduled_for,completed_at=NULL
             WHERE projection_jobs.state<>'running' OR projection_jobs.lease_until<=clock_timestamp()
-            RETURNING attempt_count,lease_until`, [PUBLIC_INTAKE_JOB, input.workerId, JSON.stringify(input.payload)]);
+            RETURNING attempt_count,lease_until`, [PUBLIC_INTAKE_JOB, input.workerId, JSON.stringify(payload),
+            invocation === undefined ? null : new Date(invocation + 25_000).toISOString()]);
           expect(row).toBeDefined(); b1.workers.push(input.workerId);
           return { kind: 'acquired', attempt: Number(row.attempt_count), leaseUntil: exactMatchupClockInstant(row.lease_until) };
         } },
       }, AbortSignal.timeout(20_000));
+      if (combined?.expectedFailure) {
+        expect(combined.expectedFailure()).toBe(true); expect(outcome.status).not.toBe('progress');
+        expect(responses).toBe(2);
+        console.info('CP28_B2_EXPECTED_CORE_FAILURE ' + JSON.stringify({ outcome, reservations: b1.attempts, fixtureHttp: responses }));
+        throw new Error('B2 expected original-deadline core failure verified');
+      }
       expect(outcome).toEqual({ status: 'progress', resource: 'core', providerRequests: 2 });
       expect(responses).toBe(2); expect(written).toHaveLength(2); expect(replayed).toBe(replay);
       const ids = [written[0].result.leagueSettingsAcceptance, written[1].result.rosterAcceptance,
         written[1].result.teamManagerAcceptance, written[1].result.teamManagerEvidenceAcceptance].map(value => {
         expect(value?.status).toBe('accepted'); if (!value) throw new Error('B1 missing core receipt.'); return value.receiptId;
       });
-      const rows = await b1Receipts(ids), proof = { observationId: written[0].result.observationId,
+      const rows = await b1Receipts(ids, connection.database, combined?.provenance), proof = { observationId: written[0].result.observationId,
         contentHash: written[0].args[0].contentHash, provenance: written[0].args[0].envelope.provenance };
       expect(rows).toHaveLength(4);
       expect(rows[0]).toMatchObject({ population_storage_format: 'inline-v1', population_content_id: null,
         population_evidence: null, effective_population: null });
       for (const row of rows.slice(1)) {
         expect(row.effective_population).toEqual(proof);
-        expect(row.provenance).toEqual(written[1].args[0].envelope.provenance);
+        expect(combined?.provenance ? row.effective_provenance : row.provenance).toEqual(written[1].args[0].envelope.provenance);
         const attempt = row.attempt as Record<string, unknown>;
         expect(attempt.source_mapping).toEqual(f.mapping); expect(attempt.write_fence).toEqual(written[1].args[1]);
         expect(row.population_storage_format).toBe(b1.bound ? 'shared-v1' : 'inline-v1');
@@ -1422,11 +1450,11 @@ describe.sequential('official standings and results through restricted PostgreSQ
     ...['league_roster_player_links', 'league_roster_player_link_content_entries'].flatMap(table =>
       ['mapping_proof', 'kind_evidence', 'reasons'].map(column => [table, column])),
   ];
-  async function abSnapshot(boundary: string) {
+  async function abSnapshot(boundary: string, expectedPublicRelations = 152, extraColumns: string[][] = []) {
     const inventory = await ownerQuery(`SELECT n.nspname AS schema,c.relname AS table FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','website_auth') AND c.relkind='r'
       ORDER BY n.nspname,c.relname`);
-    expect(inventory.filter(row => row.schema === 'public')).toHaveLength(152);
+    expect(inventory.filter(row => row.schema === 'public')).toHaveLength(expectedPublicRelations);
     expect(inventory.filter(row => row.schema === 'website_auth')).toHaveLength(5);
     const relations = await ownerQuery<DatabaseRow & { schema: string; table: string; name: string; rows: number;
       tuplebytes: string; heap: string; indexes: string; toast: string; auxiliary: string; total: string }>(inventory.map(row => {
@@ -1440,7 +1468,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
           -(SELECT CASE WHEN reltoastrelid=0 THEN 0 ELSE pg_total_relation_size(reltoastrelid) END FROM pg_class WHERE oid='${relation}'::regclass))::text AS auxiliary,
         pg_total_relation_size('${relation}'::regclass)::text AS total FROM ${relation} t`;
     }).join(' UNION ALL '));
-    const columns = await ownerQuery(abProofColumns.map(([table, column]) => `SELECT 'public.${table}' AS name,'${column}' AS column,
+    const columns = await ownerQuery([...abProofColumns, ...extraColumns].map(([table, column]) => `SELECT 'public.${table}' AS name,'${column}' AS column,
       count(${column})::int AS nonnull,COALESCE(sum(pg_column_size(${column})),0)::text AS datumBytes,
       COALESCE(sum(octet_length(convert_to(${column}::text,'UTF8'))),0)::text AS jsonTextBytes FROM public.${table}`).join(' UNION ALL '));
     for (const row of relations) {
@@ -1522,5 +1550,593 @@ describe.sequential('official standings and results through restricted PostgreSQ
         'no whole-horizon or 10-GiB capacity qualification'] }));
     expect(b1.cores).toBe(80); expect(b1.attempts).toBe(325);
     expect(delta(combined, affected)).toBeLessThan(delta(legacy, affected));
+  }, 300_000);
+  // B2 is an isolated opt-in extension. Earlier case bodies and helper defaults
+  // retain their original behavior; all three candidate writers restore on exit.
+  const b2 = { bound: false, touched: false, successfulCores: 0, expectedFailedCores: 0,
+    boundaries: [] as unknown[], saved: [] as { fixture: Fixture; value: Awaited<ReturnType<typeof b2Core>>;
+      digest: readonly DatabaseRow[] }[] };
+  async function b2Verify(enabled: boolean) {
+    const rows = await ownerQuery(`SELECT t.tgname AS name,t.tgtype::int AS event_type,t.tgenabled::text AS enabled,
+      t.tgrelid='public.league_roster_capture_receipts'::regclass AS exact_table,
+      t.tgfoid='public.intern_roster_capture_provenance()'::regprocedure AS exact_function,
+      t.tgnargs=0 AND t.tgqual IS NULL AS unconditional_no_arguments FROM pg_trigger t
+      WHERE NOT t.tgisinternal AND (t.tgname='roster_metadata_intern_before_lineage'
+        OR t.tgfoid='public.intern_roster_capture_provenance()'::regprocedure) ORDER BY t.tgname`);
+    expect(rows).toEqual(enabled ? [{ name: 'roster_metadata_intern_before_lineage', event_type: 7, enabled: 'O',
+      exact_table: true, exact_function: true, unconditional_no_arguments: true }] : []);
+    return rows;
+  }
+  async function b2Set(enabled: boolean) {
+    await b2Verify(b2.bound); b2.touched = true;
+    const owner = await createPinnedIntegrationDatabase('owner');
+    try {
+      await owner.database.query('BEGIN');
+      await owner.database.query('DROP TRIGGER IF EXISTS roster_metadata_intern_before_lineage ON public.league_roster_capture_receipts');
+      if (enabled) await owner.database.query(`CREATE TRIGGER roster_metadata_intern_before_lineage BEFORE INSERT
+        ON public.league_roster_capture_receipts FOR EACH ROW EXECUTE FUNCTION public.intern_roster_capture_provenance()`);
+      await owner.database.query('COMMIT'); b2.bound = enabled;
+    } catch (error) { await owner.database.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { await owner.close(); }
+    await b2Verify(enabled);
+  }
+  async function restoreB2Writer() {
+    if (!b2.touched) return;
+    await b2Set(false); b2.touched = false;
+  }
+  async function b2Current(f: Fixture) {
+    return { roster: await administration.readAcceptedCurrentRoster(f.mapping, { includePlayerLinks: true }),
+      managers: await administration.readAcceptedTeamManagers(f.mapping),
+      managersV2: await administration.readAcceptedTeamManagerEvidence!(f.mapping) };
+  }
+  async function b2Mode<T>(mode: ABMode, enabled: boolean, body: () => Promise<T>) {
+    let currents: Awaited<ReturnType<typeof b2Current>>[] | undefined;
+    try {
+      await abSetMode(mode); await b2Set(enabled);
+      const result = await body(); currents = await Promise.all(b1.fixtures.map(b2Current)); return result;
+    } finally {
+      try { await restoreB2Writer(); } finally { await restoreABWriter(); }
+      if (currents) expect(await Promise.all(b1.fixtures.map(b2Current))).toEqual(currents);
+    }
+  }
+  async function b2State(database = connection.database) {
+    return [...await abState(database), ...await database.query(`SELECT 'league_roster_provenance_contents' AS name,
+      count(*)::int AS rows,md5(COALESCE(string_agg(to_jsonb(t)::text,'' ORDER BY to_jsonb(t)::text),'')) AS digest
+      FROM public.league_roster_provenance_contents t`)];
+  }
+  async function b2Digest(ids: readonly string[]) {
+    return [...await abReceiptDigest(ids), ...await connection.database.query(`SELECT 'provenance_contents' AS kind,
+      count(*)::int AS rows,md5(COALESCE(string_agg(to_jsonb(t)::text,'' ORDER BY to_jsonb(t)::text),'')) AS digest
+      FROM public.league_roster_provenance_contents t WHERE id IN
+        (SELECT provenance_content_id FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[]))`, [ids])];
+  }
+  async function b2Public(f: Fixture, requestId: string) {
+    let queries = 0;
+    const database: DatabaseClient = { enabled: true, query: async <Row extends DatabaseRow>(sql: string,
+      parameters?: readonly unknown[], options?: DatabaseQueryOptions) => {
+      queries++; expect(sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|CALL)\b/iu);
+      return connection.database.query<Row>(sql, parameters, options);
+    } };
+    const result = await readPublicOfficialStandings(database, administrationFor(database), requestId, f.mapping);
+    return { result, queries };
+  }
+  async function b2Occurrence(f: Fixture, origin: string) {
+    const owner = await createPinnedIntegrationDatabase('owner');
+    const requestId = randomUUID(), targetId = randomUUID(), resourceId = randomUUID();
+    try {
+      await owner.database.query('BEGIN');
+      expect(await owner.database.query(`SELECT 1 AS valid FROM public.public_data_intakes request
+        JOIN public.public_data_league_candidates candidate ON candidate.intake_id=request.id
+        WHERE request.id=$1 AND request.resource_occurrence_id IS NULL AND candidate.league_season_id=$2`, [origin, f.leagueSeasonId])).toEqual([{ valid: 1 }]);
+      await owner.database.query(`INSERT INTO public.public_data_refresh_targets(id,provider,source_manager_account_id,configuration_revision)
+        SELECT $1,'sleeper',source_manager_account_id,1 FROM public.public_data_identity_observations WHERE intake_id=$2`, [targetId, origin]);
+      await owner.database.query(`INSERT INTO public.public_data_refresh_configurations(target_id,revision,identity_request_id,seasons,
+        cadence_seconds,expires_at,paused,exact_periods,transaction_history)
+        VALUES($1,1,$2,ARRAY[2026],300,clock_timestamp()+interval '1 hour',false,
+          '[{"season":2026,"nativeWeek":15}]'::jsonb,'sleeper-2026-transaction-history-v1')`, [targetId, origin]);
+      await owner.database.query(`INSERT INTO public.public_data_resource_configurations(target_id,configuration_revision,active_periods)
+        VALUES($1,1,jsonb_build_array(jsonb_build_object('season',2026,'externalLeagueId',$2::text,'nativeWeek',15)))`, [targetId, f.external]);
+      await owner.database.query(`INSERT INTO public.public_data_resources(id,connection_id,mapping_revision_id,source_mapping,season,external_league_id,kind,native_week)
+        VALUES($1,$2,$3,$4::jsonb,2026,$5,'core',0)`, [resourceId, f.mapping.connectionId, f.mapping.revisionId, JSON.stringify(f.mapping), f.external]);
+      await owner.database.query(`INSERT INTO public.public_data_resource_authorities(resource_id,target_id,configuration_revision,origin_intake_id,season,external_league_id,active_native_week)
+        VALUES($1,$2,1,$3,2026,$4,15)`, [resourceId, targetId, origin, f.external]);
+      await owner.database.query(`INSERT INTO public.public_data_resource_occurrences(id,resource_id,origin_intake_id,season,external_league_id,target_id,configuration_revision,source_mapping)
+        VALUES($1,$2,$3,2026,$4,$5,1,$6::jsonb)`, [requestId, resourceId, origin, f.external, targetId, JSON.stringify(f.mapping)]);
+      await owner.database.query(`INSERT INTO public.public_data_intakes(id,username,seasons,exact_periods,transaction_period,resource_occurrence_id)
+        SELECT $1,username,ARRAY[2026],'[]'::jsonb,NULL,$1 FROM public.public_data_intakes WHERE id=$2`, [requestId, origin]);
+      await owner.database.query(`INSERT INTO public.public_data_identity_observations(intake_id,source_manager_account_id,username,display_name,avatar_url,payload,request_started_at,request_completed_at)
+        SELECT $1,source_manager_account_id,username,display_name,avatar_url,
+          jsonb_build_object('inheritedFromIntakeId',$2::uuid,'resourceOccurrenceId',$1::uuid),request_started_at,request_completed_at
+        FROM public.public_data_identity_observations WHERE intake_id=$2`, [requestId, origin]);
+      await owner.database.query(`INSERT INTO public.public_data_league_lists(intake_id,season,payload,request_started_at,request_completed_at)
+        SELECT $1,season,'[]'::jsonb,request_started_at,request_completed_at FROM public.public_data_league_lists WHERE intake_id=$2 AND season=2026`, [requestId, origin]);
+      await owner.database.query(`INSERT INTO public.public_data_league_candidates(intake_id,season,external_league_id,name,stage,league_season_id,bootstrap_started_at,bootstrap_completed_at)
+        SELECT $1,season,external_league_id,name,'core',league_season_id,bootstrap_started_at,bootstrap_completed_at
+        FROM public.public_data_league_candidates WHERE intake_id=$2 AND league_season_id=$3`, [requestId, origin, f.leagueSeasonId]);
+      await owner.database.query('UPDATE public.public_data_resources SET open_intake_id=$2 WHERE id=$1', [resourceId, requestId]);
+      await owner.database.query('COMMIT');
+    } catch (error) { await owner.database.query('ROLLBACK').catch(() => undefined); throw error; }
+    finally { await owner.close(); }
+    return { requestId, resourceId, targetId };
+  }
+  async function b2Core(f: Fixture, options: { score?: boolean; replay?: boolean; occurrenceOrigin?: string;
+    intercept?: (args: B1Write['args']) => Promise<B1Write['result']>; expectedFailure?: () => boolean } = {}) {
+    const occurrence = options.occurrenceOrigin ? await b2Occurrence(f, options.occurrenceOrigin) : undefined;
+    const value = await b1Core(f, options.score, options.replay, { occurrence, linkFormat: abHasA(ab.mode) ? 'shared-v1' : 'acceptance-v1',
+      roster: b1Roster(options.score), state: b2State, provenance: true,
+      intercept: options.intercept, expectedFailure: options.expectedFailure });
+    const expected = value.written[1].args[0].envelope.provenance;
+    const [settlement] = await connection.database.query(`SELECT outcome.outcome,
+      dispatch.request_budget_policy, outcome.settled_request_upper_bound_at IS NOT NULL
+        AND outcome.settled_request_upper_bound_at>=dispatch.admitted_at
+        AND outcome.settled_request_upper_bound_at<=outcome.recorded_at AS bounded
+      FROM public.public_data_dispatches dispatch JOIN public.public_data_dispatch_outcomes outcome
+        ON outcome.worker_id=dispatch.worker_id AND outcome.generation=dispatch.generation WHERE dispatch.intake_id=$1`, [value.requestId]);
+    expect(settlement).toEqual({ outcome: 'checkpoint-committed', request_budget_policy: 'public-data-settled-request-budget-v1', bounded: true });
+    expect(value.rows[0]).toMatchObject({ provenance_storage_format: 'inline-v1', provenance_content_id: null });
+    expect(value.rows[0].effective_provenance).toEqual(value.written[0].args[0].envelope.provenance);
+    for (const row of value.rows.slice(1)) {
+      expect(row.provenance_storage_format).toBe(b2.bound ? 'shared-v1' : 'inline-v1');
+      expect(row.provenance).toEqual(b2.bound ? null : expected); expect(row.effective_provenance).toEqual(expected);
+      expect(row.provenance_content_id === null).toBe(!b2.bound);
+      const attempt = row.attempt as Record<string, unknown>;
+      expect(attempt.source_mapping).toEqual(f.mapping); expect(attempt.write_fence).toEqual(value.written[1].args[1]);
+    }
+    if (b2.bound) expect(new Set(value.rows.slice(1).map(row => row.provenance_content_id)).size).toBe(1);
+    const links = await abLinks(f, value.ids[1]), storage = await abLinkStorage(value.ids[1]), publicRead = await b2Public(f, value.requestId);
+    expect(publicRead.result.resource).toEqual(value.standing); expect(publicRead.queries).toBe(2);
+    const current = await b2Current(f);
+    for (const result of Object.values(current)) expect(result.status).toBe('available');
+    if (occurrence) {
+      const [reconciled] = await connection.database.query(`SELECT last_success_receipt_id,
+        last_success_at=$2::timestamptz AS original_observation_time,due_at=$2::timestamptz+interval '4 minutes' AS original_due,
+        open_intake_id IS NULL AS closed,failure_count,public.next_public_data_intake($3::uuid) AS next
+        FROM public.public_data_resources WHERE id=$1`, [occurrence.resourceId, expected.sourceObservedAt, value.requestId]);
+      expect(reconciled).toEqual({ last_success_receipt_id: value.ids[1], original_observation_time: true, original_due: true,
+        closed: true, failure_count: 0, next: 'complete' });
+      console.info('CP28_B2_RECONCILIATION ' + JSON.stringify({ fixture: 'owner-seeded authority, inherited occurrence and active selection; no selector/cadence proof',
+        actualRestrictedCaptureCheckpointReconciliationAndSettlement: true, originalSourceObservedAt: expected.sourceObservedAt,
+        dueAt: new Date(Date.parse(expected.sourceObservedAt!) + 240_000).toISOString(), reconciled }));
+    }
+    b2.successfulCores++;
+    return { ...value, links, storage, publicRead, current };
+  }
+  async function b2Remember(f: Fixture, value: Awaited<ReturnType<typeof b2Core>>) {
+    b2.saved.push({ fixture: f, value, digest: await b2Digest(value.ids) });
+  }
+  async function b2History() {
+    await storedOnly(async (_database, store) => {
+      for (const saved of b2.saved) {
+        expect(await read(saved.fixture.mapping, saved.value.ids[1], store)).toEqual(saved.value.standing);
+        expect(await abLinks(saved.fixture, saved.value.ids[1], store)).toEqual(saved.value.links);
+        expect(await b2Public(saved.fixture, saved.value.requestId)).toEqual(saved.value.publicRead);
+        expect(await b2Digest(saved.value.ids)).toEqual(saved.digest);
+      }
+    });
+  }
+  async function b2Snapshot(boundary: string) {
+    const snapshot = await abSnapshot(boundary, 153, [['league_roster_provenance_contents', 'provenance']]);
+    const [representations] = await ownerQuery(`SELECT
+      count(*) FILTER(WHERE population_storage_format='shared-v1')::int AS population_shared_receipts,
+      count(*) FILTER(WHERE provenance_storage_format='shared-v1')::int AS provenance_shared_receipts
+      FROM public.league_roster_capture_receipts`);
+    return { ...snapshot, mode: b2.bound ? 'AB+B2' : 'AB', writerMode: ab.mode,
+      provenanceTriggers: await b2Verify(b2.bound),
+      counters: { ...snapshot.counters, successfulWitnessedCores: b2.successfulCores },
+      representations: { populationSharedReceipts: representations.population_shared_receipts,
+        provenanceSharedReceipts: representations.provenance_shared_receipts } };
+  }
+  it('B2 preserves exact provenance fresh receipts replay and historical reads across storage combinations', async () => {
+    b2.boundaries.push(await b2Snapshot('empty-migrated-schema'));
+    await b1Setup(); b2.boundaries.push(await b2Snapshot('synthetic-prerequisites'));
+    await b2Mode('AB', false, async () => {
+      for (const f of b1.fixtures) await b2Remember(f, await b2Core(f));
+      b2.boundaries.push(await b2Snapshot('baseline-AB'));
+    });
+    for (const mode of ['legacy', 'A', 'B1', 'AB'] as const) {
+      await b2Mode(mode, true, async () => {
+        const prior = b2.saved.filter(saved => saved.fixture === b1.fixtures[0]).at(-1)!.value;
+        const unchanged = await b2Core(b1.fixtures[0], { replay: mode === 'AB' });
+        expect(unchanged.rows[1].legacy_observation_id).toBe(prior.rows[1].legacy_observation_id);
+        expect(unchanged.written[1].args[0].envelope.provenance.requestStartedAt).not.toBe(prior.written[1].args[0].envelope.provenance.requestStartedAt);
+        expect(unchanged.written[1].args[0].envelope.provenance.requestCompletedAt).not.toBe(prior.written[1].args[0].envelope.provenance.requestCompletedAt);
+        await b2Remember(b1.fixtures[0], unchanged);
+        b2.boundaries.push(await b2Snapshot('candidate-' + mode)); await b2History();
+      });
+    }
+    await b2Mode('AB', true, async () => {
+      const first = b2.saved.at(-1)!.value, f = b1.fixtures[0], other = await b2Core(b1.fixtures[1]);
+      await b2Remember(b1.fixtures[1], other);
+      expect(other.rows[1].provenance_content_id).not.toBe(first.rows[1].provenance_content_id);
+      const correction = await b2Core(f, { score: true }), returned = await b2Core(f, { occurrenceOrigin: b2.saved[0].value.requestId });
+      expect(correction.standing.teams[0].record.wins).toEqual({ state: 'known', value: 5, sourcePath: 'settings.wins' });
+      expect(returned.links.links).toEqual(first.links.links); expect(returned.storage.link_content_id).toBe(first.storage.link_content_id);
+      expect(returned.rows[1].content_id).toBe(first.rows[1].content_id);
+      expect(returned.rows[1].legacy_observation_id).not.toBe(first.rows[1].legacy_observation_id);
+      expect(returned.written[1].args[0].envelope.provenance.requestStartedAt).not.toBe(first.written[1].args[0].envelope.provenance.requestStartedAt);
+      expect(returned.written[1].args[0].envelope.provenance.requestCompletedAt).not.toBe(first.written[1].args[0].envelope.provenance.requestCompletedAt);
+      expect(new Set([first, correction, returned].map(value => value.rows[1].provenance_content_id)).size).toBe(3);
+      expect(new Set([first, correction, returned].map(value => JSON.stringify(value.rows[1].effective_provenance))).size).toBe(3);
+      await b2Remember(f, correction); await b2Remember(f, returned);
+      b2.boundaries.push(await b2Snapshot('cross-league-correction-return')); await b2History();
+    });
+    expect(b1.cores).toBe(9); expect(b2.successfulCores).toBe(9);
+    expect(await connection.database.query('SELECT public.roster_capture_provenance(NULL::public.league_roster_capture_receipts) AS value')).toEqual([{ value: null }]);
+    await b2Verify(false); await abVerifyMode('legacy'); await b2History();
+    console.info('CP28_B2_SEMANTICS ' + JSON.stringify({ modes: ['AB', 'legacy+B2', 'A+B2', 'B1+B2', 'AB+B2'],
+      witnessedCores: b1.cores, successfulWitnessedCores: b2.successfulCores, reservations: b1.attempts,
+      historicalReceipts: b2.saved.length * 4, exactHistoryAndDigests: true, exactReplayBeforeAck: true,
+      ordinaryCoreCheckpointAndSettlement: true, rawAttemptMappingsAndFencesPreserved: true, restoredAllThreeWriters: true }));
+  }, 180_000);
+  it('B2 rejects foreign bindings incomplete content history mutation and unauthorized provenance access', async () => {
+    const first = b2.saved.find(saved => saved.fixture === b1.fixtures[0] && saved.value.rows[1].provenance_content_id !== null)!.value,
+      other = b2.saved.find(saved => saved.fixture === b1.fixtures[1] && saved.value.rows[1].provenance_content_id !== null)!.value;
+    const receiptId = first.ids[1], headerId = first.rows[1].provenance_content_id;
+    await b2Mode('AB', true, async () => {
+      const plain = await b1Direct(b1.fixtures[0], { evidence: false });
+      expect((await b1Receipts([plain.receipt], connection.database, true))[0]).toMatchObject({
+        provenance_storage_format: 'inline-v1', provenance_content_id: null, provenance: plain.input.envelope.provenance,
+        effective_provenance: plain.input.envelope.provenance });
+    });
+    const before = await b2State();
+    const alterations = [ { provenance_content_id: other.rows[1].provenance_content_id }, { provenance_content_id: null },
+      { provenance_storage_format: 'inline-v1' }, { provenance: first.rows[1].effective_provenance },
+      { legacy_observation_id: other.rows[1].legacy_observation_id }, { content_id: other.rows[1].content_id },
+      { attempt_id: first.rows[0].attempt_id } ];
+    for (const alteration of alterations) await expect(connection.database.query(`SELECT public.roster_capture_provenance(
+      jsonb_populate_record(NULL::public.league_roster_capture_receipts,to_jsonb(receipt)||$2::jsonb))
+      FROM public.league_roster_capture_receipts receipt WHERE receipt.id=$1`, [receiptId, JSON.stringify(alteration)]))
+      .rejects.toMatchObject({ code: 'P0001' });
+    expect(await connection.database.query(`SELECT public.roster_capture_provenance(receipt) AS value FROM (SELECT 1) anchor
+      LEFT JOIN public.league_roster_capture_receipts receipt ON receipt.id=$1`, [randomUUID()])).toEqual([{ value: null }]);
+    for (const sql of ['UPDATE public.league_roster_provenance_contents SET content_hash=content_hash WHERE id=$1',
+      'DELETE FROM public.league_roster_provenance_contents WHERE id=$1',
+      'UPDATE public.league_roster_capture_receipts SET provenance_content_id=provenance_content_id WHERE id=$1',
+      'DELETE FROM public.league_roster_capture_receipts WHERE id=$1']) {
+      await expect(ownerQuery(sql, [sql.includes('provenance_contents') ? headerId : receiptId])).rejects.toThrow(/immutable|history|append/iu);
+    }
+    const table = (await ownerQuery("SELECT 'public.league_roster_provenance_contents'::regclass::oid::int AS oid"))[0].oid;
+    const functions = await ownerQuery(`SELECT oid::int,proname FROM pg_proc WHERE pronamespace='public'::regnamespace
+      AND proname IN ('roster_capture_provenance','intern_roster_capture_provenance','validate_roster_provenance_content') ORDER BY proname`);
+    expect(functions).toHaveLength(3);
+    for (const role of ['runtime', 'account', 'auth'] as const) {
+      const client = await createPinnedIntegrationDatabase(role);
+      try {
+        expect((await client.database.query('SELECT current_user,session_user'))[0])
+          .toEqual({ current_user: 'league_one_' + role, session_user: 'league_one_' + role });
+        expect(await client.database.query(`SELECT has_table_privilege(current_user,$1::oid,'SELECT') AS read,
+          has_table_privilege(current_user,$1::oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS write`, [table]))
+          .toEqual([{ read: role === 'runtime', write: false }]);
+        for (const fn of functions) expect(await client.database.query("SELECT has_function_privilege(current_user,$1::oid,'EXECUTE') AS execute", [fn.oid]))
+          .toEqual([{ execute: role === 'runtime' && fn.proname === 'roster_capture_provenance' }]);
+        for (const sql of ['INSERT INTO public.league_roster_provenance_contents DEFAULT VALUES',
+          'UPDATE public.league_roster_provenance_contents SET content_hash=content_hash',
+          'DELETE FROM public.league_roster_provenance_contents', 'TRUNCATE public.league_roster_provenance_contents']) {
+          await expect(client.database.query(sql)).rejects.toThrow(/permission denied/iu);
+        }
+        if (role !== 'runtime') await expect(client.database.query('SELECT * FROM public.league_roster_provenance_contents LIMIT 1')).rejects.toThrow(/permission denied/iu);
+      } finally { await client.close(); }
+    }
+    for (const fn of functions) expect((await ownerQuery(`SELECT COALESCE(bool_or(entry.grantee=0 AND entry.privilege_type='EXECUTE'),false) AS public_execute
+      FROM pg_proc function CROSS JOIN LATERAL aclexplode(COALESCE(function.proacl,acldefault('f',function.proowner))) entry
+      WHERE function.oid=$1::oid`, [fn.oid]))[0].public_execute).toBe(false);
+    // Cloned owner-only headers are rollback fixtures. Recompute the full digest
+    // so sibling-role rejection proves witness binding rather than hash rejection.
+    for (const defect of ['hash', 'other-role-nonce', 'other-role-missing', 'orphan'] as const) {
+      const owner = await createPinnedIntegrationDatabase('owner');
+      try {
+        await owner.database.query('BEGIN'); const fakeId = randomUUID(), fakeReceipt = randomUUID();
+        await owner.database.query(`WITH original AS (SELECT *,CASE $4::text
+          WHEN 'other-role-nonce' THEN jsonb_set(provenance,'{acquisition,attempts,managers,nonce}',to_jsonb($5::text))
+          WHEN 'other-role-missing' THEN provenance#-'{acquisition,attempts,managers,nonce}' ELSE provenance END AS changed
+          FROM public.league_roster_provenance_contents WHERE id=$1)
+          INSERT INTO public.league_roster_provenance_contents(id,league_season_id,source_mapping_revision_id,legacy_observation_id,content_hash,provenance,first_receipt_id)
+          SELECT $2::uuid,league_season_id,source_mapping_revision_id,legacy_observation_id,
+            CASE WHEN $4::text IN ('hash','orphan') THEN encode(digest($2::text,'sha256'),'hex')
+              ELSE encode(digest(convert_to(changed::text,'UTF8'),'sha256'),'hex') END,changed,$3::uuid FROM original`,
+        [headerId, fakeId, fakeReceipt, defect, randomUUID()]);
+        if (defect === 'orphan') await expect(owner.database.query('SET CONSTRAINTS roster_provenance_content_complete IMMEDIATE'))
+          .rejects.toMatchObject({ code: 'P0002' });
+        else await expect(owner.database.query(`SELECT public.roster_capture_provenance(jsonb_populate_record(NULL::public.league_roster_capture_receipts,
+          to_jsonb(receipt)||jsonb_build_object('provenance_content_id',$2::uuid)))
+          FROM public.league_roster_capture_receipts receipt WHERE receipt.id=$1`, [receiptId, fakeId]))
+          .rejects.toMatchObject({ code: 'P0001', message: defect === 'hash'
+            ? 'shared roster provenance observation binding mismatch' : 'shared roster provenance attempt group mismatch' });
+      } finally { try { await owner.database.query('ROLLBACK'); } finally { await owner.close(); } }
+    }
+    for (const alteration of alterations) {
+      const owner = await createPinnedIntegrationDatabase('owner');
+      try {
+        await owner.database.query('BEGIN');
+        await expect(owner.database.query(`INSERT INTO public.league_roster_capture_receipts
+          SELECT (jsonb_populate_record(NULL::public.league_roster_capture_receipts,
+            to_jsonb(receipt)||$2::jsonb||jsonb_build_object('id',$3::uuid))).*
+          FROM public.league_roster_capture_receipts receipt WHERE receipt.id=$1`,
+        [receiptId, JSON.stringify(alteration), randomUUID()])).rejects.toMatchObject({ code: 'P0001' });
+      } finally { try { await owner.database.query('ROLLBACK'); } finally { await owner.close(); } }
+    }
+    // A later unnamed reservation cannot invalidate an immutable witness group.
+    // This is an owner append/rollback fixture, not a live reservation qualification.
+    b1Reserve(1); const append = await createPinnedIntegrationDatabase('owner');
+    try {
+      await append.database.query('BEGIN'); const extra = randomUUID();
+      await append.database.query(`INSERT INTO public.league_roster_resource_attempts(id,scope_id,ordinal,expected_generation,source_mapping,write_fence,capture_nonce)
+        SELECT $2::uuid,scope_id,(SELECT max(ordinal)+1 FROM public.league_roster_resource_attempts sibling WHERE sibling.scope_id=attempt.scope_id),
+          expected_generation,source_mapping,write_fence,gen_random_uuid() FROM public.league_roster_resource_attempts attempt WHERE id=$1`,
+      [first.rows[1].attempt_id, extra]);
+      expect((await b1Receipts([receiptId], append.database, true))[0].effective_provenance).toEqual(first.rows[1].effective_provenance);
+      expect(await append.database.query('SELECT 1 FROM public.league_roster_capture_receipts WHERE attempt_id=$1', [extra])).toEqual([]);
+    } finally { try { await append.database.query('ROLLBACK'); } finally { await append.close(); } }
+    const reader = await createPinnedIntegrationDatabase('runtime');
+    try {
+      await reader.database.query('BEGIN READ ONLY');
+      expect(await reader.database.query('SELECT pg_current_xact_id_if_assigned() AS xid')).toEqual([{ xid: null }]);
+      expect((await b1Receipts([receiptId], reader.database, true))[0].effective_provenance).toEqual(first.rows[1].effective_provenance);
+      expect(await reader.database.query('SELECT pg_current_xact_id_if_assigned() AS xid')).toEqual([{ xid: null }]);
+    } finally { try { await reader.database.query('ROLLBACK'); } finally { await reader.close(); } }
+    // The old mapping/head stays intact after this rollback-only administrative
+    // advance. The historical accessor has no current mapping or clock dependency.
+    const mapping = await createPinnedIntegrationDatabase('owner');
+    try {
+      await mapping.database.query('BEGIN');
+      await mapping.database.query("SELECT public.revise_league_source_connection($1,'sleeper',$2,$3,'B2 rollback-only mapping advance')",
+        [b1.fixtures[0].leagueSeasonId, b1.fixtures[0].mapping.revisionId, numericId()]);
+      expect((await b1Receipts([receiptId], mapping.database, true))[0].effective_provenance).toEqual(first.rows[1].effective_provenance);
+      expect(await administrationFor(mapping.database).readOfficialStandings!(b1.fixtures[0].mapping, { rosterReceiptId: receiptId }))
+        .toEqual({ status: 'missing', reason: 'roster_capture_missing' });
+    } finally { try { await mapping.database.query('ROLLBACK'); } finally { await mapping.close(); } }
+    expect(await read(b1.fixtures[0].mapping, receiptId)).toEqual(first.standing);
+    expect(await b2State()).toEqual(before); await b2History();
+    console.info('CP28_B2_SECURITY ' + JSON.stringify({ malformedComposites: alterations.length, guardedInsertRejections: alterations.length,
+      immutableMutationRejections: 4, roles: ['runtime', 'account', 'auth'], publicExecuteDenied: true,
+      siblingRoleNonceMissingAndWrongRejectedAfterDigestRecompute: true, orphanCommitRejected: true,
+      sameFenceAppendHistoricalRead: 'owner rollback fixture', mappingAdvanceHistoricalRead: 'owner rollback fixture',
+      sqlNullLeftJoin: true, readOnlyAccessorAllocatesNoXid: true, scopedStateRollback: true, scopedTables: before.map(row => row.name) }));
+  }, 120_000);
+  it('B2 rolls back provenance after downstream expiry and preserves concurrent writer history', async () => {
+    const f = b1.fixtures[0];
+    await b2Mode('AB', true, async () => {
+      for (const target of ['population', 'identity'] as const) {
+        const blocker = await createPinnedIntegrationDatabase('owner'), writer = await createPinnedIntegrationDatabase('runtime');
+        let open = false, verified = false, lastWait: DatabaseRow | undefined, callbackError: unknown;
+        let pending: Promise<{ result?: B1Write['result']; error?: unknown }> | undefined;
+        try {
+          const [blockerPid] = await blocker.database.query('SELECT pg_backend_pid() AS pid'),
+            [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
+          const identity = b2.saved.find(saved => saved.fixture === f)!.value.links.links[0].canonicalEntityId;
+          expect(identity).toBeTypeOf('string');
+          const outcome = await b2Core(f, { expectedFailure: () => verified, intercept: async args => {
+            try {
+            const started = performance.now(), originalFence = args[1]!;
+            const before = await b2State();
+            const [fresh] = await connection.database.query(`SELECT NOT EXISTS(SELECT 1 FROM public.league_roster_provenance_contents
+              WHERE league_season_id=$1 AND source_mapping_revision_id=$2
+                AND content_hash=encode(digest(convert_to($3::jsonb::text,'UTF8'),'sha256'),'hex')) AS absent`,
+            [f.leagueSeasonId, f.mapping.revisionId, JSON.stringify(args[0].envelope.provenance)]);
+            expect(fresh.absent).toBe(true);
+            await blocker.database.query('BEGIN'); open = true;
+            if (target === 'population') await blocker.database.query('LOCK TABLE public.league_roster_population_contents IN SHARE MODE');
+            else await blocker.database.query('SELECT id FROM public.scoring_entities WHERE id=$1 FOR UPDATE', [identity]);
+            pending = administrationFor(writer.database).recordObservation(...args).then(result => ({ result }), error => ({ error }));
+            let observed: DatabaseRow | undefined;
+            for (let poll = 0; poll < 150; poll++) {
+              const [row] = await blocker.database.query(`SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_provenance_contents'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS provenance_insert,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS population_insert,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass
+                  AND mode='RowExclusiveLock' AND NOT granted) AS population_wait,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.scoring_entities'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS identity_write,
+                EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_resource_acceptances'::regclass
+                  AND mode='RowExclusiveLock' AND granted) AS acceptance_insert,
+                EXISTS(SELECT 1 FROM pg_locks waiter JOIN pg_locks holder USING(transactionid)
+                  WHERE waiter.pid=$2::int AND holder.pid=$1::int AND waiter.locktype='transactionid'
+                    AND waiter.mode='ShareLock' AND NOT waiter.granted AND holder.granted) AS identity_wait`, [blockerPid.pid, writerPid.pid]);
+              lastWait = row;
+              if (row.blocked === true && row.provenance_insert === true && (target === 'population' ? row.population_wait === true
+                : row.population_insert === true && row.identity_write === true && row.acceptance_insert === true && row.identity_wait === true)) {
+                observed = row; break;
+              }
+              await delay(20);
+            }
+            expect(observed).toBeDefined();
+            await blocker.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM($1::timestamptz-clock_timestamp())))+0.025)`, [originalFence.deadlineAt]);
+            await blocker.database.query('COMMIT'); open = false;
+            const settled = await pending;
+            expect(String(settled.error)).toMatch(/fence.*(?:stale|expired)|deadline/iu);
+            expect(await b2State()).toEqual(before); verified = true;
+            console.info('CP28_B2_FENCE ' + JSON.stringify({ target, originalDeadlineAt: originalFence.deadlineAt,
+              elapsedMs: performance.now() - started, wait: target === 'population' ? 'B1 population relation lock' : 'A canonical identity transaction lock',
+              observed, freshProvenanceKeyAbsentBeforeWrite: true, provenanceInsertAttemptedBeforeWait: true,
+              uncommittedParentVisibilityNotClaimed: true, rejected: true, scopedStateRollback: true, scopedTables: before.map(row => row.name) }));
+            throw settled.error;
+            } catch (error) { if (!verified) callbackError = error; throw error; }
+          } }).then(() => ({ error: undefined as unknown }), error => ({ error }));
+          if (callbackError) throw callbackError;
+          expect(String(outcome.error)).toContain('B2 expected original-deadline core failure verified');
+          // The ordinary capture has now restored its fetch spy. Historical
+          // no-fetch checks must not reuse that spy's two earlier core calls.
+          await b2History(); b2.expectedFailedCores++;
+        } catch (error) {
+          if (open) { await blocker.database.query('ROLLBACK'); open = false; }
+          const settled = await pending, failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
+          const callback = callbackError as { name?: unknown; code?: unknown; message?: unknown } | undefined;
+          console.info('CP28_B2_FENCE_DIAGNOSTIC ' + JSON.stringify({ target, lastWait,
+            callbackError: callback ? { name: String(callback.name), code: String(callback.code), message: String(callback.message).slice(0,240) } : null,
+            pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null }));
+          throw error;
+        } finally {
+          try { if (open) await blocker.database.query('ROLLBACK'); }
+          finally { try { await pending; } finally { try { await writer.close(); } finally { await blocker.close(); } } }
+        }
+      }
+      const first = await createPinnedIntegrationDatabase('runtime'), second = await createPinnedIntegrationDatabase('runtime');
+      let open = false, lastWait: DatabaseRow | undefined, callbackError: unknown;
+      let pending: Promise<{ result?: B1Write['result']; error?: unknown }> | undefined;
+      try {
+        const [firstPid] = await first.database.query('SELECT pg_backend_pid() AS pid'),
+          [secondPid] = await second.database.query('SELECT pg_backend_pid() AS pid');
+        const core = await b2Core(f, { intercept: async args => {
+          try {
+            await first.database.query('BEGIN'); open = true;
+            const accepted = await administrationFor(first.database).recordObservation(...args);
+            const ids = [accepted.rosterAcceptance, accepted.teamManagerAcceptance, accepted.teamManagerEvidenceAcceptance].map(value => {
+              expect(value?.status).toBe('accepted'); return value!.receiptId;
+            });
+            const initial = await b1Receipts(ids, first.database, true);
+            expect(initial.every(row => row.provenance_storage_format === 'shared-v1' && row.population_storage_format === 'shared-v1')).toBe(true);
+            expect(new Set(initial.map(row => row.provenance_content_id)).size).toBe(1);
+            pending = administrationFor(second.database).recordObservation(...args).then(result => ({ result }), error => ({ error }));
+            let observed: DatabaseRow | undefined;
+            for (let poll = 0; poll < 150; poll++) {
+              const [row] = await first.database.query(`SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
+                  EXISTS(SELECT 1 FROM pg_locks waiter JOIN pg_locks holder
+                    ON holder.locktype=waiter.locktype AND holder.transactionid=waiter.transactionid
+                    WHERE waiter.pid=$2::int AND holder.pid=$1::int AND waiter.locktype='transactionid'
+                      AND waiter.mode='ShareLock' AND NOT waiter.granted AND holder.mode='ExclusiveLock' AND holder.granted) AS transaction_lock,
+                  EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1::int AND locktype='relation'
+                    AND relation='public.projection_jobs'::regclass AND mode='RowShareLock' AND granted) AS first_job_owner,
+                  EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND locktype='relation'
+                    AND relation='public.projection_jobs'::regclass AND mode='RowShareLock' AND granted) AS second_job_owner`,
+              [firstPid.pid, secondPid.pid]);
+              lastWait = row;
+              if (row.blocked === true && row.transaction_lock === true && row.first_job_owner === true && row.second_job_owner === true) {
+                observed = row; break;
+              }
+              await delay(20);
+            }
+            expect(observed).toBeDefined(); await first.database.query('COMMIT'); open = false;
+            const beforeReplay = await b2State(), settled = await pending; expect(settled.error).toBeUndefined();
+            for (const key of ['rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance'] as const) {
+              expect(settled.result?.[key]).toMatchObject({ status: 'accepted', reason: 'exact_receipt_replay',
+                receiptId: accepted[key]!.receiptId, acceptedGeneration: accepted[key]!.acceptedGeneration });
+            }
+            expect(await b2State()).toEqual(beforeReplay); expect(await b1Receipts(ids, connection.database, true)).toEqual(initial);
+            console.info('CP28_B2_CONCURRENCY ' + JSON.stringify({ setup: 'two restricted runtime writers of the same genuine witnessed core input',
+              wait: 'original job ownership row serialization; not mapping or shared-content unique-key contention', observed,
+              exactReplay: true, sameThreeReceipts: true, oneFreshProvenanceParent: true, oneFreshPopulationParent: true,
+              sameOriginalFenceAndAcquisition: true, noExtraReservations: true }));
+            return accepted;
+          } catch (error) {
+            callbackError = error;
+            // Release the original job row before the intake's failure checkpoint tries to acquire it.
+            try { if (open) { await first.database.query('ROLLBACK'); open = false; } }
+            catch { throw error; }
+            throw error;
+          }
+        } });
+        if (callbackError !== undefined) throw callbackError;
+        await b2Remember(f, core);
+      } catch (error) {
+        if (open) { await first.database.query('ROLLBACK'); open = false; }
+        const settled = await pending, failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
+        const callback = callbackError as { name?: unknown; code?: unknown; message?: unknown } | undefined;
+        console.info('CP28_B2_CONCURRENCY_DIAGNOSTIC ' + JSON.stringify({ lastWait,
+          callbackError: callback ? { name: String(callback.name), code: String(callback.code), message: String(callback.message).slice(0,240) } : null,
+          pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null })); throw callbackError ?? error;
+      } finally {
+        try { if (open) await first.database.query('ROLLBACK'); }
+        finally { try { await pending; } finally { try { await second.close(); } finally { await first.close(); } } }
+      }
+      expect(b1.cores).toBe(12); expect(b2.successfulCores).toBe(10); expect(b2.expectedFailedCores).toBe(2);
+      b2.boundaries.push(await b2Snapshot('after-security-and-witnessed-interactions')); await b2History();
+    });
+    await b2Verify(false); await abVerifyMode('legacy');
+  }, 120_000);
+  it('B2 measures matched witnessed cores with receipt provenance sharing and bounded compression diagnostics', async () => {
+    await b2History();
+    const measure = async (enabled: boolean) => b2Mode('AB', enabled, async () => {
+      const mode = enabled ? 'AB+B2' : 'AB', beforeWarm = await b2Snapshot(mode + '-before-warm');
+      for (const f of b1.fixtures) await b2Core(f);
+      const before = await b2Snapshot(mode + '-measured-start'), batches: { cores: number; snapshot: Awaited<ReturnType<typeof b2Snapshot>> }[] = [];
+      const receipts = new Set<string>(), populations = new Set<string>(), provenances = new Set<string>(), links = new Set<string>();
+      let last: Awaited<ReturnType<typeof b2Core>> | undefined;
+      for (let index = 0; index < 32; index++) {
+        last = await b2Core(b1.fixtures[index % 2]);
+        for (const id of last.ids) receipts.add(id);
+        for (const row of last.rows.slice(1)) {
+          populations.add(String(row.population_content_id));
+          if (row.provenance_content_id !== null) provenances.add(String(row.provenance_content_id));
+        }
+        links.add(String(last.storage.link_content_id));
+        if ((index + 1) % 8 === 0) batches.push({ cores: index + 1, snapshot: await b2Snapshot(mode + '-measured-' + (index + 1)) });
+      }
+      const after = batches.at(-1)!.snapshot;
+      const rowDelta = (table: string) => after.relations.find(row => row.name === 'public.' + table)!.rows
+        - before.relations.find(row => row.name === 'public.' + table)!.rows;
+      expect(receipts.size).toBe(128); expect(populations.size).toBe(32); expect(provenances.size).toBe(enabled ? 32 : 0); expect(links.size).toBe(2);
+      for (const table of ['league_roster_capture_receipts', 'league_roster_resource_attempts', 'league_roster_resource_acceptances']) expect(rowDelta(table)).toBe(128);
+      expect(rowDelta('league_roster_population_contents')).toBe(32); expect(rowDelta('league_roster_provenance_contents')).toBe(enabled ? 32 : 0);
+      expect(rowDelta('league_roster_player_link_receipts')).toBe(32); expect(rowDelta('league_official_standings_captures')).toBe(32);
+      for (const table of ['league_roster_player_links', 'league_roster_player_link_contents', 'league_roster_player_link_content_entries']) expect(rowDelta(table)).toBe(0);
+      expect(Number(after.representations.populationSharedReceipts) - Number(before.representations.populationSharedReceipts)).toBe(96);
+      expect(Number(after.representations.provenanceSharedReceipts) - Number(before.representations.provenanceSharedReceipts)).toBe(enabled ? 96 : 0);
+      expect(after.counters.witnessedCores - before.counters.witnessedCores).toBe(32);
+      expect(after.counters.successfulWitnessedCores - before.counters.successfulWitnessedCores).toBe(32);
+      expect(after.counters.resourceReservations - before.counters.resourceReservations).toBe(128);
+      expect(after.relations.filter(row => row.schema === 'website_auth')).toEqual(beforeWarm.relations.filter(row => row.schema === 'website_auth'));
+      let queries = 0;
+      const database: DatabaseClient = { enabled: true, query: async <Row extends DatabaseRow>(sql: string, parameters?: readonly unknown[], options?: DatabaseQueryOptions) => {
+        queries++; expect(sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|CALL)\b/iu); return connection.database.query<Row>(sql, parameters, options);
+      } };
+      const reader = administrationFor(database), start = performance.now();
+      expect(await read(b1.fixtures[1].mapping, last!.ids[1], reader)).toEqual(last!.standing);
+      const standingsElapsedMs = performance.now() - start; expect(queries).toBe(1);
+      const linkStart = performance.now(); expect(await abLinks(b1.fixtures[1], last!.ids[1], reader)).toEqual(last!.links);
+      const linksElapsedMs = performance.now() - linkStart; expect(queries).toBe(2);
+      const publicStart = performance.now(), publicRead = await b2Public(b1.fixtures[1], last!.requestId);
+      const publicElapsedMs = performance.now() - publicStart; expect(publicRead).toEqual(last!.publicRead);
+      // Inspect retained values only. No storage ALTER, recompression, rewrite or
+      // extra capture; column sizes are diagnostic, not additive physical savings.
+      const compression = await ownerQuery(`SELECT scope.identity->'policy'->>'canonicalNormalizerVersion' AS policy,
+        receipt.provenance_storage_format,pg_column_size(receipt)::int AS receipt_tuple_bytes,
+        pg_column_size(public.roster_capture_provenance(receipt))::int AS logical_provenance_bytes,
+        pg_column_size(receipt.provenance)::int AS inline_provenance_bytes,pg_column_compression(receipt.provenance) AS provenance_compression,
+        pg_column_size(attempt)::int AS attempt_tuple_bytes,pg_column_size(attempt.source_mapping)::int AS mapping_bytes,
+        pg_column_compression(attempt.source_mapping) AS mapping_compression,pg_column_size(attempt.write_fence)::int AS fence_bytes,
+        pg_column_compression(attempt.write_fence) AS fence_compression
+        FROM public.league_roster_capture_receipts receipt JOIN public.league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+        JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id WHERE receipt.id=ANY($1::uuid[])
+        ORDER BY array_position($1::uuid[],receipt.id)`, [last!.ids]);
+      expect(compression).toHaveLength(4); await b2History();
+      return { mode, beforeWarm, before, after, batches, historicalDigestChecksPassed: true, compression,
+        reader: { standingsElapsedMs, linksElapsedMs, publicElapsedMs, standingsQueries: 1, linkQueries: 1,
+          publicQueries: publicRead.queries, publicResult: publicRead.result, teams: 10, held: 80 },
+        measured: { cores: 32, receipts: receipts.size, populationParents: populations.size, provenanceParents: provenances.size,
+          populationReferences: 96, provenanceReferences: enabled ? 96 : 0, reusedLinkContents: links.size } };
+    });
+    const baseline = await measure(false), candidate = await measure(true);
+    await b2Verify(false); await abVerifyMode('legacy'); await b2History();
+    const affected = ['public.league_roster_capture_receipts', 'public.league_roster_provenance_contents'];
+    const delta = (phase: typeof baseline, names?: readonly string[]) => phase.after.relations.reduce((sum, row) =>
+      sum + (row.schema === 'public' && (!names || names.includes(row.name))
+        ? Number(row.total) - Number(phase.before.relations.find(old => old.name === row.name)!.total) : 0), 0);
+    console.info('CP28_B2_ALLOCATION ' + JSON.stringify({ schemaVersion: 1, kind: 'local-native-witnessed-core-provenance-b2-v1',
+      fixture: { leagues: 2, teamsPerLeague: 10, teamsTotal: 20, heldPerCore: 80, heldAcrossLeagues: 160, uniqueCatalogPlayers: 80 },
+      workload: { semanticCores: 9, interactionAttemptedCores: 3, expectedFailedCores: 2, warmCoresPerLayout: 2,
+        measuredCoresPerLayout: 32, attemptsPerCore: 4, receiptsPerSuccessfulCore: 4, acceptedStandingsPerSuccessfulCore: 1,
+        eligiblePopulationReceiptsPerCore: 3, eligibleProvenanceReceiptsPerCore: 3, boundaryReservationAllowance: 8 },
+      semanticBoundaries: b2.boundaries, baseline, candidate, affectedRelations: affected,
+      affectedAllocatedBytes: { baseline: delta(baseline, affected), candidate: delta(candidate, affected) },
+      allPublicAllocatedBytes: { baseline: delta(baseline), candidate: delta(candidate) },
+      counters: { witnessedCores: b1.cores, successfulWitnessedCores: b2.successfulCores, expectedFailedCores: b2.expectedFailedCores,
+        resourceReservations: b1.attempts, syntheticCoreHttpResponses: b1.cores * 2 },
+      historicalDigestChecksPassed: true, restoredAllThreeWriters: true, externalProviderCalls: 0,
+      limitations: ['synthetic prerequisites/admission/jobs; no cadence qualification',
+        'same expanded 65-migration/158-table schema in both layouts; warmed sequential allocation only',
+        'two expected failures use original witnessed core deadline; no separate lease-expiry claim',
+        'concurrency proves same-input exact replay under mapping advisory serialization, not content-key contention',
+        'existing-row compression inspection only; no lower-target tuning experiment or causal compression claim',
+        'one local standings/link/public-reader timing per layout; no SLO',
+        'proof-column datum/text diagnostics overlap whole-row tuple bytes and are not additive physical savings',
+        'all-public includes synthetic controls and shared identities; classification required',
+        '10 teams/80 held per core differs from original hosted 20 teams/160 held per core',
+        'four selected local cases only; full21-case profile remains unqualified',
+        'fifteen missing-family prices and whole-horizon 10-GiB capacity remain unqualified'] }));
+    expect(b1.cores).toBe(80); expect(b2.successfulCores).toBe(78); expect(b2.expectedFailedCores).toBe(2);
+    expect(b1.attempts).toBeLessThanOrEqual(329);
+    expect(delta(candidate, affected)).toBeLessThan(delta(baseline, affected));
   }, 300_000);
 });

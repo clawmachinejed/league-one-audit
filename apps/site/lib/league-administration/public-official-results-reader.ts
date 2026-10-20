@@ -34,7 +34,7 @@ export const PUBLIC_OFFICIAL_STANDINGS_SQL = `/* public-data-intake:read-officia
   ), latest AS (SELECT * FROM recent WHERE revision=(SELECT max(revision) FROM recent))
   SELECT dispatch.intake_id,dispatch.revision,dispatch.work,dispatch.worker_id,dispatch.generation,
     dispatch.capture_nonce AS dispatch_nonce,attempt.id AS attempt_id,attempt.capture_nonce AS attempt_nonce,
-    attempt.source_mapping,attempt.write_fence,receipt.id AS receipt_id,receipt.provenance,
+    attempt.source_mapping,attempt.write_fence,receipt.id AS receipt_id,public.roster_capture_provenance(receipt) AS provenance,
     qualification.intake_id AS qualified_intake_id,qualification.worker_id AS qualified_worker_id,
     qualification.generation AS qualified_generation,qualification.receipt_id AS qualified_receipt_id
   FROM latest dispatch

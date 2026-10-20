@@ -153,8 +153,8 @@ export const INGESTION_PROFILE = 'data-core-ingestion-v1';
 export const CORE_COMPATIBILITY_PROFILE = 'data-core-compatibility-v1';
 export const OFFICIAL_RESULTS_PROFILE = 'data-official-results-v1';
 export const OFFICIAL_RESULTS_MODULE = 'integration/official-results.integration-case.ts';
-// CP13 cases plus six CP28 B1 and three combined A+B local cases; reviewed source pin is separate from hosted SQL qualification.
-export const OFFICIAL_RESULTS_SOURCE_DIGEST = '458c4d4acb035e8e9ed07bb5dad796f5e4080d239f167d8355356694a4f902b8';
+// CP13 cases plus six B1, three combined A+B and four B2 provenance local cases; reviewed source pin is separate from hosted SQL qualification.
+export const OFFICIAL_RESULTS_SOURCE_DIGEST = '31ff1fe56dbf49048bd8f09614e21e3ec6ebcf535e2e5ccfdfad22cd0bd2474b';
 export const OFFICIAL_RESULTS_SUITE = 'official standings and results through restricted PostgreSQL';
 export const OFFICIAL_RESULTS_TESTS = [
   'stores provider record points and supplied placement through independent typed receipts',
@@ -174,10 +174,14 @@ export const OFFICIAL_RESULTS_TESTS = [
   'AB preserves four-mode history fresh proofs corrections return and exact replay',
   'AB rolls back both histories after downstream expiry and serializes actual runtime writers',
   'AB measures matched witnessed cores with combined lossless sharing and complete allocation attribution',
+  'B2 preserves exact provenance fresh receipts replay and historical reads across storage combinations',
+  'B2 rejects foreign bindings incomplete content history mutation and unauthorized provenance access',
+  'B2 rolls back provenance after downstream expiry and preserves concurrent writer history',
+  'B2 measures matched witnessed cores with receipt provenance sharing and bounded compression diagnostics',
 ] as const;
 export const OFFICIAL_RESULTS_FULL_NAMES = OFFICIAL_RESULTS_TESTS.map(name => OFFICIAL_RESULTS_SUITE + ' > ' + name);
 export const OFFICIAL_RESULTS_PATTERN = closedPattern(OFFICIAL_RESULTS_FULL_NAMES);
-// Reuse only the two existing composition cases; retain the full seventeen-case source inventory.
+// Reuse only the two existing composition cases; retain the full twenty-one-case source inventory.
 export const OFFICIAL_RESULTS_PLAYED_PROFILE = 'data-official-results-played-v1';
 export const OFFICIAL_RESULTS_PLAYED_FULL_NAMES = [OFFICIAL_RESULTS_FULL_NAMES[6], OFFICIAL_RESULTS_FULL_NAMES[7]];
 export const OFFICIAL_RESULTS_PLAYED_PATTERN = closedPattern(OFFICIAL_RESULTS_PLAYED_FULL_NAMES);

@@ -1140,3 +1140,43 @@ DO $$ DECLARE role_name text; helper text; accessor text:='public.roster_capture
   END IF;
 END; $$;
 -- END OPTIONAL ROSTER POPULATION CONTENT GRANTS
+-- BEGIN OPTIONAL ROSTER PROVENANCE CONTENT GRANTS
+DO $$ DECLARE role_name text; helper text; accessor text:='public.roster_capture_provenance(public.league_roster_capture_receipts)';
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_provenance_contents') IS NOT NULL THEN
+    REVOKE ALL ON TABLE public.league_roster_provenance_contents FROM PUBLIC;
+    FOREACH helper IN ARRAY ARRAY['public.validate_roster_provenance_content()','public.intern_roster_capture_provenance()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN RAISE EXCEPTION 'restricted role can execute private roster provenance helper'; END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',accessor);
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.league_roster_provenance_contents FROM %I',role_name);
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',accessor,role_name);
+        IF role_name='league_one_runtime' THEN
+          GRANT SELECT ON TABLE public.league_roster_provenance_contents TO league_one_runtime;
+          EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',accessor);
+          IF NOT has_table_privilege(role_name,'public.league_roster_provenance_contents','SELECT')
+            OR NOT has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'runtime cannot read roster provenance content'; END IF;
+        ELSIF has_table_privilege(role_name,'public.league_roster_provenance_contents','SELECT')
+          OR has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'account role can read roster provenance content'; END IF;
+        IF has_table_privilege(role_name,'public.league_roster_provenance_contents',denied)
+          OR has_any_column_privilege(role_name,'public.league_roster_provenance_contents','INSERT,UPDATE,REFERENCES') THEN
+          RAISE EXCEPTION 'restricted role can write roster provenance content'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+      LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+      WHERE function_entry.oid IN (to_regprocedure(accessor),to_regprocedure('public.validate_roster_provenance_content()'),
+        to_regprocedure('public.intern_roster_capture_provenance()')) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute roster provenance function'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL ROSTER PROVENANCE CONTENT GRANTS

@@ -297,3 +297,21 @@ describe('dual-format immutable roster membership storage', () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('roster link logical provenance projection', () => {
+  it('returns original roster source alongside either stored link representation', async () => {
+    for (const row of [storedRow(), sharedRow()]) {
+      const f = fixture(row);
+      expect(await f.read()).toMatchObject({ status: 'available', rosterSource: provenance });
+      expect(f.query).toHaveBeenCalledOnce();
+    }
+    expect(ROSTER_PLAYER_LINK_READ_SQL).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(ROSTER_PLAYER_LINK_READ_SQL).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not retry after shared provenance reconstruction fails', async () => {
+    const query = vi.fn(async () => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await rosterPlayerLinkMethods({ enabled: true, query } as unknown as DatabaseClient).readRosterPlayerLinks(selection))
+      .toEqual({ status: 'unavailable', reason: 'roster_player_link_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});

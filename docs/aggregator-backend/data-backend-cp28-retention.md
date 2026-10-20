@@ -1,5 +1,12 @@
 # CP28 retention and storage growth analysis
 
+## Current B2a provenance candidate — October 20, 2026
+
+**Local source candidate implemented; native qualification incomplete. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [provenance report](data-backend-cp28-provenance-storage.md) records the additive dormant candidate, three failed local attempts, 133 cumulative reservations and verified cleanup for each. Semantics and binding/security passed in later attempts; the third also passed both deadline probes before its concurrency fixture timed out. The final fixture repair is source-reviewed and unit/type/lint checked but has not run against PostgreSQL. No matched B2 storage measurement or forecast exists, and the original bounded campaign was not extended or reset.
+
+Next required evidence is a passing complete native interaction case and matched A+B versus A+B+B2 allocation, followed by a conditional forecast and pricing of the fifteen remaining family/control/benchmark terms. The accepted A+B figures below remain unchanged. This candidate is local and unpublished; PR318 remains at 168a856, with no new CI, preview, hosted, merge or deployment qualification.
+
+
 ## Current combined A+B local proof — October 19, 2026
 
 **Combined behavior/storage proof: PASS. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [combined report](data-backend-cp28-combined-storage.md) records three passing selected PostgreSQL cases, both preserved fixture-observation failures, 428 cumulative reservations, all 64 real migrations and verified cleanup. Matched 32-core allocation fell from 2,891,776 to 368,640 bytes in directly affected tables (87.25%); all-public growth fell from 3,317,760 to 745,472 bytes. The final DATA rate is 18,176 bytes per core at the local ten-team/eighty-held-player geometry; it is a finite warmed observation, not a proven recurring production slope.

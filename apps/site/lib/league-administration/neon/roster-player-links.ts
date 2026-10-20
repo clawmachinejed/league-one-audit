@@ -12,10 +12,10 @@ import { isPlayerDirectoryNativeId } from '../player-directory';
 import type { AdministrationEnvelope, JsonObject } from '../contracts';
 import type { PlayerDirectoryVersion, PlayerDirectorySourceSlice } from '../player-directory-contracts';
 
-/** Requires schema expansion 063 before deployment; the legacy writer stays active until
+/** Requires migrations through 065 before deployment; the legacy writer stays active until
  * this dual-format reader is installed. No current head, mapping or crosswalk dependency. */
 export const ROSTER_PLAYER_LINK_READ_SQL = `/* league-administration:read-roster-player-links */
-  SELECT linked.*,linked.resolved_at::text AS resolved_at,linked.mapping_evaluated_at::text AS mapping_evaluated_at,accepted.generation,scope.identity,scope.connection_id,receipt.provenance,receipt.coverage,
+  SELECT linked.*,linked.resolved_at::text AS resolved_at,linked.mapping_evaluated_at::text AS mapping_evaluated_at,accepted.generation,scope.identity,scope.connection_id,public.roster_capture_provenance(receipt) AS provenance,receipt.coverage,
     receipt.expected_team_count,attempt.source_mapping,content.content_hash,content.payload,content.normalized_value,
     content.normalizer_version,content.completeness,content.provider,content.external_league_id,
     content.league_season_id AS content_league_season_id,

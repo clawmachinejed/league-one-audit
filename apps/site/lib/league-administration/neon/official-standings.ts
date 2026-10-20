@@ -30,7 +30,7 @@ export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-st
   WITH selected AS (
     SELECT scope.id AS scope_id,scope.identity,scope.league_season_id,attempt.id AS attempt_id,
       attempt.ordinal,attempt.source_mapping,attempt.capture_nonce,attempt.write_fence,attempt.reserved_at,
-      receipt.id AS receipt_id,receipt.content_id,receipt.legacy_observation_id,receipt.provenance,
+      receipt.id AS receipt_id,receipt.content_id,receipt.legacy_observation_id,public.roster_capture_provenance(receipt) AS provenance,
       receipt.configuration_content_id,public.roster_capture_population_evidence(receipt) AS population_evidence,receipt.expected_team_count
     FROM public.league_roster_resource_scopes scope
     JOIN public.league_source_connections connection ON connection.id=scope.connection_id

@@ -394,3 +394,22 @@ describe.each(['readAcceptedTeamManagers', 'readAcceptedTeamManagerEvidence'] as
     expect(query).not.toHaveBeenCalled();
   });
 });
+
+describe.each(['readAcceptedTeamManagers', 'readAcceptedTeamManagerEvidence'] as const)('%s logical provenance projection', reader => {
+  it('returns original provenance through the existing policy-specific query', async () => {
+    const row = reader === 'readAcceptedTeamManagers' ? storedRow() : evidenceRow();
+    const query = vi.fn(() => [row]);
+    expect(await teamManagerMethods(database(query))[reader](mapping))
+      .toMatchObject({ status: 'available', receipt: { provenance } });
+    expect(query).toHaveBeenCalledOnce();
+    const [sql] = query.mock.calls[0] as unknown as [string];
+    expect(sql).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(sql).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not retry after shared provenance reconstruction fails', async () => {
+    const query = vi.fn(() => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await teamManagerMethods(database(query))[reader](mapping))
+      .toEqual({ status: 'unavailable', reason: 'team_manager_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});

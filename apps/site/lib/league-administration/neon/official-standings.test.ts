@@ -255,3 +255,21 @@ describe('independent stored official standings', () => {
       .toEqual({ status: 'disabled' });
   });
 });
+
+describe('official standings logical provenance projection', () => {
+  it('preserves the original witness and clocks in the selected receipt', async () => {
+    const { row } = fixture();
+    const query = vi.fn(() => [row]);
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping, { rosterReceiptId: id(5) }))
+      .toMatchObject({ status: 'available', capture: { provenance: row.provenance } });
+    expect(query).toHaveBeenCalledOnce();
+    expect(OFFICIAL_STANDINGS_SQL).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(OFFICIAL_STANDINGS_SQL).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not retry after shared provenance reconstruction fails', async () => {
+    const query = vi.fn(() => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping, { rosterReceiptId: id(5) }))
+      .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});

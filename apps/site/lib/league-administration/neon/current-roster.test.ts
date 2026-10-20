@@ -562,3 +562,21 @@ describe('current roster shadow Neon adapter', () => {
     await expect(store.beginRosterAttempt(unreadable, ids.attempt)).rejects.toThrow('Administration persistence disabled');
   });
 });
+
+describe('current roster logical provenance projection', () => {
+  it('returns the original receipt provenance through the existing single query', async () => {
+    const query = vi.fn(() => [storedRow()]);
+    expect(await currentRosterMethods(database(query)).readAcceptedCurrentRoster(mapping))
+      .toMatchObject({ status: 'available', receipt: { provenance } });
+    expect(query).toHaveBeenCalledOnce();
+    const [sql] = query.mock.calls[0] as unknown as [string];
+    expect(sql).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(sql).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not retry after shared provenance reconstruction fails', async () => {
+    const query = vi.fn(() => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await currentRosterMethods(database(query)).readAcceptedCurrentRoster(mapping))
+      .toEqual({ status: 'unavailable', reason: 'current_roster_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+});

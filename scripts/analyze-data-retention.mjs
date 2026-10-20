@@ -713,15 +713,18 @@ function validateAbSnapshot(s, inventory) {
   Object.values(s.counters).forEach(v => number(v,'counter',{integer:true,max:512}));
   assert.equal(s.counters.syntheticCoreHttpResponses,s.counters.witnessedCores*2,'Fixture response multiplicity mismatch');
   assert.deepEqual(s.modeTriggers,abExpectedTriggers(s.mode),'Exact active-writer mode mismatch');
-  assert.equal(s.relations.length,157,'Full relation inventory missing');
+  validateNativeRelationMetrics(s,inventory,157,AB_COLUMNS);
+}
+function validateNativeRelationMetrics(s,inventory,relationCount,columns){
+  assert.equal(s.relations.length,relationCount,'Full relation inventory missing');
   assert.deepEqual([...new Set(s.relations.map(r => r.name))].sort(),[...inventory.keys()].sort(),'Closed relation inventory mismatch');
   for (const r of s.relations) {
     exact(r,['schema','table','name','rows',...AB_BYTES],'combined relation'); assert.equal(r.name,qualified(r));
     number(r.rows,'rows',{integer:true,max:1000000}); AB_BYTES.forEach(k => byteNumber(r[k]));
     assert.equal(Number(r.total),Number(r.heap)+Number(r.indexes)+Number(r.toast)+Number(r.auxiliary),'Physical allocation does not reconcile');
   }
-  assert.equal(s.columns.length,AB_COLUMNS.length,'Column diagnostic count mismatch');
-  assert.deepEqual(s.columns.map(c=>c.name+'.'+c.column).sort(),AB_COLUMNS.map(c=>c.name+'.'+c.column).sort(),'Closed column diagnostic inventory mismatch');
+  assert.equal(s.columns.length,columns.length,'Column diagnostic count mismatch');
+  assert.deepEqual(s.columns.map(c=>c.name+'.'+c.column).sort(),columns.map(c=>c.name+'.'+c.column).sort(),'Closed column diagnostic inventory mismatch');
   for (const c of s.columns) {
     exact(c,['name','column','nonnull','datumBytes','jsonTextBytes'],'column diagnostic');
     number(c.nonnull,'nonnull',{integer:true,max:s.relations.find(r=>r.name===c.name).rows}); byteNumber(c.datumBytes);byteNumber(c.jsonTextBytes);
@@ -788,36 +791,38 @@ function validateCapacityInputs(input, historicalAssumptions) {
   assert.ok(Array.isArray(input.interpretation));return input;
 }
 function boundedBytes(path,max=8*1024**2){const s=statSync(path);assert.ok(s.isFile()&&s.size<=max,'Unbounded local input');return readFileSync(path);}
-function verifyCombinedOriginal(name,bytes){assert.deepEqual({bytes:bytes.length,sha256:sha(bytes)},COMBINED_PIN.artifacts[name],'Original combined artifact mismatch');}
-function deriveCombined(path,historical){
-  assert.ok(COMBINED_PIN,'No accepted combined evidence pin');assert.equal(basename(path),'native-run-evidence.json','Expected original run receipt');
+function verifyCombinedOriginal(name,bytes,pin=COMBINED_PIN){assert.deepEqual({bytes:bytes.length,sha256:sha(bytes)},pin.artifacts[name],'Original native artifact mismatch');}
+const COMBINED_NATIVE_CONTRACT={pin:COMBINED_PIN,tableCount:157,migrationCount:64,sourceCount:72,totalTests:17,passedTests:3,pendingTests:14,reservedAttempts:325,marker:'CP28_AB_ALLOCATION',measurementKind:'cp28-source-bound-combined-measurement',validateAllocation:validateAbAllocation};
+function deriveCombined(path,historical){return deriveNativeMeasurement(path,historical,COMBINED_NATIVE_CONTRACT);}
+function deriveNativeMeasurement(path,historical,contract){
+  const pin=contract.pin;assert.ok(pin,'No accepted native evidence pin');assert.equal(basename(path),'native-run-evidence.json','Expected original run receipt');
   const files=Object.fromEntries(COMBINED_FILES.map(name=>[name,boundedBytes(join(dirname(resolve(path)),name))]));
-  for(const name of COMBINED_FILES)verifyCombinedOriginal(name,files[name]);
+  for(const name of COMBINED_FILES)verifyCombinedOriginal(name,files[name],pin);
   const parsed=Object.fromEntries(COMBINED_FILES.filter(n=>n.endsWith('.json')).map(n=>[n,JSON.parse(files[n])]));
   const run=parsed['native-run-evidence.json'],setup=parsed['setup-evidence.json'],cleanup=parsed['cleanup-evidence.json'],orchestration=parsed['orchestration-evidence.json'],candidate=parsed['candidate-manifest.json'],helpers=parsed['helper-manifest.json'];
-  assert.equal(run.status,'passed');assert.deepEqual(run.summary,{success:true,total:17,passed:3,failed:0,pending:14,files:1});
-  assert.equal(run.selectedCases,3);assert.equal(run.originalCasesSelected,false);assert.equal(run.sourcesUnchanged,true);
+  assert.equal(run.status,'passed');assert.deepEqual(run.summary,{success:true,total:contract.totalTests,passed:contract.passedTests,failed:0,pending:contract.pendingTests,files:1});
+  assert.equal(run.selectedCases,contract.passedTests);assert.equal(run.originalCasesSelected,false);assert.equal(run.sourcesUnchanged,true);
   assert.deepEqual(run.sourceBefore,candidate.sources);assert.deepEqual(run.sourceAfter,candidate.sources);assert.deepEqual(setup.frozenSources,candidate.sources);
-  assert.equal(candidate.base,COMBINED_PIN.base);assert.equal(candidate.sources.length,72);assert.equal(helpers.sources.length,11);
-  assert.equal(run.actualReservedAttempts,325);assert.equal(run.cloudCalls,0);assert.equal(run.hostedAttempts,0);
+  assert.equal(candidate.base,pin.base);assert.equal(candidate.sources.length,contract.sourceCount);assert.equal(helpers.sources.length,11);
+  assert.equal(run.actualReservedAttempts,contract.reservedAttempts);assert.equal(run.cloudCalls,0);assert.equal(run.hostedAttempts,0);
   assert.equal(run.externalNetworkBlockedExceptOwnedLoopback,true);assert.equal(run.inheritedEnvironmentScrubbed,true);
   assert.equal(run.host,'127.0.0.1');assert.equal(run.port,53125);assert.equal(run.database,'cp28_snapshot_test');
   assert.equal(run.campaign.maximumMs,1800000);assert.equal(run.campaign.maximumAttempts,512);assert.ok(run.campaign.usedAttempts<=512);
   number(Date.parse(cleanup.finishedAt)-Date.parse(run.campaign.startedAt),'Campaign elapsed milliseconds',{max:1800000});
   assert.equal(sum(run.campaign.runs.map(r=>number(r.consumedAttempts,'Campaign consumption',{integer:true,max:353}))),run.campaign.usedAttempts,'Campaign attempt sum mismatch');
   assert.ok(Date.parse(cleanup.finishedAt)>=Date.parse(run.finishedAt),'Cleanup must follow terminal run');
-  assert.ok(run.cases.length===3&&run.cases.every(c=>c.status==='passed'&&c.failureMessages.length===0),'Selected cases must all pass');
-  assert.equal(setup.status,'passed');assert.equal(setup.tableCount,157);assert.equal(setup.migrations.length,64);assert.equal(setup.provisioners.length,3);assert.deepEqual(setup.ledger,setup.migrations);
+  assert.ok(run.cases.length===contract.passedTests&&run.cases.every(c=>c.status==='passed'&&c.failureMessages.length===0),'Selected cases must all pass');
+  assert.equal(setup.status,'passed');assert.equal(setup.tableCount,contract.tableCount);assert.equal(setup.migrations.length,contract.migrationCount);assert.equal(setup.provisioners.length,3);assert.deepEqual(setup.ledger,setup.migrations);
   assert.match(setup.version,/^PostgreSQL 18\.6 /);assert.deepEqual(setup.ownerAndRuntimeMemberships,[]);
   assert.deepEqual(setup.roles.map(r=>r.rolname).sort(),['cp28_snapshot_owner','league_one_account','league_one_auth','league_one_runtime']);
   for(const r of setup.roles){assert.equal(r.rolcanlogin,true);for(const k of ['rolsuper','rolcreatedb','rolcreaterole','rolreplication','rolbypassrls'])assert.equal(r[k],false);}
   for(const k of ['processAbsent','listenerAbsent','dataDirectoryRemoved','retainedEvidenceContainsNoGeneratedSecrets'])assert.equal(cleanup[k],true);
   assert.equal(cleanup.precleanupEstablishedClients,0);assert.equal(orchestration.testPassed,true);assert.equal(orchestration.cleanupPassed,true);assert.equal(orchestration.failure,null);
   const log=files['native-results.log'].toString('utf8').replace(/\x1B\[[0-?]*[ -/]*[@-~]/g,'');
-  const markers=[...log.matchAll(/^CP28_AB_ALLOCATION (\{[^\r\n]*\})$/gm)];assert.equal(markers.length,1,'Missing or duplicate combined allocation marker');
-  const allocation=validateAbAllocation(JSON.parse(markers[0][1]),historical),results=parsed['native-results.json'];
-  assert.equal(results.success,true);assert.equal(results.numPassedTests,3);assert.equal(results.numFailedTests,0);assert.equal(results.numPendingTests,14);
-  return {schemaVersion:1,kind:'cp28-source-bound-combined-measurement',qualification:'UNQUALIFIED',acceptedLocalExperiment:'PASSED',provenance:COMBINED_PIN,
+  assert.match(contract.marker,/^[A-Z0-9_]+$/);const markers=[...log.matchAll(new RegExp('^'+contract.marker+' (\\{[^\\r\\n]*\\})$','gm'))];assert.equal(markers.length,1,'Missing or duplicate native allocation marker');
+  const allocation=contract.validateAllocation(JSON.parse(markers[0][1]),historical),results=parsed['native-results.json'];
+  assert.equal(results.success,true);assert.equal(results.numPassedTests,contract.passedTests);assert.equal(results.numFailedTests,0);assert.equal(results.numPendingTests,contract.pendingTests);
+  return {schemaVersion:1,kind:contract.measurementKind,qualification:'UNQUALIFIED',acceptedLocalExperiment:'PASSED',provenance:pin,
     executedOverlay:candidate.sources,helperSources:helpers.sources,terminal:{summary:run.summary,cases:run.cases,actualReservedAttempts:run.actualReservedAttempts,campaignUsedAttempts:run.campaign.usedAttempts,cleanupComplete:true},allocation};
 }
 function validateCombined(m,historical,pinned=true){
@@ -826,14 +831,12 @@ function validateCombined(m,historical,pinned=true){
   assert.deepEqual(m.provenance,COMBINED_PIN);validateAbAllocation(m.allocation,historical);
   if(pinned)assert.equal(sha(JSON.stringify(m)),COMBINED_EXTRACTION_SHA,'Pinned combined extraction mismatch');return m;
 }
-function combinedForecast(m,input,historical,originalVerified){
-  const inventory=abInventory(historical),a=m.allocation;
-  const phase=p=>{const measured=abDelta(p.before,p.after,inventory),warm=abDelta(p.beforeWarm,p.before,inventory);
+function nativeMeasuredPhase(p,inventory){const measured=abDelta(p.before,p.after,inventory),warm=abDelta(p.beforeWarm,p.before,inventory);
     const incrementalBatches=p.batches.map((b,i)=>({cores:8,...abDelta(i?p.batches[i-1].snapshot:p.before,b.snapshot,inventory)}));
     return {mode:p.mode,warmup:{cores:2,delta:warm},measured:{cores:32,delta:measured},incrementalBatches,
-      meanDataAllocatedBytesPerCore:measured.dataAllocatedBytes/32,meanSyntheticControlAllocatedBytesPerCore:measured.syntheticControlAllocatedBytes/32,meanAllRelationTupleBytesPerCore:measured.totals.tupleBytes/32,meanDataTupleBytesPerCore:(measured.groups['per-league'].tupleBytes+measured.groups.shared.tupleBytes)/32,meanSyntheticControlTupleBytesPerCore:measured.groups.controls.tupleBytes/32,reader:p.reader};};
-  const legacy=phase(a.legacy),combined=phase(a.combined),initialCatalogProxy=historical.deltas[0].groups.shared.allocatedBytes;assert.equal(initialCatalogProxy,31285248);
-  const scenarios=[5,4].map(minutes=>{
+      meanDataAllocatedBytesPerCore:measured.dataAllocatedBytes/32,meanSyntheticControlAllocatedBytesPerCore:measured.syntheticControlAllocatedBytes/32,meanAllRelationTupleBytesPerCore:measured.totals.tupleBytes/32,meanDataTupleBytesPerCore:(measured.groups['per-league'].tupleBytes+measured.groups.shared.tupleBytes)/32,meanSyntheticControlTupleBytesPerCore:measured.groups.controls.tupleBytes/32,reader:p.reader};}
+function nativeCapacityScenarios(combined,input,initialCatalogProxy,nextReduction='Review additional lossless metadata normalization (B2) or explicitly revise the capacity contract; finite local sensitivity is not a proven long-run bound.'){
+  return [5,4].map(minutes=>{
     const h=input.horizon,n=input.benchmarkUniqueLeagues,activeCoreEvents=n*h.activeDays*h.activeHoursPerDay*60/minutes,inactiveCoreEvents=n*h.inactiveDays;
     const volumes={coreEvents:activeCoreEvents+inactiveCoreEvents,earlierEvents:n*h.days*input.cadence.earlierPeriodsPerDailySweep,
       resultEvents:n*(h.activeDays*h.activeHoursPerDay*60/input.cadence.resultActiveMinutes+h.inactiveDays),dailyLeagueEvents:n*h.days,catalogEvents:h.days,one:1};
@@ -850,8 +853,14 @@ function combinedForecast(m,input,historical,originalVerified){
       generousCoreByteCeilingIfEveryOtherCostWereZero:(input.budgetBytes-initialCatalogProxy)/volumes.coreEvents,ceilingIsNotACompleteBudget:true,
       separateSyntheticControlSensitivity:{bytes:volumes.coreEvents*combined.meanSyntheticControlAllocatedBytesPerCore,interpretation:'Not in priced subtotal. Synthetic controls cannot replace ordinary scheduling/failure terms; never add both.'},
       inventoryComplete:true,ratesComplete:unknown.length===0,capacityQualified:false,
-      nextDecision:pricedSubtotal+assumedBytes>input.budgetBytes?'Review additional lossless metadata normalization (B2) or explicitly revise the capacity contract; finite local sensitivity is not a proven long-run bound.':'Price remaining U and benchmark geometry before a capacity claim; apparent headroom is not a measured pass.'};
+      nextDecision:pricedSubtotal+assumedBytes>input.budgetBytes?nextReduction:'Price remaining U and benchmark geometry before a capacity claim; apparent headroom is not a measured pass.'};
   });
+}
+function combinedForecast(m,input,historical,originalVerified){
+  const inventory=abInventory(historical),a=m.allocation;
+  const phase=p=>nativeMeasuredPhase(p,inventory);
+  const legacy=phase(a.legacy),combined=phase(a.combined),initialCatalogProxy=historical.deltas[0].groups.shared.allocatedBytes;assert.equal(initialCatalogProxy,31285248);
+  const scenarios=nativeCapacityScenarios(combined,input,initialCatalogProxy);
   const d=combined.measured.delta;
   return {schemaVersion:1,kind:'cp28-combined-all-family-conditional-forecast',qualification:'UNQUALIFIED',inventoryComplete:true,ratesComplete:input.terms.every(t=>t.rate.bytesPerEvent!==null),capacityQualified:false,
     originalEvidenceVerification:originalVerified?'ACCEPTED_LOCAL_ORIGINAL_BYTES_AND_EXTRACTION_VERIFIED':'PINNED_EXTRACTION_VALIDATED_ORIGINAL_NOT_REVERIFIED',
@@ -932,7 +941,226 @@ function combinedMain(args){
   const result=opts['--self-test']?combinedSelfTest(m,input,historical,assumptions,opts['--combined-evidence']):combinedForecast(m,input,historical,Boolean(opts['--combined-evidence']));
   process.stdout.write(JSON.stringify(result,null,2)+'\n');
 }
+
+// B2a is a new source-bound lane. No accepted evidence is inferred from unit fixtures.
+const PROVENANCE_PIN = null;
+const PROVENANCE_EXTRACTION_SHA = null;
+const PROVENANCE_DEFAULT = new URL('../docs/aggregator-backend/data-backend-cp28-provenance-measurement.json',import.meta.url);
+const PROVENANCE_COLUMNS = [...AB_COLUMNS,{name:'public.league_roster_provenance_contents',column:'provenance'}];
+const PROVENANCE_AFFECTED = ['public.league_roster_capture_receipts','public.league_roster_provenance_contents'];
+function provenanceInventory(historical){return new Map([...abInventory(historical),['public.league_roster_provenance_contents','per-league']]);}
+function provenanceTriggers(enabled){return enabled?[{name:'roster_metadata_intern_before_lineage',event_type:7,enabled:'O',exact_table:true,exact_function:true,unconditional_no_arguments:true}]:[];}
+function validateProvenanceSnapshot(s,inventory){
+  exact(s,['boundary','mode','writerMode','counters','modeTriggers','provenanceTriggers','representations','relations','columns'],'provenance snapshot');
+  assert.ok(typeof s.boundary==='string'&&s.boundary.length>0);assert.ok(['AB','AB+B2'].includes(s.mode));assert.ok(['legacy','A','B1','AB'].includes(s.writerMode));
+  exact(s.counters,['witnessedCores','resourceReservations','syntheticCoreHttpResponses','successfulWitnessedCores'],'provenance counters');
+  Object.values(s.counters).forEach(v=>number(v,'counter',{integer:true,max:512}));
+  assert.ok(s.counters.successfulWitnessedCores<=s.counters.witnessedCores,'Successful core count exceeds attempts');
+  assert.equal(s.counters.syntheticCoreHttpResponses,s.counters.witnessedCores*2,'Fixture response multiplicity mismatch');
+  assert.deepEqual(s.modeTriggers,abExpectedTriggers(s.writerMode),'Exact AB writer mode mismatch');
+  assert.deepEqual(s.provenanceTriggers,provenanceTriggers(s.mode==='AB+B2'),'Exact B2 writer mode mismatch');
+  validateNativeRelationMetrics(s,inventory,158,PROVENANCE_COLUMNS);
+  exact(s.representations,['populationSharedReceipts','provenanceSharedReceipts'],'shared receipt representations');
+  for(const v of Object.values(s.representations))number(v,'shared receipt count',{integer:true,max:s.relations.find(r=>r.name==='public.league_roster_capture_receipts').rows});
+}
+
+const PROVENANCE_WORKLOAD={semanticCores:9,interactionAttemptedCores:3,expectedFailedCores:2,warmCoresPerLayout:2,measuredCoresPerLayout:32,attemptsPerCore:4,receiptsPerSuccessfulCore:4,acceptedStandingsPerSuccessfulCore:1,eligiblePopulationReceiptsPerCore:3,eligibleProvenanceReceiptsPerCore:3,boundaryReservationAllowance:8};
+const PROVENANCE_BOUNDARIES=['empty-migrated-schema','synthetic-prerequisites','baseline-AB','candidate-legacy','candidate-A','candidate-B1','candidate-AB','cross-league-correction-return','after-security-and-witnessed-interactions'];
+const PROVENANCE_POLICIES=['sleeper-league-settings-v1','sleeper-current-players-v1','sleeper-current-team-managers-v1','sleeper-current-team-manager-evidence-v2'];
+const PROVENANCE_NATIVE_CONTRACT={pin:PROVENANCE_PIN,tableCount:158,migrationCount:65,sourceCount:null,totalTests:21,passedTests:4,pendingTests:17,reservedAttempts:null,marker:'CP28_B2_ALLOCATION',measurementKind:'cp28-source-bound-provenance-measurement',validateAllocation:validateProvenanceAllocation};
+function validateProvenanceAllocation(a,historical){
+  exact(a,['schemaVersion','kind','fixture','workload','semanticBoundaries','baseline','candidate','affectedRelations','affectedAllocatedBytes','allPublicAllocatedBytes','counters','historicalDigestChecksPassed','restoredAllThreeWriters','externalProviderCalls','limitations'],'provenance allocation');
+  assert.equal(a.schemaVersion,1);assert.equal(a.kind,'local-native-witnessed-core-provenance-b2-v1');assert.deepEqual(a.fixture,AB_FIXTURE);assert.deepEqual(a.workload,PROVENANCE_WORKLOAD);assert.deepEqual(a.affectedRelations,PROVENANCE_AFFECTED);
+  assert.equal(a.historicalDigestChecksPassed,true);assert.equal(a.restoredAllThreeWriters,true);assert.equal(a.externalProviderCalls,0);assert.ok(Array.isArray(a.limitations)&&a.limitations.length>=10);
+  exact(a.counters,['witnessedCores','successfulWitnessedCores','expectedFailedCores','resourceReservations','syntheticCoreHttpResponses'],'provenance terminal counters');
+  assert.deepEqual([a.counters.witnessedCores,a.counters.successfulWitnessedCores,a.counters.expectedFailedCores,a.counters.syntheticCoreHttpResponses],[80,78,2,160]);number(a.counters.resourceReservations,'total reservations',{integer:true,min:321,max:329});
+  assert.deepEqual(a.semanticBoundaries.map(x=>x.boundary),PROVENANCE_BOUNDARIES,'Provenance semantic boundary inventory mismatch');
+  assert.deepEqual(a.semanticBoundaries.map(x=>x.mode),['AB','AB','AB','AB+B2','AB+B2','AB+B2','AB+B2','AB+B2','AB+B2']);
+  assert.deepEqual(a.semanticBoundaries.map(x=>x.writerMode),['legacy','legacy','AB','legacy','A','B1','AB','AB','AB']);
+  assert.deepEqual(a.semanticBoundaries.map(x=>x.counters.witnessedCores),[0,0,2,3,4,5,6,9,12],'Semantic attempted core counts mismatch');
+  assert.deepEqual(a.semanticBoundaries.map(x=>x.counters.successfulWitnessedCores),[0,0,2,3,4,5,6,9,10],'Semantic successful core counts mismatch');
+  assert.deepEqual(a.baseline.beforeWarm.counters,a.semanticBoundaries.at(-1).counters,'Semantic/baseline counter continuity mismatch');
+  assert.deepEqual(a.candidate.beforeWarm.counters,a.baseline.after.counters,'Baseline/candidate counter continuity mismatch');
+  const inventory=provenanceInventory(historical),snapshots=[...a.semanticBoundaries];
+  for(const [key,mode,enabled] of [['baseline','AB',false],['candidate','AB+B2',true]]){
+    const p=a[key];exact(p,['mode','beforeWarm','before','after','batches','historicalDigestChecksPassed','compression','reader','measured'],'provenance measured phase');
+    assert.equal(p.mode,mode);assert.equal(p.historicalDigestChecksPassed,true);assert.deepEqual(p.batches.map(b=>b.cores),[8,16,24,32]);assert.deepEqual(p.after,p.batches[3].snapshot,'Final boundary alias mismatch');
+    assert.deepEqual(p.measured,{cores:32,receipts:128,populationParents:32,provenanceParents:enabled?32:0,populationReferences:96,provenanceReferences:enabled?96:0,reusedLinkContents:2});
+    const chain=[p.beforeWarm,p.before,...p.batches.map(b=>b.snapshot)];snapshots.push(...chain);
+    assert.deepEqual(chain.map(x=>x.boundary),[mode+'-before-warm',mode+'-measured-start',...[8,16,24,32].map(n=>mode+'-measured-'+n)]);assert.ok(chain.every(x=>x.mode===mode&&x.writerMode==='AB'));
+    for(let i=1;i<chain.length;i++){const cores=i===1?2:8;for(const k of ['witnessedCores','successfulWitnessedCores'])assert.equal(chain[i].counters[k]-chain[i-1].counters[k],cores,'Measured successful core multiplicity mismatch');assert.equal(chain[i].counters.resourceReservations-chain[i-1].counters.resourceReservations,cores*4,'Measured reservation multiplicity mismatch');}
+    exact(p.reader,['standingsElapsedMs','linksElapsedMs','publicElapsedMs','standingsQueries','linkQueries','publicQueries','publicResult','teams','held'],'provenance reader evidence');
+    for(const k of ['standingsElapsedMs','linksElapsedMs','publicElapsedMs'])number(p.reader[k],k);
+    assert.deepEqual([p.reader.standingsQueries,p.reader.linkQueries,p.reader.publicQueries,p.reader.teams,p.reader.held],[1,1,2,10,80]);
+    assert.equal(p.reader.publicResult.captureBinding,'intake-dispatch');assert.equal(p.reader.publicResult.resource.status,'available');assert.equal(p.reader.publicResult.resource.teams.length,10);assert.ok(p.reader.publicResult.acquisition);
+    assert.equal(p.compression.length,4);assert.deepEqual(p.compression.map(c=>c.policy),PROVENANCE_POLICIES);
+    for(let i=0;i<p.compression.length;i++){const c=p.compression[i];exact(c,['policy','provenance_storage_format','receipt_tuple_bytes','logical_provenance_bytes','inline_provenance_bytes','provenance_compression','attempt_tuple_bytes','mapping_bytes','mapping_compression','fence_bytes','fence_compression'],'existing-row compression diagnostic');
+      assert.equal(c.provenance_storage_format,enabled&&i?'shared-v1':'inline-v1');for(const k of ['receipt_tuple_bytes','logical_provenance_bytes','attempt_tuple_bytes','mapping_bytes','fence_bytes'])number(c[k],k,{integer:true,min:1,max:1048576});
+      if(enabled&&i){assert.equal(c.inline_provenance_bytes,null);assert.equal(c.provenance_compression,null);}else number(c.inline_provenance_bytes,'inline provenance bytes',{integer:true,min:1,max:1048576});
+      for(const k of ['provenance_compression','mapping_compression','fence_compression'])assert.ok([null,'pglz','lz4'].includes(c[k]));
+    }
+  }
+  snapshots.forEach(x=>validateProvenanceSnapshot(x,inventory));const first=snapshots[0];assert.equal(sum(first.relations.map(r=>r.rows)),66,'Migrated baseline requires65 ledger rows and singleton');
+  for(const s of snapshots){
+    assert.deepEqual(s.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),first.relations.filter(r=>r.schema==='website_auth').sort((a,b)=>a.name.localeCompare(b.name)),'Auth baseline changed');
+    for(const r of s.relations.filter(r=>inventory.get(r.name)==='non-data')){const before=first.relations.find(x=>x.name===r.name);assert.deepEqual([r.rows,r.tupleBytes],[before.rows,before.tupleBytes],'Non-DATA logical baseline changed');}
+  }
+  for(const key of ['baseline','candidate']){
+    const p=a[key],enabled=key==='candidate',d=abDelta(p.before,p.after,inventory),rows=t=>d.relations.find(r=>r.name==='public.'+t).rows;
+    for(const t of ['league_roster_resource_attempts','league_roster_capture_receipts','league_roster_resource_acceptances'])assert.equal(rows(t),128,'Fresh typed multiplicity mismatch');
+    assert.equal(rows('league_roster_population_contents'),32);assert.equal(rows('league_roster_provenance_contents'),enabled?32:0);
+    for(const t of ['league_roster_player_link_receipts','league_official_standings_captures'])assert.equal(rows(t),32);
+    for(const t of ['league_roster_player_links','league_roster_player_link_contents','league_roster_player_link_content_entries'])assert.equal(rows(t),0,'Warmed link reuse mismatch');
+    assert.equal(p.after.representations.populationSharedReceipts-p.before.representations.populationSharedReceipts,96,'Population reference multiplicity mismatch');
+    assert.equal(p.after.representations.provenanceSharedReceipts-p.before.representations.provenanceSharedReceipts,enabled?96:0,'Provenance reference multiplicity mismatch');
+    assert.equal(a.affectedAllocatedBytes[key],sum(d.relations.filter(r=>PROVENANCE_AFFECTED.includes(r.name)).map(r=>r.total)),'Affected allocation mismatch');
+    assert.equal(a.allPublicAllocatedBytes[key],sum(d.relations.filter(r=>r.name.startsWith('public.')).map(r=>r.total)),'All-public allocation mismatch');
+  }
+  assert.ok(a.affectedAllocatedBytes.candidate<a.affectedAllocatedBytes.baseline,'Passing native experiment requires observed affected reduction');
+  assert.deepEqual(a.candidate.after.counters,{witnessedCores:80,resourceReservations:a.counters.resourceReservations,syntheticCoreHttpResponses:160,successfulWitnessedCores:78});return a;
+}
+function deriveProvenance(path,historical){return deriveNativeMeasurement(path,historical,PROVENANCE_NATIVE_CONTRACT);}
+function validateProvenance(m,historical,pinned=true){
+  assert.ok(PROVENANCE_PIN,'No accepted provenance evidence');exact(m,['schemaVersion','kind','qualification','acceptedLocalExperiment','provenance','executedOverlay','helperSources','terminal','allocation'],'provenance measurement');
+  assert.equal(m.schemaVersion,1);assert.equal(m.kind,'cp28-source-bound-provenance-measurement');assert.equal(m.qualification,'UNQUALIFIED');assert.equal(m.acceptedLocalExperiment,'PASSED');assert.deepEqual(m.provenance,PROVENANCE_PIN);
+  validateProvenanceAllocation(m.allocation,historical);assert.equal(m.terminal.actualReservedAttempts,m.allocation.counters.resourceReservations);
+  if(pinned)assert.equal(sha(JSON.stringify(m)),PROVENANCE_EXTRACTION_SHA,'Pinned provenance extraction mismatch');return m;
+}
+function provenanceForecast(m,input,historical,originalVerified){
+  const a=m.allocation,inventory=provenanceInventory(historical),baseline=nativeMeasuredPhase(a.baseline,inventory),candidate=nativeMeasuredPhase(a.candidate,inventory),catalog=historical.deltas[0].groups.shared.allocatedBytes;assert.equal(catalog,31285248);
+  const scenarios=nativeCapacityScenarios(candidate,input,catalog,'Review further lossless representation changes or explicitly revise the capacity contract; this finite local sensitivity does not prove a long-run bound.');
+  const d=candidate.measured.delta,affected=a.affectedAllocatedBytes.baseline-a.affectedAllocatedBytes.candidate,allPublic=a.allPublicAllocatedBytes.baseline-a.allPublicAllocatedBytes.candidate;
+  return {schemaVersion:1,kind:'cp28-provenance-all-family-conditional-forecast',qualification:'UNQUALIFIED',inventoryComplete:true,ratesComplete:input.terms.every(t=>t.rate.bytesPerEvent!==null),capacityQualified:false,
+    originalEvidenceVerification:originalVerified?'ACCEPTED_LOCAL_ORIGINAL_BYTES_AND_EXTRACTION_VERIFIED':'PINNED_EXTRACTION_VALIDATED_ORIGINAL_NOT_REVERIFIED',
+    provenance:{measurement:m.provenance,extractionSha256:PROVENANCE_EXTRACTION_SHA,capacityInputsCanonicalSha256:sha(JSON.stringify(input)),historicalCatalog:{...MEASUREMENT_PIN,extractionSha256:MEASUREMENT_SHA,phase:'S0-empty to S1-catalog',sharedDeltaBytes:catalog}},
+    budgetBytes:input.budgetBytes,horizon:input.horizon,fixture:a.fixture,officialFamilies:input.officialFamilies,workloadCoverage:input.workloads,
+    observed:{uniqueSnapshots:21,relationObservations:21*158,semanticAndStartupBoundaries:a.semanticBoundaries.map((s,i)=>({boundary:s.boundary,mode:s.mode,writerMode:s.writerMode,counters:s.counters,deltaFromPrevious:i?abDelta(a.semanticBoundaries[i-1],s,inventory):null})),baseline,candidate,
+      affectedAllocationDifferenceBytes:affected,allPublicAllocationDifferenceBytes:allPublic,otherAllocationDifferenceBytes:allPublic-affected,counters:a.counters,terminal:m.terminal,
+      representationMultiplicities:{baseline:a.baseline.measured,candidate:a.candidate.measured},existingRowCompressionDiagnostics:{baseline:a.baseline.compression,candidate:a.candidate.compression,interpretation:'Retained-row inspection only; no compression-target tuning, rewrite or causal compression-savings experiment. Composite/column datum sizes are nonadditive diagnostics.'}},scenarios,
+    residualMetadataAttribution:{status:'OBSERVED_FINITE_PHASE_ATTRIBUTION_NOT_FUTURE_SAVINGS',fixtureSpecificSharedAccountGrowth:d.relations.find(r=>r.name==='public.league_source_manager_accounts'),relationDeltasDescendingAllocation:[...d.relations].sort((x,y)=>y.total-x.total||x.name.localeCompare(y.name)),nonadditiveColumnDiagnostics:d.nonadditiveColumnDiagnostics,
+      instruction:'Columns overlap tuples; tuples are pg_column_size(row), not allocation. Neither is additive to heap/index/TOAST totals. All attempts retain full source mappings/fences. Additional factoring savings are unmeasured.'},
+    operationalMultiplicity:{core:'4 fresh typed receipts per successful core;3 B1 references/1 population parent;3 B2 references/1 full-provenance parent in the candidate. The complete candidate DATA mean replaces the earlier AB rate.',
+      exactPeriods:'2 typed captures per current or earlier exact-period event; current/earlier event volumes are disjoint.',transactions:'Source-exposed transaction periods include week0, corrections and removals;17 earlier periods is an assumption, with additional periods unpriced.',
+      drafts:'For D source-exposed drafts,2+3D typed captures per complete cycle plus selection links per applicable acceptance; D and pick counts remain unpriced source inventory.',
+      historyControls:'Period/history/checkpoint and ordinary controls/failures remain U; synthetic prerequisites cannot price ordinary operations.',rosterEpochs:'Mapping/directory/resolver epochs and corrections can require new content; warmed unchanged reuse does not price those events.'},
+    limitations:[
+      'Local successful B2 experiment is separate from CP28 capacity qualification, all-family rates, full-profile qualification and release activation.',
+      'One10-team/80-held local core cannot be scaled as the hosted20-team/160-held fixture; benchmarkGeometryAdjustment remains U.',
+      'Four8-core measured batches after2 warm cores/layout are finite ordered page/index/TOAST allocations, not stationary slopes, causal allocation guarantees, confidence intervals or lower bounds.',
+      'Candidate whole-core DATA replaces earlier whole-core/raw/proof/link/standings rates. No independent A/B1/B2 savings are added or subtracted. Outside the two affected tables, allocation differences are not solely attributed to B2.',
+      'All15 original unpriced terms remain explicit; core correction/epoch premiums, noncore family costs, startup, ordinary failures and maintenance are not assumed zero.',
+      'Fresh synthetic manager accounts remain in measured shared DATA. Zero allocated-page delta is free-page use, not zero tuple cost or projected savings.',
+      'Historical full-catalog first-load allocation is a once-per-fleet startup proxy. Local catalog, warmup and semantic setup are not also charged; other startup remains U.',
+      'Five-minute and four-minute schedules are conditional sensitivities, not observed cadence. Bundled settings receive no daily cadence credit.',
+      'Synthetic control sensitivity is separate and cannot replace or be added to ordinary control/failure pricing.',
+      '80 attempted witnessed cores include two expected failures;78 succeeded. Measured32+32 and warm2+2 cores all succeeded; failed probes are outside measured phase denominators.',
+      'All original JSON, observation-specific clocks, receipt/attempt IDs, witnesses, mapping/fence and retained history remain required. B2 parents share only exact within-capture roster provenance; settings and other families stay inline.',
+      'Existing-row compression inspection and one local reader timing/layout prove neither a TOAST tuning benefit nor a latency SLO. No storage target changed.',
+      'Retention through March31,2028,CP29 restore proof, WAL/backups/billing, long-run maintenance and production geometry remain separate. No provider/hosted/publication/deployment action is authorized by this report.'
+    ]};
+}
+
+function provenanceUnitSnapshot(historical){
+  const inventory=provenanceInventory(historical);
+  return {boundary:'UNIT_TEST_ONLY_NOT_OBSERVED',mode:'AB+B2',writerMode:'AB',counters:{witnessedCores:0,resourceReservations:0,syntheticCoreHttpResponses:0,successfulWitnessedCores:0},modeTriggers:abExpectedTriggers('AB'),provenanceTriggers:provenanceTriggers(true),representations:{populationSharedReceipts:0,provenanceSharedReceipts:0},
+    relations:[...inventory.keys()].map(name=>{const [schema,table]=name.split('.');return {schema,table,name,rows:0,...Object.fromEntries(AB_BYTES.map(k=>[k,'0']))};}),
+    columns:PROVENANCE_COLUMNS.map(c=>({...c,nonnull:0,datumBytes:'0',jsonTextBytes:'0'}))};
+}
+function provenanceUnitTests(historical,input){
+  let passed=0;const test=f=>{f();passed++;},inventory=provenanceInventory(historical),sample=provenanceUnitSnapshot(historical);
+  test(()=>validateProvenanceSnapshot(sample,inventory));
+  for(const mutate of [x=>x.relations.pop(),x=>x.relations.push(x.relations[0]),x=>{x.relations[0].name='public.unknown';},
+    x=>{x.relations[0].heap='1';},x=>{x.relations[0].total='01';},x=>{x.relations[0].tupleBytes='-1';},
+    x=>x.columns.pop(),x=>{x.columns[0].column='unknown';},x=>{x.columns[0].nonnull=1;},
+    x=>{x.writerMode='A';},x=>{x.mode='AB';},x=>{x.provenanceTriggers[0].exact_function=false;},
+    x=>{x.provenanceTriggers[0].event_type=5;},x=>{x.modeTriggers[0].function_name='capture_roster_player_links';},
+    x=>{x.counters.successfulWitnessedCores=1;},x=>{x.counters.witnessedCores=1;},x=>{x.counters.resourceReservations=513;},
+    x=>{x.representations.provenanceSharedReceipts=1;},x=>{delete x.counters.successfulWitnessedCores;}])test(()=>{const bad=structuredClone(sample);mutate(bad);assert.throws(()=>validateProvenanceSnapshot(bad,inventory));});
+  test(()=>{const reordered=structuredClone(sample);reordered.relations.reverse();reordered.columns.reverse();validateProvenanceSnapshot(reordered,inventory);assert.deepEqual(abDelta(sample,reordered,inventory).groups,abDelta(sample,sample,inventory).groups);});
+  // A deliberate arithmetic fixture exercises the shared formula; it is never exported as evidence.
+  const priced={meanDataAllocatedBytesPerCore:12345,meanSyntheticControlAllocatedBytesPerCore:678},scenarios=nativeCapacityScenarios(priced,input,31285248);
+  test(()=>assert.deepEqual(scenarios.map(x=>x.volumes.coreEvents),[591728,736880]));
+  test(()=>assert.equal(scenarios[0].conditionalCoreDataBytes,591728*12345));
+  test(()=>assert.equal(scenarios[0].pricedSubtotalBytes,591728*12345+31285248));
+  test(()=>assert.equal(scenarios[0].separateSyntheticControlSensitivity.bytes,591728*678));
+  test(()=>assert.ok(scenarios.every(x=>x.unknownTerms.length===15&&x.numericConditionalTotalBytes===null&&!x.capacityQualified)));
+  test(()=>assert.ok(scenarios.every(x=>!x.cadenceObserved&&!x.ratesComplete&&x.inventoryComplete)));
+  return passed;
+}
+
+function provenanceUnitAllocation(historical){
+  // Deliberately invented numbers for oracle tests only; never a persisted measurement.
+  let attempted=0,successful=0,reservations=0,shared=0;
+  const snapshot=(boundary,writerMode='AB',enabled=false)=>{
+    const x=provenanceUnitSnapshot(historical);x.boundary=boundary;x.writerMode=writerMode;x.mode=enabled?'AB+B2':'AB';x.modeTriggers=abExpectedTriggers(writerMode);x.provenanceTriggers=provenanceTriggers(enabled);
+    x.counters={witnessedCores:attempted,resourceReservations:reservations,syntheticCoreHttpResponses:attempted*2,successfulWitnessedCores:successful};
+    const row=t=>x.relations.find(r=>r.name==='public.'+t);row('app_schema_migrations').rows=65;row('public_data_resource_service').rows=1;
+    row('league_roster_resource_attempts').rows=attempted*4;row('league_roster_capture_receipts').rows=successful*4;row('league_roster_resource_acceptances').rows=successful*4;
+    for(const t of ['league_roster_population_contents','league_roster_player_link_receipts','league_official_standings_captures'])row(t).rows=successful;
+    row('league_roster_provenance_contents').rows=shared;x.representations={populationSharedReceipts:successful*3,provenanceSharedReceipts:shared*3};
+    const receiptBytes=(successful-shared)*8192+shared*4096;row('league_roster_capture_receipts').heap=String(receiptBytes);row('league_roster_capture_receipts').total=String(receiptBytes);
+    row('league_roster_provenance_contents').heap=String(shared*1024);row('league_roster_provenance_contents').total=String(shared*1024);return x;
+  };
+  const semanticBoundaries=PROVENANCE_BOUNDARIES.map((boundary,i)=>{attempted=[0,0,2,3,4,5,6,9,12][i];successful=[0,0,2,3,4,5,6,9,10][i];reservations=i?attempted*4+(i===8?7:1):0;return snapshot(boundary,['legacy','legacy','AB','legacy','A','B1','AB','AB','AB'][i],i>=3);});
+  const phase=enabled=>{const mode=enabled?'AB+B2':'AB',beforeWarm=snapshot(mode+'-before-warm','AB',enabled);const advance=cores=>{attempted+=cores;successful+=cores;reservations+=4*cores;if(enabled)shared+=cores;};advance(2);const before=snapshot(mode+'-measured-start','AB',enabled),batches=[];
+    for(const cores of [8,16,24,32]){advance(8);batches.push({cores,snapshot:snapshot(mode+'-measured-'+cores,'AB',enabled)});}
+    return {mode,beforeWarm,before,after:structuredClone(batches[3].snapshot),batches,historicalDigestChecksPassed:true,
+      compression:PROVENANCE_POLICIES.map((policy,i)=>({policy,provenance_storage_format:enabled&&i?'shared-v1':'inline-v1',receipt_tuple_bytes:200,logical_provenance_bytes:100,inline_provenance_bytes:enabled&&i?null:100,provenance_compression:null,attempt_tuple_bytes:150,mapping_bytes:50,mapping_compression:null,fence_bytes:30,fence_compression:null})),
+      reader:{standingsElapsedMs:1,linksElapsedMs:1,publicElapsedMs:2,standingsQueries:1,linkQueries:1,publicQueries:2,publicResult:{captureBinding:'intake-dispatch',resource:{status:'available',teams:Array.from({length:10},()=>({}))},acquisition:{testOnly:true}},teams:10,held:80},
+      measured:{cores:32,receipts:128,populationParents:32,provenanceParents:enabled?32:0,populationReferences:96,provenanceReferences:enabled?96:0,reusedLinkContents:2}};
+  };
+  const baseline=phase(false),candidate=phase(true),inventory=provenanceInventory(historical),bytes=p=>abDelta(p.before,p.after,inventory).dataAllocatedBytes;
+  return {schemaVersion:1,kind:'local-native-witnessed-core-provenance-b2-v1',fixture:AB_FIXTURE,workload:PROVENANCE_WORKLOAD,semanticBoundaries,baseline,candidate,affectedRelations:PROVENANCE_AFFECTED,
+    affectedAllocatedBytes:{baseline:bytes(baseline),candidate:bytes(candidate)},allPublicAllocatedBytes:{baseline:bytes(baseline),candidate:bytes(candidate)},counters:{witnessedCores:80,successfulWitnessedCores:78,expectedFailedCores:2,resourceReservations:327,syntheticCoreHttpResponses:160},historicalDigestChecksPassed:true,restoredAllThreeWriters:true,externalProviderCalls:0,limitations:Array.from({length:10},()=> 'UNIT_TEST_ONLY_NOT_OBSERVED')};
+}
+function provenanceAllocationTests(a,historical,input){
+  let passed=0;const test=f=>{f();passed++;};test(()=>validateProvenanceAllocation(a,historical));
+  for(const mutate of [x=>x.semanticBoundaries.pop(),x=>{x.workload.receiptsPerSuccessfulCore=3;},x=>{x.counters.successfulWitnessedCores=80;},x=>{x.counters.resourceReservations=330;},
+    x=>{x.restoredAllThreeWriters=false;},x=>{x.externalProviderCalls=1;},x=>{x.historicalDigestChecksPassed=false;},
+    x=>{x.semanticBoundaries[2].counters.successfulWitnessedCores--;},x=>{x.semanticBoundaries.at(-1).counters.resourceReservations++;},
+    x=>{for(const q of [x.baseline.beforeWarm,x.baseline.before,...x.baseline.batches.map(b=>b.snapshot)]){q.counters.witnessedCores++;q.counters.successfulWitnessedCores++;q.counters.syntheticCoreHttpResponses+=2;}x.baseline.after=structuredClone(x.baseline.batches[3].snapshot);},
+    x=>{x.candidate.measured.provenanceParents=31;},x=>{x.baseline.measured.provenanceReferences=96;},x=>{x.candidate.after=x.candidate.before;},
+    x=>{x.candidate.batches[0].snapshot.counters.successfulWitnessedCores--;},x=>{x.candidate.batches[0].snapshot.counters.resourceReservations++;},
+    x=>{x.candidate.reader.publicQueries=1;},x=>{x.candidate.reader.publicResult.resource.status='unavailable';},
+    x=>{x.candidate.compression[1].provenance_storage_format='inline-v1';},x=>{x.candidate.compression[1].provenance_compression='pglz';},
+    x=>{x.affectedAllocatedBytes.candidate++;},x=>{x.allPublicAllocatedBytes.baseline++;},
+    x=>{x.candidate.before.representations.provenanceSharedReceipts++;},x=>{x.candidate.before.relations.find(r=>r.name==='public.league_roster_provenance_contents').rows++;},
+    x=>{x.candidate.before.relations.find(r=>r.schema==='website_auth').rows++;},x=>{x.baseline.before.relations.find(r=>r.name==='public.app_schema_migrations').tupleBytes='1';},
+  ])test(()=>{const bad=structuredClone(a);mutate(bad);assert.throws(()=>validateProvenanceAllocation(bad,historical));});
+  const inventory=provenanceInventory(historical),p=nativeMeasuredPhase(a.candidate,inventory),scenarios=nativeCapacityScenarios(p,input,31285248);
+  test(()=>assert.equal(sum(p.incrementalBatches.map(b=>b.dataAllocatedBytes)),p.measured.delta.dataAllocatedBytes));
+  test(()=>assert.equal(p.measured.delta.totals.total,sum(Object.values(p.measured.delta.groups).map(g=>g.total))));
+  test(()=>assert.equal(scenarios[0].conditionalCoreDataBytes,p.meanDataAllocatedBytesPerCore*591728));
+  test(()=>assert.equal(scenarios[1].pricedSubtotalBytes,736880*p.meanDataAllocatedBytesPerCore+31285248));
+  test(()=>{const bad=structuredClone(input);bad.terms[0].rate={status:'assumed',bytesPerEvent:1024**4,provenance:'Unit overflow check'};assert.throws(()=>nativeCapacityScenarios(p,bad,31285248),/Assumed term product/);});
+  return passed;
+}
+function provenanceSelfTest(m,input,historical,originalPath){
+  let passed=provenanceUnitTests(historical,input)+provenanceAllocationTests(m.allocation,historical,input);validateProvenance(m,historical);passed++;
+  const bad=structuredClone(m);bad.terminal.campaignUsedAttempts++;assert.throws(()=>validateProvenance(bad,historical));passed++;
+  if(originalPath){assert.deepEqual(deriveProvenance(originalPath,historical),m);passed++;for(const name of COMBINED_FILES){const bytes=boundedBytes(join(dirname(resolve(originalPath)),name));assert.throws(()=>verifyCombinedOriginal(name,Buffer.concat([bytes,Buffer.from(' ')]),PROVENANCE_PIN));passed++;const changed=Buffer.from(bytes);changed[changed.length-2]^=1;assert.throws(()=>verifyCombinedOriginal(name,changed,PROVENANCE_PIN));passed++;}}
+  return {qualification:'UNQUALIFIED',provenanceSelfTestsPassed:passed,failed:0,originalBytesReverified:Boolean(originalPath),sqlOrNetworkExecuted:false};
+}
+
+function provenanceMain(args){
+  const flags=['--provenance','--derive-provenance','--self-test'],values=['--provenance-evidence','--provenance-measurement','--capacity-inputs'],opts={};
+  for(let i=0;i<args.length;i++){const key=args[i];if(![...flags,...values].includes(key)||Object.hasOwn(opts,key))fail('Unknown/duplicate provenance argument');
+    if(flags.includes(key))opts[key]=true;else{if(!args[i+1]||args[i+1].startsWith('--'))fail('Missing provenance value');opts[key]=args[++i];}}
+  const historical=validateMeasurement(json(fileURLToPath(MEASUREMENT_DEFAULT)));
+  if(opts['--derive-provenance']){assert.equal(Object.keys(opts).length,2);assert.ok(opts['--provenance-evidence']);assert.ok(PROVENANCE_PIN,'No accepted provenance evidence');process.stdout.write(JSON.stringify(deriveProvenance(opts['--provenance-evidence'],historical),null,2)+'\n');return;}
+  assert.equal(opts['--provenance'],true,'Provenance mode must be explicit');
+  const assumptions=validateAssumptions(json(fileURLToPath(new URL('../docs/aggregator-backend/data-backend-cp28-assumptions.json',import.meta.url))));
+  const input=validateCapacityInputs(json(opts['--capacity-inputs']??fileURLToPath(CAPACITY_DEFAULT)),assumptions);
+  if(!PROVENANCE_PIN){assert.equal(opts['--self-test'],true,'No accepted provenance evidence');assert.equal(Object.keys(opts).length,2,'Pre-evidence self-tests accept no evidence or assumptions override');
+    process.stdout.write(JSON.stringify({qualification:'UNQUALIFIED',acceptedLocalExperiment:null,testDataOnly:true,provenanceUnitTestsPassed:provenanceUnitTests(historical,input)+provenanceAllocationTests(provenanceUnitAllocation(historical),historical,input),failed:0,acceptedOriginalBytesVerified:false,sqlOrNetworkExecuted:false},null,2)+'\n');return;}
+  const m=validateProvenance(json(opts['--provenance-measurement']??fileURLToPath(PROVENANCE_DEFAULT),8*1024**2),historical);
+  if(opts['--provenance-evidence'])assert.deepEqual(deriveProvenance(opts['--provenance-evidence'],historical),m,'Provenance original extraction parity mismatch');
+  const result=opts['--self-test']?provenanceSelfTest(m,input,historical,opts['--provenance-evidence']):provenanceForecast(m,input,historical,Boolean(opts['--provenance-evidence']));
+  process.stdout.write(JSON.stringify(result,null,2)+'\n');
+}
+
 function main() {
+  if(process.argv.slice(2).some(arg=>arg.startsWith("--provenance")||arg==="--derive-provenance"))return provenanceMain(process.argv.slice(2));
   if (process.argv.slice(2).some(arg => arg.startsWith("--combined") || arg === "--derive-combined" || arg === "--capacity-inputs")) return combinedMain(process.argv.slice(2));
   const opts = {}, args = process.argv.slice(2);
   const flags = ["--self-test", "--measured", "--derive-measurement"];

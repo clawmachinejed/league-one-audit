@@ -160,7 +160,7 @@ export function teamManagerMethods(client: DatabaseClient) {
       try {
         const rows = await client.query(`/* league-administration:read-accepted-team-managers */
           SELECT scope.identity,accepted.generation,accepted.source_mapping_revision_id,
-            receipt.id AS receipt_id,receipt.attempt_id,receipt.provenance,receipt.configuration_content_id,
+            receipt.id AS receipt_id,receipt.attempt_id,public.roster_capture_provenance(receipt) AS provenance,receipt.configuration_content_id,
             receipt.expected_team_count,receipt.legacy_observation_id,receipt.coverage,
             attempt.ordinal,attempt.source_mapping,content.id AS content_id,content.content_hash,
             content.payload,content.normalizer_version,content.completeness,
