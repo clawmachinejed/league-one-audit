@@ -7,6 +7,7 @@ import type { JsonValue, NormalizedAdministrationObservation } from '../lib/leag
 import type { AdministrationSourceMapping } from '../lib/league-administration/source-mapping';
 import type { AdministrationWriteFence } from '../lib/league-administration/store-contracts';
 import type { RosterAttempt, RosterPopulationEvidence } from '../lib/aggregator/current-roster';
+import type { RosterPlayerLinksRead } from '../lib/aggregator/roster-player-links';
 import { projectOfficialStandings, type OfficialStandingsRead } from '../lib/aggregator/official-standings';
 import { composeOfficialResults } from '../lib/aggregator/official-results';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
@@ -49,7 +50,7 @@ describe.sequential('official standings and results through restricted PostgreSQ
       session_user: 'league_one_runtime', rolsuper: false, rolcreaterole: false, rolcreatedb: false });
   }, 120_000);
   afterAll(async () => {
-    try { await restoreB1Writer(); } finally {
+    try { try { await restoreABWriter(); } finally { await restoreB1Writer(); } } finally {
       vi.restoreAllMocks();
       try {
       if (jobsToClose.length) await ownerQuery(`UPDATE projection_jobs SET state='failed',lease_owner=NULL,
@@ -671,10 +672,12 @@ describe.sequential('official standings and results through restricted PostgreSQ
       JOIN public.league_roster_resource_scopes scope ON scope.id=attempt.scope_id
       WHERE receipt.id=ANY($1::uuid[]) ORDER BY array_position($1::uuid[],receipt.id)`, [ids]);
   }
-  async function b1Core(f: Fixture, corrected = false, replay = false) {
+  async function b1Core(f: Fixture, corrected = false, replay = false, combined?: {
+    linkFormat: 'acceptance-v1' | 'shared-v1'; roster?: ReturnType<typeof b1Roster>; state: () => Promise<DatabaseRow[]>;
+  }) {
     b1Reserve(4); expect(++b1.cores).toBeLessThanOrEqual(80);
     const requestId = randomUUID(), manager = numericId(), username = 'cp28_b1_' + manager;
-    const league = leagueDocument(f.external, 10), roster = b1Roster(corrected);
+    const league = leagueDocument(f.external, 10), roster = combined?.roster ?? b1Roster(corrected);
     await ownerQuery('INSERT INTO public.public_data_intakes(id,username,seasons) VALUES($1,$2,ARRAY[2026])', [requestId, username]);
     await ownerQuery("INSERT INTO public.league_source_manager_accounts(provider,external_manager_id) VALUES('sleeper',$1) ON CONFLICT DO NOTHING", [manager]);
     await ownerQuery(`INSERT INTO public.public_data_identity_observations(intake_id,source_manager_account_id,username,display_name,payload,request_started_at,request_completed_at)
@@ -705,18 +708,21 @@ describe.sequential('official standings and results through restricted PostgreSQ
           return true;
         }, completeCore: async (...args) => {
           if (replay) {
-            expect(written).toHaveLength(2); const before = await b1State();
+            expect(written).toHaveLength(2); const before = await (combined?.state ?? b1State)();
             for (const entry of written) {
               const repeated = await administration.recordObservation(...entry.args);
               for (const key of ['leagueSettingsAcceptance', 'rosterAcceptance', 'teamManagerAcceptance', 'teamManagerEvidenceAcceptance'] as const) {
                 if (entry.result[key]) expect(repeated[key]?.receiptId).toBe(entry.result[key]!.receiptId);
+                if (combined && entry.result[key]) expect(repeated[key]).toMatchObject({
+                  status: 'accepted', reason: 'exact_receipt_replay', acceptedGeneration: entry.result[key]!.acceptedGeneration,
+                });
               }
             }
             const changed = [...written[1].args] as Parameters<typeof administration.recordObservation>;
             changed[0] = { ...changed[0], envelope: { ...changed[0].envelope, provenance: { ...changed[0].envelope.provenance,
               checkedAt: new Date(Date.parse(changed[0].envelope.provenance.checkedAt) + 1).toISOString() } } };
             await expect(administration.recordObservation(...changed)).rejects.toThrow(/receipt conflict|replay|mismatch/iu);
-            expect(await b1State()).toEqual(before); replayed = true;
+            expect(await (combined?.state ?? b1State)()).toEqual(before); replayed = true;
           }
           return intake.completeCore(...args);
         } },
@@ -763,7 +769,12 @@ describe.sequential('official standings and results through restricted PostgreSQ
         status: 'available', playerLinks: { status: 'available', counts: { teams: 10, held: 80, resolved: 80, unresolved: 0, conflict: 0 } } });
       expect((await administration.readAcceptedTeamManagers(f.mapping)).status).toBe('available');
       expect((await administration.readAcceptedTeamManagerEvidence!(f.mapping)).status).toBe('available');
-      expect((await ownerQuery('SELECT count(*)::int AS rows FROM public.league_roster_player_link_contents'))[0].rows).toBe(0);
+      if (combined) {
+        const [linkReceipt] = await ownerQuery('SELECT storage_format,link_content_id FROM public.league_roster_player_link_receipts WHERE roster_receipt_id=$1', [ids[1]]);
+        expect(linkReceipt.storage_format).toBe(combined.linkFormat);
+        if (combined.linkFormat === 'shared-v1') expect(linkReceipt.link_content_id).toBeTypeOf('string');
+        else expect(linkReceipt.link_content_id).toBeNull();
+      } else expect((await ownerQuery('SELECT count(*)::int AS rows FROM public.league_roster_player_link_contents'))[0].rows).toBe(0);
       return { requestId, ids, rows, proof, standing, written };
     } finally {
       fetch.mockRestore();
@@ -1102,5 +1113,414 @@ describe.sequential('official standings and results through restricted PostgreSQ
       limitations: ['synthetic prerequisites/admission/jobs; no cadence qualification', 'one local reader call per layout; no SLO',
         'no combined A+B measurement', 'no whole-horizon or 10-GiB capacity qualification'] }));
     expect(b1.attempts).toBeLessThanOrEqual(353);
+  }, 300_000);
+
+  // Separately selected combined proof. Original fourteen cases retain their
+  // defaults; the full profile is not qualified by this bounded local subset.
+  type ABMode = 'legacy' | 'A' | 'B1' | 'AB';
+  type ABLinks = Extract<RosterPlayerLinksRead, { status: 'available' }>;
+  const ab = { mode: 'legacy' as ABMode, touched: false, boundaries: [] as unknown[], saved: [] as {
+    fixture: Fixture; ids: string[]; standing: AvailableStandings; links: ABLinks; digest: readonly DatabaseRow[];
+  }[] };
+  const abHasA = (mode: ABMode) => mode === 'A' || mode === 'AB';
+  const abHasB = (mode: ABMode) => mode === 'B1' || mode === 'AB';
+  async function abVerifyMode(mode: ABMode) {
+    const actual = await ownerQuery(`SELECT c.relname AS table_name,p.proname AS function_name,t.tgname AS trigger_name,
+      t.tgtype::int AS event_type,t.tgenabled::text AS enabled,
+      c.relnamespace='public'::regnamespace AND p.pronamespace='public'::regnamespace AS public_identity,
+      t.tgnargs=0 AND t.tgqual IS NULL AS unconditional_no_arguments FROM pg_trigger t
+      JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_proc p ON p.oid=t.tgfoid
+      WHERE NOT t.tgisinternal AND (t.tgname IN ('roster_player_links_after_acceptance','roster_population_intern_before_lineage')
+        OR t.tgfoid IN ('public.capture_roster_player_links()'::regprocedure,
+          'public.capture_roster_player_links_shared()'::regprocedure,'public.intern_roster_population_evidence()'::regprocedure))
+      ORDER BY c.relname,t.tgname`);
+    const expected = [{ table_name: 'league_roster_resource_acceptances',
+      function_name: abHasA(mode) ? 'capture_roster_player_links_shared' : 'capture_roster_player_links',
+      trigger_name: 'roster_player_links_after_acceptance', event_type: 5, enabled: 'O',
+      public_identity: true, unconditional_no_arguments: true }];
+    if (abHasB(mode)) expected.unshift({ table_name: 'league_roster_capture_receipts', function_name: 'intern_roster_population_evidence',
+      trigger_name: 'roster_population_intern_before_lineage', event_type: 7, enabled: 'O',
+      public_identity: true, unconditional_no_arguments: true });
+    expect(actual).toEqual(expected); return actual;
+  }
+  async function abSetMode(mode: ABMode) {
+    await abVerifyMode(ab.mode); ab.touched = true;
+    const owner = await createPinnedIntegrationDatabase('owner');
+    try {
+      await owner.database.query('BEGIN');
+      await owner.database.query(`
+      DROP TRIGGER roster_player_links_after_acceptance ON public.league_roster_resource_acceptances;
+      CREATE TRIGGER roster_player_links_after_acceptance AFTER INSERT ON public.league_roster_resource_acceptances
+        FOR EACH ROW EXECUTE FUNCTION public.${abHasA(mode) ? 'capture_roster_player_links_shared' : 'capture_roster_player_links'}();
+      DROP TRIGGER IF EXISTS roster_population_intern_before_lineage ON public.league_roster_capture_receipts;
+      ${abHasB(mode) ? 'CREATE TRIGGER roster_population_intern_before_lineage BEFORE INSERT ON public.league_roster_capture_receipts FOR EACH ROW EXECUTE FUNCTION public.intern_roster_population_evidence();' : ''}`);
+      await owner.database.query('COMMIT'); ab.mode = mode; b1.bound = abHasB(mode);
+    } catch (error) {
+      await owner.database.query('ROLLBACK').catch(() => undefined); throw error;
+    } finally { await owner.close(); }
+    await abVerifyMode(mode);
+  }
+  async function restoreABWriter() {
+    if (!ab.touched) return;
+    await abSetMode('legacy'); ab.touched = false;
+  }
+  async function abMode<T>(mode: ABMode, body: () => Promise<T>) {
+    try { await abSetMode(mode); return await body(); } finally { await restoreABWriter(); }
+  }
+  async function abState(database = connection.database) {
+    const tables = ['league_roster_resource_attempts', 'league_roster_player_link_contents',
+      'league_roster_player_link_content_entries', 'scoring_entities', 'external_scoring_entity_ids',
+      'league_administration_observation_mappings', 'league_configuration_versions',
+      'league_configuration_activations', 'league_configuration_heads'];
+    return [...await b1State(database), ...await database.query(tables.map(table =>
+      `SELECT '${table}' AS name,count(*)::int AS rows,
+        md5(COALESCE(string_agg(to_jsonb(t)::text,'' ORDER BY to_jsonb(t)::text),'')) AS digest FROM public.${table} t`).join(' UNION ALL '))];
+  }
+  async function abLinks(f: Fixture, receipt: string, store = administration): Promise<ABLinks> {
+    const value = await store.readRosterPlayerLinks({ leagueSeasonId: f.leagueSeasonId, rosterReceiptId: receipt });
+    expect(value.status).toBe('available'); if (value.status !== 'available') throw new Error('Combined stored links unavailable.');
+    return value;
+  }
+  async function abLinkStorage(receipt: string, database = connection.database) {
+    const [row] = await database.query('SELECT * FROM public.league_roster_player_link_receipts WHERE roster_receipt_id=$1', [receipt]);
+    expect(row).toBeDefined(); return row;
+  }
+  async function abReceiptDigest(ids: readonly string[]) {
+    return connection.database.query(`WITH receipts AS (SELECT * FROM public.league_roster_capture_receipts WHERE id=ANY($1::uuid[])),
+      link_receipts AS (SELECT * FROM public.league_roster_player_link_receipts WHERE roster_receipt_id=ANY($1::uuid[])),
+      facts AS (
+        SELECT 'receipts' AS kind,to_jsonb(r) AS value FROM receipts r
+        UNION ALL SELECT 'attempts',to_jsonb(a) FROM public.league_roster_resource_attempts a WHERE id IN (SELECT attempt_id FROM receipts)
+        UNION ALL SELECT 'acceptances',to_jsonb(a) FROM public.league_roster_resource_acceptances a WHERE receipt_id=ANY($1::uuid[])
+        UNION ALL SELECT 'link_receipts',to_jsonb(r) FROM link_receipts r
+        UNION ALL SELECT 'legacy_links',to_jsonb(l) FROM public.league_roster_player_links l WHERE roster_acceptance_id IN (SELECT roster_acceptance_id FROM link_receipts)
+        UNION ALL SELECT 'link_contents',to_jsonb(c) FROM public.league_roster_player_link_contents c WHERE id IN (SELECT link_content_id FROM link_receipts)
+        UNION ALL SELECT 'link_entries',to_jsonb(e) FROM public.league_roster_player_link_content_entries e WHERE content_id IN (SELECT link_content_id FROM link_receipts)
+        UNION ALL SELECT 'population_contents',to_jsonb(c) FROM public.league_roster_population_contents c WHERE id IN (SELECT population_content_id FROM receipts))
+      SELECT kind,count(*)::int AS rows,md5(string_agg(value::text,'' ORDER BY value::text)) AS digest FROM facts GROUP BY kind ORDER BY kind`, [ids]);
+  }
+  async function abCore(f: Fixture, options: { score?: boolean; membership?: boolean; replay?: boolean } = {}) {
+    const roster = b1Roster(options.score);
+    if (options.membership) {
+      [roster[0].players[1], roster[1].players[1]] = [roster[1].players[1], roster[0].players[1]];
+    }
+    const value = await b1Core(f, options.score, options.replay, {
+      linkFormat: abHasA(ab.mode) ? 'shared-v1' : 'acceptance-v1', roster, state: abState,
+    });
+    const links = await abLinks(f, value.ids[1]), storage = await abLinkStorage(value.ids[1]);
+    return { ...value, links, storage };
+  }
+  async function abRemember(f: Fixture, value: Awaited<ReturnType<typeof abCore>>) {
+    ab.saved.push({ fixture: f, ids: value.ids, standing: value.standing, links: value.links, digest: await abReceiptDigest(value.ids) });
+  }
+  async function abCheckHistory() {
+    await storedOnly(async (_database, store) => {
+      for (const saved of ab.saved) {
+        expect(await read(saved.fixture.mapping, saved.ids[1], store)).toEqual(saved.standing);
+        expect(await abLinks(saved.fixture, saved.ids[1], store)).toEqual(saved.links);
+        expect(await abReceiptDigest(saved.ids)).toEqual(saved.digest);
+      }
+    });
+  }
+  it('AB preserves four-mode history fresh proofs corrections return and exact replay', async () => {
+    ab.boundaries.push(await abSnapshot('empty-migrated-schema'));
+    await b1Setup();
+    ab.boundaries.push(await abSnapshot('synthetic-prerequisites'));
+    let original: Awaited<ReturnType<typeof abCore>> | undefined;
+    for (const mode of ['legacy', 'A', 'B1', 'AB'] as const) {
+      await abMode(mode, async () => {
+        const modeRows: Awaited<ReturnType<typeof abCore>>[] = [];
+        for (const f of b1.fixtures) {
+          const value = await abCore(f, { replay: mode === 'AB' && f === b1.fixtures[0] });
+          await abRemember(f, value); modeRows.push(value);
+          if (mode === 'AB' && f === b1.fixtures[0]) original = value;
+        }
+        if (abHasA(mode)) expect(modeRows[0].storage.link_content_id).not.toBe(modeRows[1].storage.link_content_id);
+        if (abHasB(mode)) expect(modeRows[0].rows[1].population_content_id).not.toBe(modeRows[1].rows[1].population_content_id);
+        await abCheckHistory();
+        ab.boundaries.push(await abSnapshot('semantic-' + mode));
+      });
+      await abVerifyMode('legacy'); await abCheckHistory();
+    }
+    await abMode('AB', async () => {
+      const f = b1.fixtures[0], unchanged = await abCore(f);
+      ab.boundaries.push(await abSnapshot('unchanged'));
+      const score = await abCore(f, { score: true }); ab.boundaries.push(await abSnapshot('score-only-correction'));
+      const membership = await abCore(f, { membership: true }); ab.boundaries.push(await abSnapshot('membership-correction'));
+      const returned = await abCore(f); ab.boundaries.push(await abSnapshot('return-to-original'));
+      expect(original).toBeDefined();
+      for (const value of [unchanged, score, returned]) {
+        expect(value.storage.link_content_id).toBe(original!.storage.link_content_id);
+        expect(value.links.links).toEqual(original!.links.links);
+      }
+      expect(score.standing.teams[0].record.wins).toEqual({ state: 'known', value: 5, sourcePath: 'settings.wins' });
+      expect(membership.storage.link_content_id).not.toBe(original!.storage.link_content_id);
+      expect(membership.links.links).not.toEqual(original!.links.links);
+      const values = [original!, unchanged, score, membership, returned];
+      expect(new Set(values.map(value => value.rows[1].population_content_id)).size).toBe(5);
+      expect(new Set(values.map(value => JSON.stringify(value.proof.provenance))).size).toBe(5);
+      for (const value of [unchanged, score, membership, returned]) await abRemember(f, value);
+      expect(await administration.readRosterPlayerLinks({ leagueSeasonId: b1.fixtures[1].leagueSeasonId,
+        rosterReceiptId: original!.ids[1] })).toMatchObject({ status: 'missing' });
+      await abCheckHistory();
+    });
+    await abVerifyMode('legacy'); await abCheckHistory();
+    console.info('CP28_AB_SEMANTICS ' + JSON.stringify({ modes: ['legacy', 'A', 'B1', 'AB'], witnessedCores: b1.cores,
+      reservations: b1.attempts, historicalReceipts: ab.saved.length * 4, exactHistoryAndDigests: true,
+      scoreOnlyAndReturnReuseA: true, freshPopulationEveryCore: true, exactReplayBeforeAck: true, restoredLegacy: true }));
+  }, 180_000);
+  it('AB rolls back both histories after downstream expiry and serializes actual runtime writers', async () => {
+    await b1Setup(); const f = b1.fixtures[0];
+    await abMode('AB', async () => {
+      const canonical = ab.saved.find(saved => saved.fixture === f)!.links.links.find(link => link.nativePlayerId === b1Players[0])!.canonicalEntityId;
+      for (const expiry of ['deadline', 'lease'] as const) {
+        const blocker = await createPinnedIntegrationDatabase('owner'), writer = await createPinnedIntegrationDatabase('runtime');
+        let open = false, pending: Promise<{ error?: unknown }> | undefined;
+        let lastPredicate: DatabaseRow | undefined, fenceStartedAt: number | undefined, writeStartedAt: number | undefined;
+        try {
+          // Connections and backend identity checks precede the new original
+          // four-second deadline/lease. No reserved timestamp is extended.
+          const [blockerPid] = await blocker.database.query('SELECT pg_backend_pid() AS pid'),
+            [writerPid] = await writer.database.query('SELECT pg_backend_pid() AS pid');
+          fenceStartedAt = performance.now();
+          const workFence = await fence(expiry === 'deadline' ? 4 : 20);
+          if (expiry === 'lease') await ownerQuery("UPDATE public.projection_jobs SET lease_until=clock_timestamp()+interval '4 seconds' WHERE job_key=$1", [workFence.jobKey]);
+          b1Reserve(1); const attempt = await administration.beginRosterAttempt(f.mapping, randomUUID(), undefined, workFence);
+          const evidence = await population(f, 10, workFence), payload = b1Roster();
+          payload[0].players.reverse(); payload[0].starters = [];
+          const input = await observation(f, payload), proof = { observationId: evidence.observationId,
+            contentHash: evidence.contentHash, provenance: evidence.envelope.provenance };
+          const [absent] = await connection.database.query(`SELECT NOT EXISTS(SELECT 1 FROM public.league_roster_population_contents
+            WHERE league_season_id=$1 AND source_mapping_revision_id=$2
+              AND content_hash=encode(digest(convert_to($3::jsonb::text,'UTF8'),'sha256'),'hex')) AS absent`,
+          [f.leagueSeasonId, f.mapping.revisionId, JSON.stringify(proof)]);
+          expect(absent.absent).toBe(true);
+          const before = await abState(), prior = await administration.readAcceptedCurrentRoster(f.mapping, { includePlayerLinks: true }),
+            baselineReadyAt = performance.now();
+          await blocker.database.query('BEGIN'); open = true;
+          await blocker.database.query('SELECT id FROM public.scoring_entities WHERE id=$1 FOR UPDATE', [canonical]);
+          writeStartedAt = performance.now();
+          pending = administrationFor(writer.database).recordObservation(input, workFence, f.mapping, { attempt, population: evidence })
+            .then(() => ({}), error => ({ error }));
+          let observed: DatabaseRow | undefined;
+          for (let poll = 0; poll < 100; poll++) {
+            const [row] = await blocker.database.query(`SELECT
+              $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
+              EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND locktype='transactionid' AND mode='ShareLock' AND NOT granted) AS transaction_wait,
+              EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_population_contents'::regclass AND mode='RowExclusiveLock' AND granted) AS population_insert_attempted,
+              EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.scoring_entities'::regclass AND mode='RowExclusiveLock' AND granted) AS identity_write_attempted,
+              EXISTS(SELECT 1 FROM pg_locks WHERE pid=$2::int AND relation='public.league_roster_resource_acceptances'::regclass AND mode='RowExclusiveLock' AND granted) AS acceptance_insert_attempted`,
+            [blockerPid.pid, writerPid.pid]);
+            lastPredicate = row;
+            if (Object.values(row).every(value => value === true)) { observed = row; break; } await delay(20);
+          }
+          expect(observed).toBeDefined();
+          await blocker.database.query(`SELECT pg_sleep(GREATEST(0,EXTRACT(EPOCH FROM
+            (LEAST($1::timestamptz,(SELECT lease_until FROM public.projection_jobs WHERE job_key=$2))-clock_timestamp())))+0.025)`,
+          [workFence.deadlineAt, workFence.jobKey]);
+          await blocker.database.query('COMMIT'); open = false;
+          expect(String((await pending).error)).toMatch(/fence.*(?:stale|expired)|deadline/iu);
+          expect(await abState()).toEqual(before);
+          expect(await administration.readAcceptedCurrentRoster(f.mapping, { includePlayerLinks: true })).toEqual(prior);
+          console.info('CP28_AB_FENCE ' + JSON.stringify({ expiry, observed, freshPopulationKeyPreviouslyAbsent: true,
+            blocker: 'scoring_entities row FOR UPDATE', evidence: 'B parent insertion attempted before A-stage wait; uncommitted parent not externally read',
+            rejected: true, scopedStateRollback: true, checkedTables: before.map(row => row.name),
+            timing: { baselineMs: baselineReadyAt - fenceStartedAt, setupBeforeWriteMs: writeStartedAt - fenceStartedAt,
+              totalMs: performance.now() - fenceStartedAt } }));
+        } catch (error) {
+          // Release only the owned blocker, then retain safe diagnostics. Error
+          // text/SQL/parameters are deliberately excluded from this fixture log.
+          if (open) { await blocker.database.query('ROLLBACK'); open = false; }
+          const settled = await pending;
+          const failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
+          console.info('CP28_AB_FENCE_DIAGNOSTIC ' + JSON.stringify({ expiry, lastPredicate,
+            elapsedMs: fenceStartedAt === undefined ? null : performance.now() - fenceStartedAt,
+            setupBeforeWriteMs: writeStartedAt === undefined || fenceStartedAt === undefined ? null : writeStartedAt - fenceStartedAt,
+            pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null }));
+          throw error;
+        } finally {
+          try { if (open) await blocker.database.query('ROLLBACK'); }
+          finally { try { await pending; } finally { try { await writer.close(); } finally { await blocker.close(); } } }
+        }
+      }
+      const first = await createPinnedIntegrationDatabase('runtime'), second = await createPinnedIntegrationDatabase('runtime'),
+        firstFence = await fence(), secondFence = await fence();
+      let open = false, pending: Promise<{ result?: Awaited<ReturnType<typeof administration.recordObservation>>; error?: unknown }> | undefined;
+      let lastWait: DatabaseRow | undefined;
+      try {
+        b1Reserve(2); const firstStore = administrationFor(first.database), secondStore = administrationFor(second.database), payload = b1Roster();
+        payload[2].players.reverse(); payload[2].starters = [];
+        await first.database.query('BEGIN'); open = true;
+        const firstAttempt = await firstStore.beginRosterAttempt(f.mapping, randomUUID(), undefined, firstFence);
+        const firstPopulation = await population(f, 10, firstFence, firstStore);
+        const firstResult = await firstStore.recordObservation(await observation(f, payload), firstFence, f.mapping,
+          { attempt: firstAttempt, population: firstPopulation });
+        expect(firstResult.rosterAcceptance?.status).toBe('accepted');
+        const firstId = firstResult.rosterAcceptance!.receiptId, firstLinks = await abLinks(f, firstId, firstStore),
+          firstStorage = await abLinkStorage(firstId, first.database), [firstRow] = await b1Receipts([firstId], first.database);
+        expect(firstRow.population_storage_format).toBe('shared-v1'); expect(firstStorage.storage_format).toBe('shared-v1');
+        const [firstPid] = await first.database.query('SELECT pg_backend_pid() AS pid'), [secondPid] = await second.database.query('SELECT pg_backend_pid() AS pid');
+        pending = (async () => {
+          const attempt = await secondStore.beginRosterAttempt(f.mapping, randomUUID(), undefined, secondFence);
+          const freshPopulation = await population(f, 10, secondFence, secondStore);
+          return secondStore.recordObservation(await observation(f, payload), secondFence, f.mapping, { attempt, population: freshPopulation });
+        })().then(result => ({ result }), error => ({ error }));
+        let observed: DatabaseRow | undefined;
+        for (let poll = 0; poll < 100; poll++) {
+          const [row] = await first.database.query(`WITH expected AS (
+            SELECT hashtextextended('league-configuration:'||$3::uuid::text,0) AS key)
+            SELECT $1::int=ANY(pg_blocking_pids($2::int)) AS blocked,
+              EXISTS(SELECT 1 FROM pg_locks waiter JOIN pg_locks holder
+                ON holder.locktype=waiter.locktype AND holder.database=waiter.database
+                  AND holder.classid=waiter.classid AND holder.objid=waiter.objid AND holder.objsubid=waiter.objsubid
+                CROSS JOIN expected
+                WHERE waiter.pid=$2::int AND holder.pid=$1::int AND waiter.locktype='advisory'
+                  AND waiter.mode='ExclusiveLock' AND NOT waiter.granted AND holder.mode='ExclusiveLock' AND holder.granted
+                  AND waiter.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+                  AND waiter.classid::bigint=((expected.key>>32)&4294967295)
+                  AND waiter.objid::bigint=(expected.key&4294967295) AND waiter.objsubid=1) AS mapping_lock,
+              (SELECT COALESCE(jsonb_agg(to_jsonb(l)),'[]'::jsonb) FROM (
+                SELECT locktype,mode,granted,classid::text,objid::text,objsubid FROM pg_locks
+                  WHERE pid=$2::int AND NOT granted LIMIT 4) l) AS waiter_locks`, [firstPid.pid, secondPid.pid, f.leagueSeasonId]);
+          lastWait = row;
+          if (row.blocked === true && row.mapping_lock === true) { observed = row; break; } await delay(20);
+        }
+        expect(observed).toBeDefined(); await first.database.query('COMMIT'); open = false;
+        const settled = await pending; expect(settled.error).toBeUndefined(); expect(settled.result?.rosterAcceptance?.status).toBe('accepted');
+        const secondId = settled.result!.rosterAcceptance!.receiptId, secondStorage = await abLinkStorage(secondId),
+          [secondRow] = await b1Receipts([secondId]);
+        expect(secondId).not.toBe(firstId); expect(secondStorage.link_content_id).toBe(firstStorage.link_content_id);
+        expect(secondRow.population_storage_format).toBe('shared-v1');
+        expect(secondRow.population_content_id).not.toBe(firstRow.population_content_id);
+        expect(secondRow.effective_population).not.toEqual(firstRow.effective_population);
+        expect((await abLinks(f, secondId)).links).toEqual(firstLinks.links);
+        expect(await abLinks(f, firstId)).toEqual(firstLinks);
+        console.info('CP28_AB_CONCURRENCY ' + JSON.stringify({ setup: 'two actual restricted runtime roster writers with separate fresh population evidence',
+          wait: 'league-mapping advisory serialization before resource head; not content unique-key contention', observed,
+          distinctReceipts: true, sharedAContent: firstStorage.link_content_id, distinctBParents: true }));
+      } catch (error) {
+        if (open) { await first.database.query('ROLLBACK'); open = false; }
+        const settled = await pending, failure = settled?.error as { name?: unknown; code?: unknown } | undefined;
+        console.info('CP28_AB_CONCURRENCY_DIAGNOSTIC ' + JSON.stringify({ lastWait,
+          pendingError: failure ? { name: String(failure.name), code: String(failure.code) } : null }));
+        throw error;
+      } finally {
+        try { if (open) await first.database.query('ROLLBACK'); }
+        finally { try { await pending; } finally { try { await second.close(); } finally { await first.close(); } } }
+      }
+      await abCheckHistory();
+    });
+    await abVerifyMode('legacy'); await abCheckHistory();
+  }, 120_000);
+  const administrationFor = (database: DatabaseClient) => createLeagueAdministrationStore(database);
+  const abProofColumns = [
+    ['league_roster_resource_attempts', 'source_mapping'], ['league_roster_resource_attempts', 'write_fence'],
+    ['league_roster_capture_receipts', 'provenance'], ['league_roster_capture_receipts', 'population_evidence'],
+    ['league_roster_capture_receipts', 'coverage'], ['league_roster_population_contents', 'population_evidence'],
+    ['league_official_standings_captures', 'source_mapping'], ['league_official_standings_captures', 'reasons'],
+    ['league_roster_player_link_receipts', 'reasons'],
+    ...['league_roster_player_links', 'league_roster_player_link_content_entries'].flatMap(table =>
+      ['mapping_proof', 'kind_evidence', 'reasons'].map(column => [table, column])),
+  ];
+  async function abSnapshot(boundary: string) {
+    const inventory = await ownerQuery(`SELECT n.nspname AS schema,c.relname AS table FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('public','website_auth') AND c.relkind='r'
+      ORDER BY n.nspname,c.relname`);
+    expect(inventory.filter(row => row.schema === 'public')).toHaveLength(152);
+    expect(inventory.filter(row => row.schema === 'website_auth')).toHaveLength(5);
+    const relations = await ownerQuery<DatabaseRow & { schema: string; table: string; name: string; rows: number;
+      tuplebytes: string; heap: string; indexes: string; toast: string; auxiliary: string; total: string }>(inventory.map(row => {
+      expect(String(row.schema)).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/u); expect(String(row.table)).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/u);
+      const name = row.schema + '.' + row.table, relation = '"' + row.schema + '"."' + row.table + '"';
+      return `SELECT '${row.schema}' AS schema,'${row.table}' AS table,'${name}' AS name,
+        count(*)::int AS rows,COALESCE(sum(pg_column_size(t)),0)::text AS tupleBytes,
+        pg_relation_size('${relation}'::regclass)::text AS heap,pg_indexes_size('${relation}'::regclass)::text AS indexes,
+        (SELECT CASE WHEN reltoastrelid=0 THEN 0 ELSE pg_total_relation_size(reltoastrelid) END FROM pg_class WHERE oid='${relation}'::regclass)::text AS toast,
+        (pg_total_relation_size('${relation}'::regclass)-pg_relation_size('${relation}'::regclass)-pg_indexes_size('${relation}'::regclass)
+          -(SELECT CASE WHEN reltoastrelid=0 THEN 0 ELSE pg_total_relation_size(reltoastrelid) END FROM pg_class WHERE oid='${relation}'::regclass))::text AS auxiliary,
+        pg_total_relation_size('${relation}'::regclass)::text AS total FROM ${relation} t`;
+    }).join(' UNION ALL '));
+    const columns = await ownerQuery(abProofColumns.map(([table, column]) => `SELECT 'public.${table}' AS name,'${column}' AS column,
+      count(${column})::int AS nonnull,COALESCE(sum(pg_column_size(${column})),0)::text AS datumBytes,
+      COALESCE(sum(octet_length(convert_to(${column}::text,'UTF8'))),0)::text AS jsonTextBytes FROM public.${table}`).join(' UNION ALL '));
+    for (const row of relations) {
+      for (const key of ['rows', 'tuplebytes', 'heap', 'indexes', 'toast', 'auxiliary', 'total']) {
+        expect(Number.isSafeInteger(Number(row[key])) && Number(row[key]) >= 0).toBe(true);
+      }
+      expect(Number(row.total)).toBe(Number(row.heap) + Number(row.indexes) + Number(row.toast) + Number(row.auxiliary));
+    }
+    // SQL folds unquoted aliases; expose a stable explicit JSON spelling.
+    return { boundary, mode: ab.mode, counters: { witnessedCores: b1.cores, resourceReservations: b1.attempts,
+      syntheticCoreHttpResponses: b1.cores * 2 }, modeTriggers: await abVerifyMode(ab.mode),
+      relations: relations.map(({ tuplebytes, ...row }) => ({ ...row, tupleBytes: tuplebytes })),
+      columns: columns.map(({ datumbytes, jsontextbytes, ...row }) => ({ ...row, datumBytes: datumbytes, jsonTextBytes: jsontextbytes })) };
+  }
+  it('AB measures matched witnessed cores with combined lossless sharing and complete allocation attribution', async () => {
+    await b1Setup(); await abCheckHistory();
+    const measure = async (mode: 'legacy' | 'AB') => abMode(mode, async () => {
+      const beforeWarm = await abSnapshot(mode + '-before-warm');
+      for (const f of b1.fixtures) await abCore(f);
+      const before = await abSnapshot(mode + '-measured-start'), batches: { cores: number; snapshot: Awaited<ReturnType<typeof abSnapshot>> }[] = [];
+      const receipts = new Set<string>(), parents = new Set<string>(), links = new Set<string>();
+      let last: Awaited<ReturnType<typeof abCore>> | undefined;
+      for (let index = 0; index < 32; index++) {
+        last = await abCore(b1.fixtures[index % 2]);
+        for (const id of last.ids) receipts.add(id);
+        for (const row of last.rows.slice(1)) if (row.population_content_id !== null) parents.add(String(row.population_content_id));
+        if (last.storage.link_content_id !== null) links.add(String(last.storage.link_content_id));
+        if ((index + 1) % 8 === 0) batches.push({ cores: index + 1, snapshot: await abSnapshot(mode + '-measured-' + (index + 1)) });
+      }
+      const after = batches.at(-1)!.snapshot;
+      const rowDelta = (table: string) => Number(after.relations.find(row => row.name === 'public.' + table)!.rows)
+        - Number(before.relations.find(row => row.name === 'public.' + table)!.rows);
+      expect(receipts.size).toBe(128); expect(parents.size).toBe(mode === 'AB' ? 32 : 0); expect(links.size).toBe(mode === 'AB' ? 2 : 0);
+      for (const table of ['league_roster_capture_receipts', 'league_roster_resource_attempts', 'league_roster_resource_acceptances']) expect(rowDelta(table)).toBe(128);
+      expect(rowDelta('league_roster_population_contents')).toBe(mode === 'AB' ? 32 : 0);
+      expect(rowDelta('league_roster_player_link_receipts')).toBe(32);
+      expect(rowDelta('league_roster_player_links')).toBe(mode === 'AB' ? 0 : 2560);
+      expect(rowDelta('league_roster_player_link_contents')).toBe(0);
+      expect(rowDelta('league_roster_player_link_content_entries')).toBe(0);
+      expect(rowDelta('league_official_standings_captures')).toBe(32);
+      expect(after.relations.filter(row => row.schema === 'website_auth')).toEqual(beforeWarm.relations.filter(row => row.schema === 'website_auth'));
+      let queries = 0;
+      const database: DatabaseClient = { enabled: true, query: async <Row extends DatabaseRow>(sql: string, parameters?: readonly unknown[], options?: DatabaseQueryOptions) => {
+        queries++; expect(sql).not.toMatch(/\b(?:INSERT|UPDATE|DELETE|CALL)\b/iu);
+        return connection.database.query<Row>(sql, parameters, options);
+      } };
+      const reader = administrationFor(database), start = performance.now();
+      expect(await read(b1.fixtures[1].mapping, last!.ids[1], reader)).toEqual(last!.standing);
+      const standingsElapsedMs = performance.now() - start; expect(queries).toBe(1);
+      const linksStart = performance.now(); expect(await abLinks(b1.fixtures[1], last!.ids[1], reader)).toEqual(last!.links);
+      expect(queries).toBe(2); const linksElapsedMs = performance.now() - linksStart;
+      await abCheckHistory();
+      return { mode, beforeWarm, before, after, batches, historicalDigestChecksPassed: true,
+        reader: { standingsElapsedMs, linksElapsedMs, standingsQueries: 1, linkQueries: 1, teams: 10, held: 80 } };
+    });
+    const legacy = await measure('legacy'), combined = await measure('AB');
+    await abVerifyMode('legacy'); await abCheckHistory();
+    const affected = ['league_roster_capture_receipts', 'league_roster_population_contents', 'league_roster_player_link_receipts',
+      'league_roster_player_links', 'league_roster_player_link_contents', 'league_roster_player_link_content_entries'].map(table => 'public.' + table);
+    const delta = (phase: typeof legacy, names?: readonly string[]) => phase.after.relations.reduce((sum, row) =>
+      sum + (row.schema === 'public' && (!names || names.includes(String(row.name)))
+        ? Number(row.total) - Number(phase.before.relations.find(old => old.name === row.name)!.total) : 0), 0);
+    console.info('CP28_AB_ALLOCATION ' + JSON.stringify({ schemaVersion: 1, kind: 'local-native-witnessed-core-combined-ab-v1',
+      fixture: { leagues: 2, teamsPerLeague: 10, teamsTotal: 20, heldPerCore: 80, heldAcrossLeagues: 160, uniqueCatalogPlayers: 80 },
+      workload: { semanticCores: 12, warmCoresPerLayout: 2, measuredCoresPerLayout: 32, directRosterProbes: 4,
+        attemptsPerCore: 4, receiptsPerCore: 4, acceptedStandingsPerCore: 1, eligiblePopulationReceiptsPerCore: 3 },
+      semanticBoundaries: ab.boundaries, legacy, combined, affectedRelations: affected,
+      affectedAllocatedBytes: { legacy: delta(legacy, affected), combined: delta(combined, affected) },
+      allPublicAllocatedBytes: { legacy: delta(legacy), combined: delta(combined) },
+      counters: { witnessedCores: b1.cores, resourceReservations: b1.attempts, syntheticCoreHttpResponses: b1.cores * 2 },
+      historicalDigestChecksPassed: true, restoredLegacy: true, externalProviderCalls: 0,
+      limitations: ['synthetic prerequisites/admission/jobs; no cadence qualification',
+        'warmed sequential allocation; small page steps are not zero logical cost',
+        'one local standings/link reader call per layout; no SLO',
+        'proof-column datum/text diagnostics overlap whole-row tuple bytes and are not additive physical savings',
+        'all-public includes synthetic controls and shared identities; classification required',
+        '10 teams/80 held per core differs from original hosted20 teams/160 held per core',
+        'selected three-case local proof only; full17-case profile remains unqualified',
+        'no whole-horizon or 10-GiB capacity qualification'] }));
+    expect(b1.cores).toBe(80); expect(b1.attempts).toBe(325);
+    expect(delta(combined, affected)).toBeLessThan(delta(legacy, affected));
   }, 300_000);
 });

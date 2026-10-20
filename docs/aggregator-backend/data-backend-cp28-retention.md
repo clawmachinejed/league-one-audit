@@ -1,5 +1,12 @@
 # CP28 retention and storage growth analysis
 
+## Current combined A+B local proof — October 19, 2026
+
+**Combined behavior/storage proof: PASS. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [combined report](data-backend-cp28-combined-storage.md) records three passing selected PostgreSQL cases, both preserved fixture-observation failures, 428 cumulative reservations, all 64 real migrations and verified cleanup. Matched 32-core allocation fell from 2,891,776 to 368,640 bytes in directly affected tables (87.25%); all-public growth fell from 3,317,760 to 745,472 bytes. The final DATA rate is 18,176 bytes per core at the local ten-team/eighty-held-player geometry; it is a finite warmed observation, not a proven recurring production slope.
+
+The new [complete conditional accounting model](data-backend-cp28-combined-forecast.json) covers all eight official families with fifteen explicit unpriced terms. The five-minute DATA-core plus initial-catalog sensitivity is 10.046 GiB; the separate four-minute source-due sensitivity is 12.503 GiB. Ordinary controls and other required growth remain unknown, so capacity is not qualified. Further lossless provenance/mapping/fence normalization and complete family/benchmark pricing remain outstanding. Both shared writers remain dormant; this increment is local and unpublished. Earlier evidence below remains historical and unchanged.
+
+
 ## Current local B1 implementation — October 19, 2026
 
 **Population-evidence sharing: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [B1 implementation report](data-backend-cp28-population-evidence.md) records six passing selected cases against all 64 real migrations and three provisioners, one preserved fixture-assertion failure, 326 cumulative local resource reservations and verified cleanup. Across 32 matched fresh cores per layout, the directly affected receipt/parent tables allocated 458,752 bytes inline versus 360,448 shared (21.43% less); distinct receipts and provenance remain intact. The comparison kept Slice A legacy and does not establish combined A+B or retained-horizon growth. Both shared writers remain dormant; this candidate is local and unpublished. Combined storage proof and a complete all-family 10-GiB forecast remain outstanding. Earlier checkpoints below are preserved.
