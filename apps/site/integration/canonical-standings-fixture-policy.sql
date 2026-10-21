@@ -223,7 +223,7 @@ BEGIN
       RETURN jsonb_build_object('state','known','value',field_value); END IF;
   ELSIF jsonb_typeof(field_value)='number' THEN
     amount:=(field_value#>>'{}')::numeric;
-    IF amount=trunc(amount) AND amount BETWEEN CASE WHEN p_kind='rank' THEN 1 ELSE 0 END AND 9007199254740991 THEN
+    IF amount=trunc(amount) AND amount BETWEEN (CASE WHEN p_kind='rank' THEN 1 ELSE 0 END) AND 9007199254740991 THEN
       RETURN jsonb_build_object('state','known','value',amount::bigint); END IF;
   END IF;
   RETURN jsonb_build_object('state','invalid','value',NULL);

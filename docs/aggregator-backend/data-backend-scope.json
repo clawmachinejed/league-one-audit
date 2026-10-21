@@ -42,7 +42,7 @@
     {
       "path": "apps/site/migrations/067_canonical_standings.sql",
       "resource": "Canonical official standings reservations and fixed policy",
-      "purpose": "Append migration067 only: canonical evidence schema and qualified reservation policy through existing resource ownership; independent fixed native verifier and canonical contract/coverage checks; production fixture admission remains closed. Standings source repair 2026-10-21: RPR3: parenthesize only the existing native parity CASE within IF so the uninstalled candidate migration parses; retain every operand, null/parity check, grant and guard. No migration application.",
+      "purpose": "Append migration067 only: canonical evidence schema and qualified reservation policy through existing resource ownership; independent fixed native verifier and canonical contract/coverage checks; production fixture admission remains closed. Standings source repair 2026-10-21: RPR3: parenthesize only the existing native parity CASE within IF so the uninstalled candidate migration parses; retain every operand, null/parity check, grant and guard. No migration application. Local setup repair 2026-10-21: independently reproduced native SQLSTATE42702; qualify only the duplicate-team query alias/column to remove its PLpgSQL variable ambiguity, preserving duplicate rejection and every acceptance criterion. Execute only owned local PostgreSQL; no hosted application or release.",
       "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment. RPR1–RPR4 retain 8157 failures and immutable execution proposal; require targeted regression/type/lint/scope checks, independent actual-diff review and one stable normal source CI. No paid SQL, provisioning, migration application, merge or production deployment. CP28 and R1–R6/eight families/Q01–Q16 remain frozen.",
       "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate. Independent nonauthor GPT-6 Astra ultra /root/repair_independent confirmed exact dependencies and scope entries before edits; final review separately recorded.",
       "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13 CANONICAL-STANDINGS-2026-10-21-SOURCE-REPAIR; docs/aggregator-backend/provider-independence-standings-implementation.md"
@@ -2694,6 +2694,14 @@
       "proof": "RPR1–RPR4 retain 8157 failures and immutable execution proposal; require targeted regression/type/lint/scope checks, independent actual-diff review and one stable normal source CI. No paid SQL, provisioning, migration application, merge or production deployment. CP28 and R1–R6/eight families/Q01–Q16 remain frozen.",
       "reviewer": "Independent nonauthor GPT-6 Astra ultra /root/repair_independent confirmed exact dependencies and scope entries before edits; final review separately recorded.",
       "reviewReference": "CANONICAL-STANDINGS-2026-10-21-SOURCE-REPAIR; docs/aggregator-backend/provider-independence-standings-implementation.md"
+    },
+    {
+      "path": "apps/site/scripts/check-canonical-sql-setup.mjs",
+      "resource": "Canonical standings SQL setup",
+      "purpose": "Opt-in local-only PostgreSQL 18 installation diagnostic: owned loopback cluster, fresh 001-069 and nonempty 065-to-069 upgrade, all provisioners, schedule-clock SQL, whole fixture policy, source parity, boundary and ACL checks; no existing database target or cloud dispatch.",
+      "proof": "Exact source-bound native local receipts and verified owned-cluster cleanup. Preserve all historical pins, failed hosted runs, thirteen-case qualification and CP28. Local installation is not hosted or runtime qualification.",
+      "reviewer": "Independent GPT-6 Astra ultra /root/fixture_sql_review approved exact dependency and static design; final source/evidence review separately required.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md#fixturesetup-repair--pre-edit-dependency-contract-2026-10-21"
     }
   ],
   "governanceChanges": [

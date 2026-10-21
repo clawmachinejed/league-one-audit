@@ -214,7 +214,7 @@ BEGIN
       OR NOT public.canonical_standings_fact_valid(team->'providerRank','rank')
       OR NOT public.canonical_standings_fact_valid(team->'providerSeed','rank') THEN RAISE EXCEPTION 'invalid canonical standings team'; END IF;
   END LOOP;
-  IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_facts->'teams') team GROUP BY team->'sourceTeam' HAVING count(*)>1) THEN
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_facts->'teams') AS duplicate_team(value) GROUP BY duplicate_team.value->'sourceTeam' HAVING count(*)>1) THEN
     RAISE EXCEPTION 'duplicate canonical standings team'; END IF;
 END; $$;
 
