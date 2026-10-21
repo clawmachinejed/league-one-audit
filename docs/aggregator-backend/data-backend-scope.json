@@ -32,6 +32,142 @@
   ],
   "reviewedExtensions": [
     {
+      "path": "apps/site/migrations/066_canonical_source_identities.sql",
+      "resource": "Canonical source identity prerequisites",
+      "purpose": "Append migration066 only: namespace-qualified identity and revision/history CAS, guarded legacy metadata initialization, private registration policy and real job/capture/fence checks, canonical team resolution, official-only enrollment exclusion and immutable three-relation deferred registration context. Preserve001-065 and native statement guards.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/migrations/067_canonical_standings.sql",
+      "resource": "Canonical official standings reservations and fixed policy",
+      "purpose": "Append migration067 only: canonical evidence schema and qualified reservation policy through existing resource ownership; independent fixed native verifier and canonical contract/coverage checks; production fixture admission remains closed.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/migrations/068_canonical_standings_acceptance.sql",
+      "resource": "Sole-writer canonical standings acceptance and closure",
+      "purpose": "Append migration068 only: immutable native/canonical content and receipt hashes, typed standings materialization, original-fence and deferred closure, exact replay, source-time correction/conflict and preserved legacy writer result through the existing sole dispatcher.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/migrations/069_canonical_native_compatibility.sql",
+      "resource": "Canonical companion compatibility and explicit private ACL",
+      "purpose": "Append migration069 only: one explicitly recognized canonical standings companion in the unchanged native acquisition protocol; preserve original native witness/hash meaning and reject duplicate/unknown/noncore/mismatched/late companions. Explicit new/private helper and renamed writer ACL inventory.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/integration/canonical-standings-profile.ts",
+      "resource": "RFQ1 closed canonical standings qualification inventory",
+      "purpose": "Define only data-canonical-standings-v1 and its ordered13 S01-S13 cases, exact finite hook/case timeouts totaling1545seconds plus255seconds reserve within the unchanged1800second work ceiling, actual PostgreSQL18+ and simulated-provider labels.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/integration/canonical-standings-fixtures.ts",
+      "resource": "RFQ1 fixed standalone provider-neutral proof data",
+      "purpose": "Source-pin finite fixture registry, independent application translation, differently shaped native club fields, colliding opaque IDs, explicit missing/null/invalid/zero/population states and source-owned microsecond update times. Real runtime creates jobs and identities; this helper creates no accepted database rows.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/integration/canonical-standings-fixture-policy.sql",
+      "resource": "RFQ1 isolated private fixed fixture policy",
+      "purpose": "Owner installs only the source-pinned isolated namespace/registration/resource/verifier/job-context branches for exact finite fixture source/policy/digest tuples. Independent SQL native translation and source-time binding; no caller verified flags, fixture production activation or seeded jobs/identities/facts.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/integration/canonical-standings.qualification-case.ts",
+      "resource": "RFQ1 actual restricted S01-S13 proof path",
+      "purpose": "Author all13 reviewed cases through actual restricted LOGIN job acquisition, registration, reservation, sole writer and stored reader. Preserve original pre066 legacy bytes/hash/witness across066-069, separate offline fixture mode from witnessed mocked Sleeper transport, enforce provider-network tripwire, actual contention/deferred COMMIT/rollback and current/future provisioning ACL.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "apps/site/integration/canonical-standings-profile.test.ts",
+      "resource": "RFQ1 offline source contract checks",
+      "purpose": "Check fixed profile selection/time budgets, source pins, finite tuple/digest registry, independent fixture field/population behavior and microsecond source meaning. Offline tests are not PostgreSQL qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/architecture-reference.md",
+      "resource": "Provider-neutral DATA architecture authority map",
+      "purpose": "Link the current provider-independence design and first standings slice ledger while preserving historical architecture and deferred feature status. Documentation grants no execution or release authority.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-acceptance.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-phase1-coverage.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-phase1-design.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-remediation.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-source-inventory.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-standings-design.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
+      "path": "docs/aggregator-backend/provider-independence-standings-implementation.md",
+      "resource": "Approved provider independence design and first standings slice evidence",
+      "purpose": "Record the approved provider-neutral architecture, unchanged R1-R6/eight-family/Q01-Q16 finish lines, first official standings slice, independently reviewed minimum identity dependencies and exact source/verification/authority status. Preserve historical evidence and CP28 freeze; distinguish design/offline checks from actual restricted SQL and release qualification.",
+      "proof": "Required: independent exact-source review, focused offline checks and separately authorized actual PostgreSQL 18+ restricted LOGIN qualification through the existing supervisor. Source preparation does not qualify SQL, paid execution, live providers, CP28, merge or deployment.",
+      "reviewer": "Independent /root/standings_sql and /root/standings_application scope/interface review before dependent code; coordinated by /root. Final source and execution review remain separate.",
+      "reviewReference": "docs/aggregator-backend/provider-independence-standings-implementation.md; I01-I08; RFQ1; S01-S13"
+    },
+    {
       "path": "apps/site/integration/reader-performance.ts",
       "resource": "CP27 bounded composed single-league 2026 stored-reader performance",
       "purpose": "Define the fixed 1,000-slot, concurrency-10 workload and bounded source-bound evidence/validation for actual database-backed composed readers, using disclosed prerequisites through existing normalization and restricted typed acceptance. Keep directory/list diagnostics separate and fail unavailable or incorrect outputs. No runtime, index or schema edits. CP27 repair: retain finite redacted SQL/reader/correctness diagnostics and snapshot failures; retain all1000slots and unchanged Infinity/latency rules. Swallowed SQL errors remain failed. CP28: Separate CP28 bound catalog/native fixture, exact pre-ack replay boundary, selected-row replay proof, complete bounded companion validation and finite-difference batch storage summaries. Preserve CP27 source behavior. CP28 CI preparation: read the declared checkout-delivered gzip through this existing loader, validate exact descriptor and binary SHA/size, bound decompression before parsing, preserve frozen raw/source identities, and refuse missing or changed package without fallback. CP28 baseline-seed repair: Add one shared CP28 migrated-baseline and inactive-control oracle: require the exact migration-059 singleton count and native digest at S0 and every phase; retain all154 relations and all other empty-workload/control restrictions.",

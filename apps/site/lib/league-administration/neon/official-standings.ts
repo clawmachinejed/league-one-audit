@@ -71,6 +71,18 @@ export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-st
   LEFT JOIN public.league_official_standings_contents header ON header.content_id=selected.content_id
   LEFT JOIN public.league_roster_capture_receipts first_receipt ON first_receipt.id=header.first_receipt_id`;
 
+/** Only the explicit canonical API historical branch uses this bounded immutable-revision selector.
+ * The original current/legacy API above retains its existing current-mapping requirement. */
+export const HISTORICAL_OFFICIAL_STANDINGS_SQL = OFFICIAL_STANDINGS_SQL
+  .replace('league-administration:read-official-standings', 'league-administration:read-historical-legacy-standings')
+  .replace(`connection.current_mapping_revision_id=$2::uuid
+      AND connection.mapping_generation=$3`, `EXISTS (SELECT 1 FROM public.league_source_mapping_revisions revision
+        WHERE revision.id=$2::uuid AND revision.connection_id=scope.connection_id
+          AND revision.league_season_id=scope.league_season_id AND revision.generation=$3
+          AND revision.provider='sleeper' AND revision.native_namespace='nfl'
+          AND revision.external_league_id=attempt.source_mapping->'scope'->>'externalLeagueId'
+          AND revision.source_namespace='nfl:2026')`);
+
 function object(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') return object(JSON.parse(value));
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid standings object.');

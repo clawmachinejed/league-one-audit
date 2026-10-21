@@ -1180,3 +1180,104 @@ DO $$ DECLARE role_name text; helper text; accessor text:='public.roster_capture
   END IF;
 END; $$;
 -- END OPTIONAL ROSTER PROVENANCE CONTENT GRANTS
+
+-- BEGIN OPTIONAL CANONICAL STANDINGS GRANTS
+-- The sole fact writer and two guarded identity/reservation entry points are the complete public surface.
+-- Apply both here and in provisioning so rename/default/inherited ACLs cannot reopen an inner writer.
+DO $$ DECLARE function_entry record; role_name text; relation_name text; signature text; public_entry boolean;
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
+BEGIN
+  IF to_regclass('public.league_canonical_resource_receipts') IS NULL THEN RETURN; END IF;
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  -- Exact bounded inventory; historical wrappers were already private under
+  -- 027/030/031/032/033/035/043/046/048/049/053/054/055. Reassert only that denial.
+  FOREACH signature IN ARRAY ARRAY[
+    'public.canonical_legacy_team_namespace(integer,text)',
+    'public.canonical_jsonb_hash(jsonb)',
+    'public.assert_canonical_job_fence(jsonb)',
+    'public.canonical_source_namespace_policy(jsonb,integer)',
+    'public.guard_canonical_source_connection_identity()',
+    'public.fill_canonical_legacy_identity_namespaces()',
+    'public.guard_canonical_team_identity()',
+    'public.guard_canonical_enrollment_identity()',
+    'public.validate_canonical_enrollment_parent()',
+    'public.validate_canonical_registration_commit()',
+    'public.revise_canonical_source_connection(uuid,text,uuid,text,text,text)',
+    'public.validate_canonical_resource_mapping(jsonb)',
+    'public.canonical_registration_policy(jsonb,jsonb,jsonb)',
+    'public.resolve_canonical_season_teams(jsonb,jsonb,jsonb,jsonb)',
+    'public.register_canonical_official_source(jsonb,jsonb,jsonb)',
+    'public.canonical_exact_keys(jsonb,text[])',
+    'public.canonical_standings_scope(jsonb)',
+    'public.canonical_legacy_mapping(jsonb)',
+    'public.canonical_resource_policy(jsonb,jsonb)',
+    'public.canonical_fixture_job_context(jsonb,jsonb,jsonb)',
+    'public.begin_canonical_resource_attempt(jsonb,uuid,jsonb,jsonb,jsonb)',
+    'public.canonical_standings_fact_valid(jsonb,text)',
+    'public.canonical_standings_reasons_valid(jsonb,boolean)',
+    'public.validate_canonical_standings_value(jsonb,text,text)',
+    'public.canonical_standings_coverage(jsonb,integer,boolean,boolean)',
+    'public.verify_sleeper_standings_delivery(jsonb)',
+    'public.verify_registered_canonical_delivery(jsonb,jsonb)',
+    'public.canonical_native_hash(jsonb)',
+    'public.canonical_value_hash(jsonb)',
+    'public.canonical_attempt_identity(public.league_roster_resource_attempts)',
+    'public.canonical_receipt_delivery(public.league_canonical_resource_receipts)',
+    'public.canonical_receipt_evidence_hash(public.league_canonical_resource_receipts)',
+    'public.assert_canonical_delivery_context(jsonb,boolean)',
+    'public.canonical_standings_typed_value(uuid)',
+    'public.materialize_canonical_standings(uuid,jsonb)',
+    'public.guard_canonical_resource_insert()',
+    'public.validate_canonical_standings_complete()',
+    'public.validate_canonical_resource_receipt()',
+    'public.canonical_resource_write_result(public.league_canonical_resource_receipts,boolean)',
+    'public.accept_canonical_resource(jsonb,jsonb)',
+    'public.record_league_administration_observation(jsonb)',
+    'public.record_league_administration_observation_legacy_v65(jsonb)',
+    'public.record_league_administration_observation_v54(jsonb)',
+    'public.record_league_administration_observation_v53(jsonb)',
+    'public.record_league_administration_observation_v52(jsonb)',
+    'public.record_league_administration_observation_v48(jsonb)',
+    'public.record_league_administration_observation_v47(jsonb)',
+    'public.record_league_administration_observation_v45(jsonb)',
+    'public.record_league_administration_observation_v42(jsonb)',
+    'public.record_league_administration_observation_v34(jsonb)',
+    'public.record_league_administration_observation_v32(jsonb)',
+    'public.record_league_administration_observation_v31(jsonb)',
+    'public.record_league_administration_observation_v30(jsonb)',
+    'public.record_league_administration_observation_v29(jsonb)',
+    'public.record_league_administration_observation_v1(jsonb)'] LOOP
+    IF to_regprocedure(signature) IS NULL THEN RAISE EXCEPTION 'missing canonical function: %',signature; END IF;
+    SELECT proc.oid,proc.proname,proc.proowner INTO STRICT function_entry FROM pg_proc proc WHERE proc.oid=to_regprocedure(signature);
+    public_entry:=function_entry.proname IN ('record_league_administration_observation','begin_canonical_resource_attempt','register_canonical_official_source');
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',signature);
+    -- Preserve every existing inner writer's execution mode.
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',signature,role_name);
+        IF public_entry AND role_name='league_one_runtime' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I',signature,role_name); END IF;
+        IF has_function_privilege(role_name,function_entry.oid,'EXECUTE') IS DISTINCT FROM (public_entry AND role_name='league_one_runtime') THEN
+          RAISE EXCEPTION 'incorrect canonical function effective privilege: % / %',role_name,signature; END IF;
+        IF pg_has_role(role_name,function_entry.proowner,'MEMBER') THEN RAISE EXCEPTION 'restricted role can inherit or assume canonical function owner'; END IF;
+        IF has_schema_privilege(role_name,'public','CREATE') THEN RAISE EXCEPTION 'restricted role can replace public schema objects'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc proc,LATERAL aclexplode(COALESCE(proc.proacl,acldefault('f',proc.proowner))) privilege
+      WHERE proc.oid=function_entry.oid AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute canonical or inner writer function'; END IF;
+  END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['league_canonical_resource_contents','league_canonical_resource_receipts','league_canonical_standings_teams'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC',relation_name);
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I',relation_name,role_name);
+        IF role_name='league_one_runtime' THEN EXECUTE format('GRANT SELECT ON TABLE public.%I TO %I',relation_name,role_name); END IF;
+        IF has_table_privilege(role_name,'public.'||relation_name,denied)
+          OR has_any_column_privilege(role_name,'public.'||relation_name,'INSERT,UPDATE,REFERENCES')
+          OR has_table_privilege(role_name,'public.'||relation_name,'SELECT') IS DISTINCT FROM (role_name='league_one_runtime') THEN
+          RAISE EXCEPTION 'incorrect canonical evidence effective privileges'; END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+END; $$;
+-- END OPTIONAL CANONICAL STANDINGS GRANTS

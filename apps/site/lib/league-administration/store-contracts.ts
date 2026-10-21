@@ -1,4 +1,8 @@
 import type { TradedPicksResource, TradedPicksSelection, TradedPicksRead } from '../aggregator/traded-picks';
+import type { CanonicalLeagueSeasonInput, CanonicalRegistrationAuthorization, CanonicalLeagueSeasonReference,
+  CanonicalSourceMappingSelection, CanonicalSourceMappingRead, CanonicalSourceMappingV1 } from './canonical-source-contracts';
+import type { CanonicalResourceAttempt, CanonicalStandingsPolicy, CanonicalStandingsDelivery, CanonicalObservationWriteResult,
+  CanonicalStandingsSelection, CanonicalOfficialStandingsRead } from './canonical-standings-contracts';
 import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { DraftMetadataResource, DraftMetadataSelection, DraftMetadataRead } from '../aggregator/draft-metadata';
 import type { DraftSelectionsResource, DraftSelectionsSelection, DraftSelectionsRead } from '../aggregator/draft-selections';
@@ -73,6 +77,14 @@ export type AdministrationEnrollmentSelector = Readonly<{ leagueKey: string }>
 export type { AdministrationWriteFence } from './contracts';
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
+  /** Explicit capabilities; older store implementations remain native-only. */
+  registerCanonicalLeagueSeason?: (input: CanonicalLeagueSeasonInput, authorization: CanonicalRegistrationAuthorization) => Promise<CanonicalLeagueSeasonReference>;
+  readCanonicalSourceMapping?: (selection: CanonicalSourceMappingSelection) => Promise<CanonicalSourceMappingRead>;
+  beginCanonicalResourceAttempt?: (mapping: CanonicalSourceMappingV1, id: string, policy: CanonicalStandingsPolicy,
+    fence: AdministrationWriteFence) => Promise<CanonicalResourceAttempt>;
+  recordCanonicalObservation?: (delivery: CanonicalStandingsDelivery, mapping: CanonicalSourceMappingV1,
+    attempt: CanonicalResourceAttempt, fence: AdministrationWriteFence) => Promise<CanonicalObservationWriteResult>;
+  readCanonicalOfficialStandings?: (mapping: CanonicalSourceMappingV1, selection: CanonicalStandingsSelection) => Promise<CanonicalOfficialStandingsRead>;
   beginPlayerDirectoryAttempt: (id: string, fence: AdministrationWriteFence) => Promise<PlayerDirectoryReservation>;
   recordPlayerDirectoryCapture: (attempt: PlayerDirectoryAttempt, capture: PlayerDirectoryCapture,
     fence: AdministrationWriteFence) => Promise<PlayerDirectoryWriteResult>;

@@ -9,8 +9,8 @@ export type ResourceFamily = 'league-season' | 'settings' | 'teams' | 'standings
   | 'weekly-reports' | 'matchups' | 'roster-membership' | 'lineup' | 'player-points' | 'transactions' | 'playoff-brackets' | 'drafts' | 'history';
 
 /** Opaque, case-sensitive keys. Provider support here does not enable a connector. */
-export type ProviderReference = {
-  provider: ProviderCode;
+export type ProviderReference<TProvider extends string = ProviderCode> = {
+  provider: TProvider;
   resourceKind: string;
   nativeNamespace: string;
   nativeId: string;

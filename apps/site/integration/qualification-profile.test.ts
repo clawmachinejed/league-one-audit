@@ -1,6 +1,7 @@
 import { READER_PERFORMANCE_PROFILE, READER_PERFORMANCE_MODULE, READER_PERFORMANCE_SOURCE_DIGEST,
   READER_PERFORMANCE_SUITE, READER_PERFORMANCE_TESTS, READER_PERFORMANCE_FULL_NAMES,
   READER_PERFORMANCE_PATTERN, READER_PERFORMANCE_SUPPORT_SOURCES, assertReaderPerformanceSupportSources } from './qualification-profile';
+import { CANONICAL_STANDINGS_PROFILE, CANONICAL_STANDINGS_MODULE, CANONICAL_STANDINGS_PATTERN } from './canonical-standings-profile';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -159,6 +160,9 @@ function report(binding: QualificationBinding): QualificationReport {
       }) }] };
 }
 it('keeps default selection and accepts only fixed CLI selectors', () => {
+  expect(parseQualificationArguments(['--profile=' + CANONICAL_STANDINGS_PROFILE])).toBe(CANONICAL_STANDINGS_PROFILE);
+  expect(qualificationArguments(CANONICAL_STANDINGS_PROFILE, '/reporter').slice(4)).toEqual([
+    '--configLoader', 'runner', CANONICAL_STANDINGS_MODULE, '--testNamePattern', CANONICAL_STANDINGS_PATTERN]);
   expect(parseQualificationArguments([])).toBe('full');
   expect(parseQualificationArguments(['--profile=' + SELECTED_PROFILE])).toBe(SELECTED_PROFILE);
   expect(qualificationArguments('full', '/reporter')).toEqual(['--reporter', 'verbose', '--reporter', '/reporter']);
@@ -4113,15 +4117,18 @@ it('binds every CP25 support source independently without changing historical so
     'lib/projections/adapters/neon/jobs.ts',
     'lib/league-administration/registry.ts', 'lib/league-administration/neon/enrollment.ts',
   ]);
-  // CP26 changes the runtime; historical success remains bound to historical bytes.
+  // CP26 runtime and canonical standings plumbing change shared sources;
+  // historical success remains bound to historical bytes.
   await expect(assertRunnerCyclesSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
   await expect(createQualificationContext(siteRoot, 'a'.repeat(40), randomUUID(), RUNNER_CYCLES_PROFILE)).rejects.toThrow('reviewed LF digest');
   const changed = [];
   for (const entry of RUNNER_CYCLES_SUPPORT_SOURCES) {
     if (qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')) !== entry.sourceDigest) changed.push(entry.path);
   }
-  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
-    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'lib/projections/runtime/projection-dispatch.ts']);
+  expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts',
+    'lib/league-administration/neon/enrollment.ts', 'lib/league-administration/neon/public-intake.ts',
+    'lib/league-administration/public-intake-reader.ts', 'lib/league-administration/public-intake-runtime.ts',
+    'lib/league-administration/public-intake.ts', 'lib/league-administration/store.ts', 'lib/projections/runtime/projection-dispatch.ts']);
   await expect(assertBackendControlsSupportSources(siteRoot)).resolves.toBeUndefined();
   await expect(assertCompetingWorkersSupportSources(siteRoot)).rejects.toThrow('reviewed LF digest');
   await expect(assertProcessRecoverySupportSources(siteRoot)).resolves.toBeUndefined();
@@ -4239,7 +4246,9 @@ it('CP26 calibration preserves historical source pins and rejects current schedu
   }
   expect(changed.sort()).toEqual(['integration/disposable-integration.ts', 'integration/neon-integration-harness.ts', 'lib/league-administration/neon/public-intake.ts',
     'lib/league-administration/public-intake-contracts.ts', 'lib/league-administration/public-intake-reader.ts',
-    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts', 'scripts/provision-runtime-role.sql']);
+    'lib/league-administration/public-intake-runtime.ts', 'lib/league-administration/public-intake.ts',
+    'lib/league-administration/runtime.ts', 'lib/league-administration/store-contracts.ts', 'lib/league-administration/store.ts',
+    'scripts/provision-runtime-role.sql']);
   // Read the actual reviewed historical bytes from local Git objects. The verify
   // workflow checks out full history; no test-time network or substitute source.
   const historicalSha = '5baa4498f04b77b436668b7193da69cfec787ae1';
@@ -4313,10 +4322,11 @@ it('CP26 fleet binds frozen support bytes rejects current harness and supervisor
  const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
   if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
  }
- // Shared roster links, population evidence and provenance change support readers; accepted CP26 pins remain historical.
+ // Shared storage and canonical standings plumbing change support sources; accepted CP26 pins remain historical.
  const sharedStorageDrift=['lib/league-administration/neon/roster-player-links.ts','scripts/provision-runtime-role.sql',
   'lib/league-administration/neon/official-standings.ts','lib/league-administration/neon/exact-period-context.ts',
-  'lib/league-administration/neon/current-roster.ts'];
+  'lib/league-administration/neon/current-roster.ts', 'lib/league-administration/public-intake.ts',
+  'lib/league-administration/runtime.ts', 'lib/league-administration/store-contracts.ts', 'lib/league-administration/store.ts'];
  expect(changed.slice().sort()).toEqual([supervisorPath,harnessPath,...sharedStorageDrift].sort());
  expect(qualificationSourceDigest(historicalHarness)).toBe(FLEET_SUPPORT_SOURCES.find(row=>row.path===harnessPath)!.sourceDigest);
  await expect(assertFleetSupportSources(sourceRoot)).rejects.toThrow('reviewed LF digest: '+changed[0]);
@@ -4591,9 +4601,10 @@ it('CP28 preserves the accepted historical profile and rejects shared-storage so
   expect(qualificationArguments(STORAGE_MEASUREMENT_PROFILE,'/reporter')).toEqual(['--reporter','verbose','--reporter','/reporter','--configLoader','runner',STORAGE_MEASUREMENT_MODULE,'--testNamePattern',STORAGE_MEASUREMENT_PATTERN]);
   expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([STORAGE_MEASUREMENT_MODULE]);
   const root=fileURLToPath(new URL('..',import.meta.url));
-  // The accepted 168a856 measurement keeps its original 107 support pins. B2 changes
-  // the first differing reader; a future run requires separately reviewed pins.
-  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/public-official-results-reader.ts';
+  // The accepted 168a856 measurement keeps its original 107 support pins. Canonical
+  // standings now changes the first differing intake source; B2 reader drift remains.
+  // A future run requires separately reviewed pins.
+  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/public-intake.ts';
   await expect(assertStorageMeasurementSupportSources(root)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');

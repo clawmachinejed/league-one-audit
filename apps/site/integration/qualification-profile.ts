@@ -1,9 +1,342 @@
 import assert from 'node:assert/strict';
+import { CANONICAL_STANDINGS_PROFILE, CANONICAL_STANDINGS_MODULE, CANONICAL_STANDINGS_SUITE,
+  CANONICAL_STANDINGS_FULL_NAMES, CANONICAL_STANDINGS_PATTERN, CANONICAL_STANDINGS_CASE_TIMEOUTS_MS,
+  CANONICAL_STANDINGS_BEFORE_ALL_MS, CANONICAL_STANDINGS_AFTER_ALL_MS, CANONICAL_STANDINGS_LIMITS } from './canonical-standings-profile';
 import { FLEET_HEALTHY_PROFILE, FLEET_HEALTHY_MODULE, FLEET_HEALTHY_SUITE, FLEET_HEALTHY_FULL_NAMES, FLEET_RECOVERY_PROFILE, FLEET_RECOVERY_MODULE, FLEET_RECOVERY_SUITE, FLEET_RECOVERY_FULL_NAMES, FLEET_DAILY_PROFILE, FLEET_DAILY_MODULE, FLEET_DAILY_SUITE, FLEET_DAILY_FULL_NAMES, FLEET_LIVE_PROFILE, FLEET_LIVE_MODULE, FLEET_LIVE_SUITE, FLEET_LIVE_FULL_NAMES, FLEET_OWNERSHIP_PROFILE, FLEET_OWNERSHIP_MODULE, FLEET_OWNERSHIP_SUITE, FLEET_OWNERSHIP_FULL_NAMES } from './freshness-capacity-profile';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
+
+/** New RFQ1 source pins only. Historical definitions remain byte-for-byte unchanged. */
+export const CANONICAL_STANDINGS_SOURCE_DIGEST = 'de0b5b88e9061ca3f294e5f3714c2ff21b061fa1a07fe401f8ff15d262b9c510';
+export const CANONICAL_STANDINGS_SUPPORT_SOURCES: readonly Readonly<{ path: string; sourceDigest: string }>[] = [
+  { path: '../../.github/workflows/integration.yml', sourceDigest: 'dcdeba82c2740b19500c6ebf2ab9c51268bd3c4ae227e918e0446fa7dab7e097' },
+  { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'a073787759851045909475f7b47a36f5daf01530604d1556a3afe9cf43ff785f' },
+  { path: '../../package.json', sourceDigest: 'dd5b106b46cae3023042fac344dfa71575f2744a2695ddee74c96cd94486be67' },
+  { path: '../../pnpm-lock.yaml', sourceDigest: '08057fa1ad28d7a8bb89d2688d31a3f8f793c14f4897ba9db0e46b567155eaa4' },
+  { path: 'integration/all-player-schedule-test-clock.ts', sourceDigest: '6bdbbd2c833bff7160975062e172787e2fa733cf1b4354c9df94005a4ac1c5ce' },
+  { path: 'integration/backend-controls-fetch.ts', sourceDigest: '81a475ec0128ab68a30de5b8e0b9953c5b154d18614a416014ae1152fbce5568' },
+  { path: 'integration/canonical-standings-fixture-policy.sql', sourceDigest: 'efe08d0675854ec161881fd7c67866f21dbf21d3dd9d785a7e02d3763cddd7e0' },
+  { path: 'integration/canonical-standings-fixtures.ts', sourceDigest: '20e3de0fd59943edda5aadc57a15bcbe7128264ac2a80dc330a8f6f9c5a5cbda' },
+  { path: 'integration/canonical-standings-profile.test.ts', sourceDigest: '833cc3166f54cffaebef662525b92e844c3a6624dc0a145d91356830f67cbf64' },
+  { path: 'integration/canonical-standings-profile.ts', sourceDigest: 'b6c68816c9eb610358a38900d9447a80a9426172804e883c5a06877cd4d02960' },
+  { path: 'integration/collection-capacity-supervision.ts', sourceDigest: '937b7fcd95aa507da489e6f26343de8c229649cb50b614aec04807d6f3680edf' },
+  { path: 'integration/disposable-integration.ts', sourceDigest: '06cae505c4930128f5a7b16bb04d6533c5d712d08b7e2c235caf171c0b640414' },
+  { path: 'integration/disposable-neon-api.ts', sourceDigest: '6ef0d211273b0df9f08234c9676b8fe9949df67c127feacce356d86b91a15a1c' },
+  { path: 'integration/exact-matchup-clock.ts', sourceDigest: '3f7b327bce2dc72766564f804f85ff2dbb2ed7547fcdf2d4f8c8536c55545b69' },
+  { path: 'integration/fresh-install-catalog.json', sourceDigest: 'a2dfba7e7c048fe4246cb653785084658d5fafd8ae0dae0a63b907e7ba706f50' },
+  { path: 'integration/fresh-install-catalog.ts', sourceDigest: 'c6e3d9a87686cbe008f05e4b6d66c05259d5a204de4a7da7437a32521b1f128a' },
+  { path: 'integration/fresh-install-evidence.ts', sourceDigest: 'eadebaeaa344ca78e409c241f22bceaceb0e17724e5df9dffa097de48516ae51' },
+  { path: 'integration/freshness-capacity-fixtures.ts', sourceDigest: '2dadd328d0c03b620ad92b15012b788ed90a2275babe2ad2135e337304bcf574' },
+  { path: 'integration/freshness-capacity-manifest.ts', sourceDigest: 'ed871128bea7b2ba384f0661c35dea3e25fe5ea46f92d8e3d9812e67dbdeeed6' },
+  { path: 'integration/global-setup.ts', sourceDigest: '27badc87a4cfe48db1d786f572866789832b6467614aeba9252a116e355e6a2b' },
+  { path: 'integration/integration-artifacts.ts', sourceDigest: '7faab2f3171aa4ea32ba04b451fbd7a3216d635eaaf305e8df742fae0c86b6dc' },
+  { path: 'integration/integration-child-process.ts', sourceDigest: 'c53e2e61042e031df57b0c99ddbc019adbbc29ea78a43ff96ca92b964953ab9a' },
+  { path: 'integration/integration-database-ownership.ts', sourceDigest: 'cd7bd531f4dd0a649fb8cf8031ec87c09e1a7f63b1169f752758b6a6b57fbd19' },
+  { path: 'integration/integration-lifecycle-budget.ts', sourceDigest: 'eb50d2f1ca091c8d0eaa547cb38338951a6501f9cb6f138d6b5641413f4bedc3' },
+  { path: 'integration/integration-owner-loss-diagnostics.ts', sourceDigest: '9d37cd5993e3fd324c1472ba6a81ac93d7e253ba81116a5503fd7c73e41747c9' },
+  { path: 'integration/integration-receipt-journal.ts', sourceDigest: '380f6307eab23491a54f0b458a5ff172f3c87be371ef8156e0ddafb528b12eeb' },
+  { path: 'integration/neon-integration-harness.ts', sourceDigest: '1ea7875c3cae6785ae94572144391a0bce0206ebb575e11dfa4fb4cec3eb7933' },
+  { path: 'integration/qualification-profile.test.ts', sourceDigest: '0da8b8155e64b7e81b163c9336ce019284bf27cb688bf490ccc2b07032ba21c4' },
+  { path: 'integration/qualification-reporter.ts', sourceDigest: '4b75b832dcd832c7f42f0e9dc71996adcd993265f20bb0ccfd1cc9f134f1837c' },
+  { path: 'integration/reader-performance-snapshot.ts', sourceDigest: 'd2bf139bb311db505fc1288b11c47fa4626e1a0d4eefcbedd3963365688e89a4' },
+  { path: 'integration/reader-performance.ts', sourceDigest: '7581745db06a6237c572c8a3b65ed765667fdae396d4efdd4dbf79c3481f4c9e' },
+  { path: 'integration/server-only-stub.ts', sourceDigest: '877c12ede877fbc78f4a5a3181512be55d006f9179c93fea5722bd4bebb265f2' },
+  { path: 'lib/aggregator/bundle-one.ts', sourceDigest: 'ee64cf0d07e99b3dbac050cea54ae9e221188e2dce7ff755701f1a9688503e35' },
+  { path: 'lib/aggregator/contracts.ts', sourceDigest: 'cada9a1bd1478cde8f91f3cd10299b06a384a0fcd0f26d9ac0b42eaa7c85912d' },
+  { path: 'lib/aggregator/current-roster-groups.ts', sourceDigest: '667f2c6c0f1ab233a98a9fbf1a4e5f3d92924c9363d15849071785d5180bdfd9' },
+  { path: 'lib/aggregator/current-roster-metadata.ts', sourceDigest: 'b83920428b01267687e568db4c704d2ddfb30ba129fae56f79591fae39df7805' },
+  { path: 'lib/aggregator/current-roster.ts', sourceDigest: 'f9710f3e8c6e8f7ac6192053b9249c3848974a0900b44ed9c798c147ff106173' },
+  { path: 'lib/aggregator/draft-metadata.ts', sourceDigest: 'c89dc6d19999326b8b63a3b27a2b2e7ae907200ceb0c1c20681632ddc72b7f56' },
+  { path: 'lib/aggregator/draft-selections.ts', sourceDigest: '901fe47f3f6afd330a4ac31d11ffa18851e71a0428ba09c5a57dde82b199ca03' },
+  { path: 'lib/aggregator/exact-lineup-applicability.ts', sourceDigest: '92ade1f90723ab7bdfa738eb804a92dd3b6cb6f815440c2643d3bffdb60d826f' },
+  { path: 'lib/aggregator/exact-matchup-attention.ts', sourceDigest: '3ae88f54886be8b761cc03826a025c3aca3b3fb30f5ec25ad7ab3542e469bb71' },
+  { path: 'lib/aggregator/exact-matchup-box-scores.ts', sourceDigest: 'ca2ea52e40450d9fd50e91041b5cef2a04e34c82d31fbd26501837d59462642c' },
+  { path: 'lib/aggregator/exact-matchup-compatibility.ts', sourceDigest: '974a1ee628ddc894962a3b9d5022a8c72cce6237c14fe338912888db1dc9658a' },
+  { path: 'lib/aggregator/exact-matchup-reference-scope.ts', sourceDigest: 'd15590a96dd208167fe393c05674485fff288d7b227c507142a49c68ae0296f7' },
+  { path: 'lib/aggregator/exact-matchup-values.ts', sourceDigest: '0031f5f372d8faf8891431c724f7139083ad7f02eeb13a65bf2daa51914abc26' },
+  { path: 'lib/aggregator/exact-matchups.ts', sourceDigest: '3a74f0c595b9cc6c7e45362468e453bddd7b0c62bd9860efddfa6f1db6f6312a' },
+  { path: 'lib/aggregator/exact-period-context.ts', sourceDigest: '427fd0973ae673e856f54a6bb62b23b8bf76c8b30fe8c1bfc1034d1d924b761c' },
+  { path: 'lib/aggregator/league-settings.ts', sourceDigest: 'b3ed9faffbeb56ea5787a61e6436180a0ca7454b3a5ea78127db87dcc4b247fa' },
+  { path: 'lib/aggregator/official-standings.ts', sourceDigest: '63a4c1055b4a9cfc331d7482b6e7b90ca0a90bdf0f622addea9a215969182b85' },
+  { path: 'lib/aggregator/playoff-brackets.ts', sourceDigest: '7fcf0d1c52357a39972849c015ef2f39c2537128acefdee6b6f2ff3db3b49fac' },
+  { path: 'lib/aggregator/retained-matchups.ts', sourceDigest: '179554c771ab747ad644a6e0f6bf656a98d257f72db11c022681730eaf506bdf' },
+  { path: 'lib/aggregator/roster-bridge.ts', sourceDigest: 'b08daf2a83ce32af65793e0e6244598f26070ea8d0201258f4337004606917d8' },
+  { path: 'lib/aggregator/roster-player-links.ts', sourceDigest: 'c89487c6a393c84cbbfe469073c6f75453b76f67f0bf30b7c6fc16af20f2386b' },
+  { path: 'lib/aggregator/season-overview-fields.ts', sourceDigest: '12fea8dda5c3d8f7669caa001d8fe6c5094898d5b32e7f37479cf98e86d0446c' },
+  { path: 'lib/aggregator/season-overview-source-contracts.ts', sourceDigest: '6d298094086a87fb277669794c724f859f082b403cd6a4b4568838a7f8673575' },
+  { path: 'lib/aggregator/season-overview-source.ts', sourceDigest: 'ec3645174563d687ad7d4891734d169ed304f19d51959302d877664fdcff4fbd' },
+  { path: 'lib/aggregator/team-managers.ts', sourceDigest: '0b60dd2eca04d4e67d7bbaa41e1f0fff25a38c54d2db1ed474580cab645bcb6c' },
+  { path: 'lib/aggregator/traded-picks.ts', sourceDigest: 'a0deaffdee1b31fc0584036edff006657fa460ca6d7fa9da81c0c29eb925cc9e' },
+  { path: 'lib/aggregator/transaction-activity-contracts.ts', sourceDigest: 'c497c9bac7b78427b7fbb3675b0d343d3ff21328e3528ff07119038689516553' },
+  { path: 'lib/aggregator/transaction-activity.ts', sourceDigest: '0810faa2f7c2ff8971461f7ab4978fbd733775b57677903582a44a6e5e53a517' },
+  { path: 'lib/aggregator/validation.ts', sourceDigest: '7e082982367019bad5d1c30c8c56ee42c86d5d366cb12765df19edb7a53f71ad' },
+  { path: 'lib/aggregator/weekly-report-normalization.ts', sourceDigest: 'c85ae87206f5f46f645839a6381236ea77135e88511858d8d444ba5a60e95e33' },
+  { path: 'lib/aggregator/weekly-reports.ts', sourceDigest: 'b326c78c3b03d2ed21741f3561a00d3a5fccdc007ef9a3f6fd505670b0638b53' },
+  { path: 'lib/config.ts', sourceDigest: 'a7c752e66a6889a42865b017fb43ab59731354c341cd3f01d4e077551c90765d' },
+  { path: 'lib/current-standings.ts', sourceDigest: '127e4e27f571146a11a25866ab55a93a52cc93242ff6fa4a0e04b206737e11b8' },
+  { path: 'lib/database.ts', sourceDigest: 'b20ced4e820d9d81477bd22b0925d608c94548917749b54e37be84515f527562' },
+  { path: 'lib/injury-status.ts', sourceDigest: 'cbf124396a2c9e40f6a3c7b302f8dcdd909162c28f04db032a59f2ef8fb9de45' },
+  { path: 'lib/league-administration/applicability.ts', sourceDigest: '83cd92fe91aa88b6488d002fe53be3256ff52ada8588f254da7ea938e68fdb2a' },
+  { path: 'lib/league-administration/calculation-capture.ts', sourceDigest: '3cbda8f47e297c77dada3b3c05842d9918db27c2bd1e8f415a4a4d3bf58bf61a' },
+  { path: 'lib/league-administration/canonical-source-contracts.ts', sourceDigest: '24e35906a8c39bcc416d0505efd8b45045fd7981b3eb9310c8c96f76ba2d1979' },
+  { path: 'lib/league-administration/canonical-standings-contracts.ts', sourceDigest: '5b0d7dc96d54dce8b856b5f6600a606f7a66597e552dcbcd65826ddd2a603e4c' },
+  { path: 'lib/league-administration/canonical-standings-policy.ts', sourceDigest: 'c19bcfd629c61feaa21178e2816ac836f497bd4b5016efb20315be8f11fbddbd' },
+  { path: 'lib/league-administration/contracts.ts', sourceDigest: '89e78482db92555ae01fa5e26819acc2f56f858f88e9b54dbd3960f1fd06a97c' },
+  { path: 'lib/league-administration/legacy-administration-input.ts', sourceDigest: '53596025027cd968a1f48db33c7a44af4e1507bff2239406f7ab72af1775834b' },
+  { path: 'lib/league-administration/neon/account-enrollment.ts', sourceDigest: '26e3c976d72c65da3b1cdf9265488f8f98247fce962bc6f8ed7440b1f62aa610' },
+  { path: 'lib/league-administration/neon/administration.ts', sourceDigest: 'ee017763e47a7801e71aea7d012ccea517881c7274eedb821bd23fc660fc7a38' },
+  { path: 'lib/league-administration/neon/brackets.ts', sourceDigest: '0d9ef6baf89f15437692f4df82db9f0ee5f83ea44f6aaae2c00a84d24d7c9aa5' },
+  { path: 'lib/league-administration/neon/canonical-identities.ts', sourceDigest: 'ab177379c4edc2af8326891712212a9356a92f110903fe7a078b1b40040c397c' },
+  { path: 'lib/league-administration/neon/canonical-official-standings.ts', sourceDigest: '4f7e9574ffd394c3abbbbda18810873e1291e8ad15fa20de6199050ce5aa722b' },
+  { path: 'lib/league-administration/neon/current-roster.ts', sourceDigest: 'a632fd26c32fc88fb4d22452c530c60f66be9461d3b0de5e1a4af133f6eabeac' },
+  { path: 'lib/league-administration/neon/draft-metadata.ts', sourceDigest: '7220708f1b48a16076232373a77870e47de1c63a625cc84d9450116c799d5bfa' },
+  { path: 'lib/league-administration/neon/draft-selections.ts', sourceDigest: '9a8395936e3131f7c68f8d343553d4ada9b6325411ab85524f52d8d3d8e9cfb7' },
+  { path: 'lib/league-administration/neon/enrollment.ts', sourceDigest: '499b0543e78754dc0e90b13667a48cf2d1e1533592c7163a3ea9da3c9b87613b' },
+  { path: 'lib/league-administration/neon/exact-lineup-applicability.ts', sourceDigest: 'bceffc78a9383b66e22936ed09cae6f1c93b8b1b9891b547a404fd13a00e3d30' },
+  { path: 'lib/league-administration/neon/exact-matchup-values.ts', sourceDigest: '4850ad560d8896fa59a726db417971f3af07baba161790cb0e9f596352557b8d' },
+  { path: 'lib/league-administration/neon/exact-matchups.ts', sourceDigest: '7fabd09f457d0ac5ce2348e9e9c9a90c888b3175dc377833b0d917d69d6bf00b' },
+  { path: 'lib/league-administration/neon/exact-period-context.ts', sourceDigest: '6756da8c6842d64d84face7e3a578f5f2d7b32d31a69b9fe0e8c25d96f3b5dd2' },
+  { path: 'lib/league-administration/neon/league-settings.ts', sourceDigest: '5b217dbc131aae5779c78d68b0ee0addca7d54c5ef318344208eb822ed5e366d' },
+  { path: 'lib/league-administration/neon/official-standings.ts', sourceDigest: '9988d9911ca4ce2c1b49bff6d3a917f03862f1a201203023747eedccf48f8b7f' },
+  { path: 'lib/league-administration/neon/period-mapping.ts', sourceDigest: 'efe6edbae42027b6bd76bb71b071e2acd69179fe64c948b0407f5f0c58ceeee2' },
+  { path: 'lib/league-administration/neon/player-directory.ts', sourceDigest: '36dd59796c3ce056af531a43cf3672baa2d80a1b6efad73c4c5a2425693666e1' },
+  { path: 'lib/league-administration/neon/public-intake.ts', sourceDigest: 'c4494760da64c2841e1f4c8798327e473413ec213745c70ba8917044c4b8d479' },
+  { path: 'lib/league-administration/neon/public-period-inventory-reader.ts', sourceDigest: 'cd7439a7176561ed1d10141a60b765b56ff51c278467877aa27bcbd5a6c0ce5a' },
+  { path: 'lib/league-administration/neon/retained-matchups.ts', sourceDigest: 'f0a3b86f77c871c6201c61e35789572704410bddca6fdd4d01299ffe227b798c' },
+  { path: 'lib/league-administration/neon/roster-player-links.ts', sourceDigest: '454d22b820be1088d890f0c5d0bd123c0026cdbac78f26f5c0811ac11c401a92' },
+  { path: 'lib/league-administration/neon/team-managers.ts', sourceDigest: 'cab46fd21a6b3212ad25eb4b69ea26ba55d0a457a6a7023af695f309bff54fe0' },
+  { path: 'lib/league-administration/neon/traded-picks.ts', sourceDigest: 'fb13e24b9bf449083571e3d527f59f85d9e49f88afb16be075603930e08c8aad' },
+  { path: 'lib/league-administration/neon/transactions.ts', sourceDigest: '82ce75f4afc73d5b15ce448c1182d294f14555cc4e1f525f269c26c77c6c8aab' },
+  { path: 'lib/league-administration/neon/weekly-reports.ts', sourceDigest: '5e9ae14d4a6cbee816cdbca30264a260c4e8a78773737af9e3d72258a71d6ac4' },
+  { path: 'lib/league-administration/normalize.ts', sourceDigest: '72e26189a07659d43fcd9163bff2fc2e65bec14c172c87f256373e6fae437d11' },
+  { path: 'lib/league-administration/period-mapping.ts', sourceDigest: 'd308332041a00d7da3c5c8f6006525545be2e0a45079b6e4581132777148f9cc' },
+  { path: 'lib/league-administration/player-directory-contracts.ts', sourceDigest: 'afcedae0f0a8928b5f22b46375edbed76b1589781a4888c018bcef03bb1b89e4' },
+  { path: 'lib/league-administration/player-directory.ts', sourceDigest: '5299aca54138176724c3e25319ee89ebe80d0fbbea17ad699ab434535c7df4fe' },
+  { path: 'lib/league-administration/public-capture-witness.ts', sourceDigest: '0aa7ec576bc1f30aa839152ed644206be77f1e6bf2f5bb2fed3ff2512b56fb9d' },
+  { path: 'lib/league-administration/public-intake-contracts.ts', sourceDigest: 'cff45b306cca1998a9ae4b4678a98d1b4e9829a8c0220c01664b7f3fc817a4f2' },
+  { path: 'lib/league-administration/public-intake.ts', sourceDigest: '58c4f7ccb1dc860341d3dd4cc1f036e4bea7d12defed7e580d908e7bbb1a5162' },
+  { path: 'lib/league-administration/public-refresh-contracts.ts', sourceDigest: 'ebf34ecff17ec76a96391f62a5260c117a621a6d434a571c06ed313c47f581bb' },
+  { path: 'lib/league-administration/registry.ts', sourceDigest: '551a570a9701122844d58a38d9db54f432d9b09a4db50f38feb9a937dcb2f8f9' },
+  { path: 'lib/league-administration/retained-matchup-comparison.ts', sourceDigest: '7552a738a89504c14a3ac0fb663d384814afa5fe4f45bff9f068ae4e1ee97b35' },
+  { path: 'lib/league-administration/retained-matchups-contracts.ts', sourceDigest: '4e244faf6358632e60ff00ff1c05635982f9d77d58a8a407216646b3bc2be425' },
+  { path: 'lib/league-administration/runtime.ts', sourceDigest: '725b64d0c289823c5c14503d5a51d83490ea9a86913bd45b7ac69221ec59134d' },
+  { path: 'lib/league-administration/sleeper-canonical-standings.ts', sourceDigest: '5814ec5208a35cb470f4f8548b504bb4ab701eefa761fdc326a7ad65aaa548f4' },
+  { path: 'lib/league-administration/source-mapping.ts', sourceDigest: '989c3c1af618e761f34e8d7575cbdf8623a8e40ffbac1335fd35627ac34245df' },
+  { path: 'lib/league-administration/store-contracts.ts', sourceDigest: 'de34199ddc0f938070bd47c0637130cf2c9f047519ee99aaf6e1c3d70523dab3' },
+  { path: 'lib/league-administration/store.ts', sourceDigest: '1d32dee13903131241f6b554999e6220d08f386b88ad63b140521544d24c9591' },
+  { path: 'lib/league-administration/transaction-capture-contracts.ts', sourceDigest: 'c1f13eda7c01d1f9fd38e43d8c0f6b7099ca14d3e627dd274bbebca7f39191c6' },
+  { path: 'lib/league-capabilities.ts', sourceDigest: '9afcdd8cee0577d05d59ad72dbd913d28f664a54725862449014f863ff973afa' },
+  { path: 'lib/league-capability-contracts.ts', sourceDigest: 'ade52c06e1061db5d17ce6ff38c6f24bee8a973343e6f2afc3ef6f95ffb92334' },
+  { path: 'lib/league-transactions.ts', sourceDigest: 'a6bb439126f61c6b43cd9bf6c1a3bf1f370eae8b58db3eb244e52b7ed9215d79' },
+  { path: 'lib/leagues.ts', sourceDigest: '56739dbd2a2936e76d8712f3d50a09247f49ff4b361921f696ff2ab352e29df2' },
+  { path: 'lib/manager-championships.ts', sourceDigest: '2996ae2145451068b7ead907909543281eec431dabe3dea00e70758bbc981385' },
+  { path: 'lib/manager-display.ts', sourceDigest: '14508e458f79924fb5a054888f2fe84e3906b676baf00f21368202c8faae9115' },
+  { path: 'lib/manager-history-policy.ts', sourceDigest: '4db8d869a377876691d8b3b59c13a447c1245dff6dd3f6e129bce4100c32929a' },
+  { path: 'lib/manager-history.ts', sourceDigest: '51a2ca254a8b0ccd851c15846206a05681b9ba816c2eea9184f2fb6c2d69c313' },
+  { path: 'lib/manager-honors.ts', sourceDigest: '41a5068e82afe70c240c5bb211bb844856e1e51ac987fdf811ebac778cc4ffde' },
+  { path: 'lib/matchup-box-score-types.ts', sourceDigest: '4795fcc9f983b08d805ad2d0b47d32e78b5605ac79c2b8356e9c3d7c4d3ddeb4' },
+  { path: 'lib/matchup-box-scores.ts', sourceDigest: 'fa8c582393711437c7c89beddc0ebc4ce823491c5de9cba7d66526e4c17811f7' },
+  { path: 'lib/matchup-period.ts', sourceDigest: '190a4cda2f8accaaa57d344a340524c71d98dac5bb9e2053113deadda89a5085' },
+  { path: 'lib/matchup-snapshot-metadata.ts', sourceDigest: '9e352f8fe542bea57129d57d7213ffa2b61b6d9ab78fc9aa395ee4267dcb826b' },
+  { path: 'lib/matchup-week.ts', sourceDigest: 'fd6ad7b5c0c87cca13555a812ead66f1e66743f84019a2d64499f61ad61e5f44' },
+  { path: 'lib/matchup-win-probability-validation.ts', sourceDigest: '4d50407e8d998a4951c2ec995e0076c6ca8cbffbb4ad3f242f0bc5098f9c9644' },
+  { path: 'lib/matchups-response.ts', sourceDigest: 'cb3432c069d6e4d6d7d79f0dacb79e3c48592703fc3b6faaa8e31fb0a329fd88' },
+  { path: 'lib/matchups-shape.ts', sourceDigest: '600a052a06ae737db41aa9b7cb7488bd747435ec54cd75af9a114067f40a5e41' },
+  { path: 'lib/my-fantasy.ts', sourceDigest: '78de9d83d8af8eaf2f526ee4694ffb64977ba36051b19605d41dcb5676e7a105' },
+  { path: 'lib/my-team-matchup.ts', sourceDigest: 'd2bdc632a3d03d21aab2500a03a222c913144ff1331d5ced1248c92e9fc0e205' },
+  { path: 'lib/my-team-schedule.ts', sourceDigest: '25148d59c1ba8c70f2cacdfa18a4d9347abbc0164bc76b39621c611cc2538973' },
+  { path: 'lib/nfl-schedule.ts', sourceDigest: 'eea84b736ada178577f97e79f5a882cc453646b4c9422b46a41afe0485d27a1a' },
+  { path: 'lib/nfl-teams.ts', sourceDigest: 'e8042055b84e416ad7a57fd2b309cc4efe42bf9a22b291c9f2d1c5bb71743724' },
+  { path: 'lib/page-source.ts', sourceDigest: '7e4afdbfdb1760d5bd16ee2a8bc5a752d0e60f3d0d8b0754960efe8313431a07' },
+  { path: 'lib/projected-standings.ts', sourceDigest: '089c42e2a684b2e3f22494bbe3c74b2ab12395f78cf3ddcb698f16d409b5740c' },
+  { path: 'lib/projection-freshness.ts', sourceDigest: '9964e33f046d778561130fe1b770e55dd2d9ce95557fe3cd6461c4114297297a' },
+  { path: 'lib/projection-store.ts', sourceDigest: 'a921e870093fe021f0fb1a7ad51b785f808616745dfc1473bc26cce40ce1a03e' },
+  { path: 'lib/projections/adapters/configuration/league-registry.ts', sourceDigest: 'ae576be52a0298c8ee5ee88afab9e2a6776e460f3bc8d6cb5b90e032c1ab2b10' },
+  { path: 'lib/projections/adapters/neon/all-player-box-scores.ts', sourceDigest: '5a5b82fb9c64186102d8804c98642571bc49419afbd603da3ce646e98da5d86b' },
+  { path: 'lib/projections/adapters/neon/all-player-context.ts', sourceDigest: 'c8370a05850b906e070b201844d4d2996c5369dbba0f01ae45ec6875d72cab01' },
+  { path: 'lib/projections/adapters/neon/all-player-metrics.ts', sourceDigest: 'c024ff5d60a3b6ef055fa6afb1642d3c9bba622766ddec91d2c5f0e6d13b50f1' },
+  { path: 'lib/projections/adapters/neon/all-player-statistics.ts', sourceDigest: 'c18d61cc9ca8c60af612711295911a2c04a3ea8982974df5f27c7b7f5999b6d8' },
+  { path: 'lib/projections/adapters/neon/authority-reader.ts', sourceDigest: '89e4eabefb61f1df8c6cffe138c19ec8bf76dd9f2e8f5424400ced32da4762c5' },
+  { path: 'lib/projections/adapters/neon/contracts.ts', sourceDigest: 'e5a73c470f31a527fb1ba44ea68eab9244c86b63da0520d4d4f8c55c30cbbcab' },
+  { path: 'lib/projections/adapters/neon/database-values.ts', sourceDigest: '3532ec3c7d87edcb0c400e9535dd6129d77d0854e69635db40f11f28b2ec2c24' },
+  { path: 'lib/projections/adapters/neon/disabled-store.ts', sourceDigest: '3577f97aadecbaba2daf03e6e288664918d117327ca7ff8415d92fb1085b5d96' },
+  { path: 'lib/projections/adapters/neon/exact-matchup-compatibility.ts', sourceDigest: '57db93091d1b5db1c9572a21f9984f4fec100ccb9719cf5b31f47c5177607fdf' },
+  { path: 'lib/projections/adapters/neon/future-probability-refresh-sql.ts', sourceDigest: 'bd3f31e5d90bdacc98872295168dc60407a83e801c6e5af0edfe10f2dc9f23d8' },
+  { path: 'lib/projections/adapters/neon/future-refresh-materialization.ts', sourceDigest: '68bcddc2311ceec6abcf52066babb275b71c34f1a03fe26847430f5f29580937' },
+  { path: 'lib/projections/adapters/neon/future-refresh-plan.ts', sourceDigest: '068d1769d19111130f7a793b3b92d6e462bc48e540d2254958c1240fd67ceac7' },
+  { path: 'lib/projections/adapters/neon/future-refresh-projection.ts', sourceDigest: 'c411426fa5c080075756257bc4e666af7ce0b5b0a8d82a33221430a0e0ab43b0' },
+  { path: 'lib/projections/adapters/neon/future-refresh-values.ts', sourceDigest: 'd77e8de07b702a74992646900313d01edbe02ee55e450d4458fab17878acb233' },
+  { path: 'lib/projections/adapters/neon/future-refresh.ts', sourceDigest: '211f3e69479e50a44a69f8e974f808a7a4baa7b704b138de0f71f535653fa4c2' },
+  { path: 'lib/projections/adapters/neon/identities.ts', sourceDigest: '02d1f57fc4a9154fbb8edb4d47e7e2f6d270f3997849adde04626f3420d18c26' },
+  { path: 'lib/projections/adapters/neon/jobs.ts', sourceDigest: '6636413d4a922b1249041dc81aaad4fff87806da9f484167085c099a2140f839' },
+  { path: 'lib/projections/adapters/neon/lineup-acknowledgment-sql.ts', sourceDigest: '855bac98b60aad3639f4ac4821a6991578f53c44d4e7ad102a68fc952e2fa16f' },
+  { path: 'lib/projections/adapters/neon/lineup-acknowledgment.ts', sourceDigest: '60d8a0257bfb1ff3f065743516574c43d604bc4d1fd47c155a2fa0592b51c1ab' },
+  { path: 'lib/projections/adapters/neon/lineup-full-observation.ts', sourceDigest: 'c1e1e91987f774fac547566d5f143858678a3ac3ad314c2695fc375f6e235452' },
+  { path: 'lib/projections/adapters/neon/lineup-publication-contracts.ts', sourceDigest: '2789091cdae8eb24b4e40fb4fc7b4caffde5764f22594561363f2c63ef8c96a7' },
+  { path: 'lib/projections/adapters/neon/lineup-publication-sql.ts', sourceDigest: 'd68f01d1ad669dd2dc50716c4e0f85d703870a31bb4f0c0645c17cf52adc1692' },
+  { path: 'lib/projections/adapters/neon/lineup-publication-values.ts', sourceDigest: 'b7d46890e24d34828e985f5b315deb2ad1194a9d131072e883d9cf1970e9adce' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-claims.ts', sourceDigest: '16707f337a5ff4bd476a42d1c1f090cf473b63a042187a74d2831f8e918d45e7' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-contracts.ts', sourceDigest: '03284f89b378895d8c7d5aef4d9be9439201d8295559aba0a24c1139b95b3f25' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-observations.ts', sourceDigest: 'cdf6a677677941b59b2957956ce011f254d4b56331a2d7ce5ca11e57d51804b3' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-read.ts', sourceDigest: '4467ded45e956654a8c4794f2b3236074e2a071d1299cee9e7f43cadbb74ddfd' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-sync.ts', sourceDigest: '87efa1350a61b9a6b9e2ae1b3a1b837a98e84e315f7caa88cb1c5635e478438b' },
+  { path: 'lib/projections/adapters/neon/lineup-watch-values.ts', sourceDigest: '94b9819172e06f81dfb8cf82918ba32e01dfb72acc77c827232dd392256bc808' },
+  { path: 'lib/projections/adapters/neon/live-defense-evidence.ts', sourceDigest: 'c474a709a6b3abd4239c4c66d11279b59346bb26e8dcafb885061f54df4dbaff' },
+  { path: 'lib/projections/adapters/neon/live-defense-reader.ts', sourceDigest: 'ec38d4a1056b35912fed47321007905ad12fa3c755579b8ca50c2ab9851fcfbf' },
+  { path: 'lib/projections/adapters/neon/matchup-selection-sql.ts', sourceDigest: 'a687dd88e453a47d08eed51558be986e0302352e2375b732681c7e2ecb73a25d' },
+  { path: 'lib/projections/adapters/neon/matchups-shape-sql.ts', sourceDigest: 'ab6dde9de469fc7a7b8cc6342ebb55c7750c378799354893de886f4e9b678278' },
+  { path: 'lib/projections/adapters/neon/observations.ts', sourceDigest: '85e237202d41a3422f5a25f2b176f345612d3c5111af43bd89629eae20d864a1' },
+  { path: 'lib/projections/adapters/neon/period-cadence-values.ts', sourceDigest: '261d5511da0d36be8454c3c338587dffe9f129e0f182358eeee0e98a5bdd1cbb' },
+  { path: 'lib/projections/adapters/neon/period-shape.ts', sourceDigest: 'a985b62b78bc10a80d0468c78464e4636a72547d48239dc4fda64ce349f4a7a3' },
+  { path: 'lib/projections/adapters/neon/period-values.ts', sourceDigest: '610e0f8ce84a0450e3d948dd3d640994098b3c9ef3816ac520db0292b3139e8a' },
+  { path: 'lib/projections/adapters/neon/periods.ts', sourceDigest: '81a32fe713c62422b5d4cb68f4e7e50471b683c71e2ea7d65ede453b9c4185c2' },
+  { path: 'lib/projections/adapters/neon/projection-slates.ts', sourceDigest: '99631a32812bb62b9a51cbf9c890bf8c5036c5ebb42288c324ea2862a7797f7e' },
+  { path: 'lib/projections/adapters/neon/projections.ts', sourceDigest: '54e73914f7ed10f34f8c77c1d789180badf1be4c544cc1d3f3bf1480f6fc007f' },
+  { path: 'lib/projections/adapters/neon/retention.ts', sourceDigest: 'aea66d9e9f61b4950a1c405e6a83cf79a7e4059c362c0968abc02306d47e3188' },
+  { path: 'lib/projections/adapters/neon/row-codec.ts', sourceDigest: 'c93d3751e000134e40a1bd092a9eac68952f0845a67c8e8b0e694bdbc57474ee' },
+  { path: 'lib/projections/adapters/neon/snapshot-codec.ts', sourceDigest: '4be49688bce06df863e4d9d2cb10e6f5f5e4513349bc911526ed588dfe4d1d3e' },
+  { path: 'lib/projections/adapters/neon/snapshot-revision.ts', sourceDigest: '6580e985687d6e67e881012fa85a674be9fc0350e684ab8eccacc1ae2927d26d' },
+  { path: 'lib/projections/adapters/neon/snapshots.ts', sourceDigest: '6c0cef8b4a14cc535d94a6176accf639981307876bff41484f54593adc0a6f97' },
+  { path: 'lib/projections/adapters/neon/source-history.ts', sourceDigest: '7a0af916b6a9ed15e1cceb3e6aea67adf390b52bd502e1a18bd9fdc95c55cb2e' },
+  { path: 'lib/projections/adapters/sleeper/raw-matchups.ts', sourceDigest: 'a38f598ea9b7571dc31d6c241f87235114705fd7c57b4e4ee42681ae7011b27a' },
+  { path: 'lib/projections/adapters/sleeper/schedule.ts', sourceDigest: '69449c4d1e11c819a1d224a8b58377c3a9c6b2c82aac45a4c94f70c56eca23a1' },
+  { path: 'lib/projections/adapters/sleeper/scoring-profile.ts', sourceDigest: '49be08b83f5d7060272a3f4ae3c421ea72c08042d4514ea2418f1a468396a31d' },
+  { path: 'lib/projections/adapters/sleeper/supplemental-projection-calibration.json', sourceDigest: 'f252296cfe87c845d27691249951550a1c96abd9d9cddb5b864fa3f00077dfef' },
+  { path: 'lib/projections/adapters/sleeper/supplemental-projection-rules.ts', sourceDigest: '4fa79e546a0ffd2786c0a5e091b7178ec62fbdd990167cbb72a5ff65402f7dce' },
+  { path: 'lib/projections/domain/all-player-eligibility.ts', sourceDigest: '9129a36547b55069fb820a97884223914cf8ac123de463fe288d85be3e551eab' },
+  { path: 'lib/projections/domain/all-player-observation-evidence.ts', sourceDigest: '8933427f1d161dde59aa26b361dde214442e40df263fd065e4fb517dfb6a654c' },
+  { path: 'lib/projections/domain/all-player-provider-context.ts', sourceDigest: 'dfc5c5d4aac62318f2c7033830c9d4191e09928e1f391a83c19d1e0bd674c398' },
+  { path: 'lib/projections/domain/all-player-publication-coverage.ts', sourceDigest: 'aba22c82f373bc1dba8e5df45b8ca0233806f3e9645af0b5a68a4467ca4ce42f' },
+  { path: 'lib/projections/domain/all-player-score-material.ts', sourceDigest: 'c39d2ee3b2a5f0a701f1cee11aa0787158dea3a0e771941020ae026646fd7424' },
+  { path: 'lib/projections/domain/all-player-statistics.ts', sourceDigest: 'c2b2b07a7c8a0ce1dbdc04367905756abded6ed71eaf5261fff3ba1bad97578a' },
+  { path: 'lib/projections/domain/all-player-team-context.ts', sourceDigest: '802c52b6d5b2d085c0c527c8b1c67cdab6a489261a913d38891429f56663fdcd' },
+  { path: 'lib/projections/domain/contracts.ts', sourceDigest: '1dd259de6658211017683e7c90e2347cc7d8c701e43fd07ce146a0e4f7acd2dd' },
+  { path: 'lib/projections/domain/lineup-publication.ts', sourceDigest: 'c55d7edaac27b05073f25ea7f645236e38a75e4e58fa816468278f473446241a' },
+  { path: 'lib/projections/domain/live-calculation.ts', sourceDigest: '008172344e0c07680f61ee4e921c570214ba39d8715c4647a4ab980ee29f041b' },
+  { path: 'lib/projections/domain/live-defense.ts', sourceDigest: '10735a840b7f6b0881c0f43ef3b74cdd33fbbe6c88f922b6a6669a1aa9aec02f' },
+  { path: 'lib/projections/domain/period-cadence-timing.ts', sourceDigest: '1e1872f0bea659ad9b648ebc450ebfd41810ccc39786e006117cbf76d74f4773' },
+  { path: 'lib/projections/domain/player-availability.ts', sourceDigest: '30ae0242f2598a5ddc479a02af6b28b0c50a73b5c0510d7630ae524dd7f33219' },
+  { path: 'lib/projections/domain/scoring-events.ts', sourceDigest: 'caafbc82b33a3c68733fd36cf234739fdef4e52b79935ed402564eb7af341b42' },
+  { path: 'lib/projections/domain/scoring.ts', sourceDigest: '5ec02fd146ecae0bd7eff4d3b847dfa0c6f373712fcc62d0a98431b5a6a7e914' },
+  { path: 'lib/projections/domain/win-probability.ts', sourceDigest: 'ca4980264dff2495675184600f88f1c7bddc9d08f635dfc65034d2f9379b6b64' },
+  { path: 'lib/projections/ports/future-refresh-repository.ts', sourceDigest: '09275afdaae2a3ba5f36ea1ead4beac2d4917cc2be97a8a515ecacdc4057e736' },
+  { path: 'lib/projections/ports/identity-crosswalk.ts', sourceDigest: 'a7350f66a298a32de11d7fd9cb2cf5c3eda321022a2a7d0fa759a632bb81e078' },
+  { path: 'lib/projections/ports/league-registry.ts', sourceDigest: '0573397037da00df68af896be4ed0af0a741b1c68f03816783d0ec3cba36b5cf' },
+  { path: 'lib/projections/ports/live-defense-stat-source.ts', sourceDigest: '348b5a72b79fd8e1b4258aefdebcd4e3d38923575cf3fa35fb83220933989eaf' },
+  { path: 'lib/projections/ports/logger.ts', sourceDigest: 'a3469917cc6293e132d52fb72904bc0d8e3ec46ba9ce2aa4e0e5957ed0041435' },
+  { path: 'lib/projections/ports/projection-repository.ts', sourceDigest: '6502a3be5abec0dcfc5942b7a46d0f3be7a9d546ee4705280d0fd5104b2487eb' },
+  { path: 'lib/projections/shared/lineup-cadence.ts', sourceDigest: '24b1ad34f16d05861abbd5e74bff2739341d259cd226ab28ad251fa888bd6c88' },
+  { path: 'lib/projections/shared/live-box-score-evidence.ts', sourceDigest: '55cae48a4f1758be165af6d8434fc537e270eb273b49adf6f35b49e7ed4df012' },
+  { path: 'lib/projections/shared/official-catalog-identity.ts', sourceDigest: '9453a0c207d6b91ff25c662a66a22980dc2fe1488d8986842160bf6daa218f79' },
+  { path: 'lib/projections/shared/projection-versions.ts', sourceDigest: '28937bc9c5a00277bda5a5a5d1042773657d0f60c6dc2e7f98f308bc520fd0cd' },
+  { path: 'lib/projections/shared/provider-identity.ts', sourceDigest: '4b45a5ee6efefe77337f6b13b653b12db7c12074835dfa17564a0b02c24f763f' },
+  { path: 'lib/projections/shared/revision-compatibility.ts', sourceDigest: 'e419b7d25c93599b132c533615ca7f31fbcd4d953825323816479f9bd3a76631' },
+  { path: 'lib/projections/shared/sha256.ts', sourceDigest: '6c5fab40cfe8c12cb9dc5f2d125b0e0487692b9c6872c19173e659fef317941e' },
+  { path: 'lib/projections/shared/source-history.ts', sourceDigest: '5210b0c3bbf5b6abee8ca8149d378ebb72a627da7d2b84a458782c3c5cd96e6f' },
+  { path: 'lib/projections/shared/source-timing.ts', sourceDigest: '37d120e47a1181a47874cec6a20a420c74a251b296fda9f4aba5866285b6c6d3' },
+  { path: 'lib/projections/shared/stable-json.ts', sourceDigest: '079e87a526f8737a4265e3ca40431a14e3f792105d5453124c741e1979473745' },
+  { path: 'lib/projections/shared/stored-snapshot.ts', sourceDigest: 'd4860b518b1d7536c2a69d88d94b046d28346638c4d990ab0ea9463a0b6664ba' },
+  { path: 'lib/provider-request-telemetry.ts', sourceDigest: '02904402c0d5bc4a11c2351a0ea99294a93bd4e2f6877bf55a97f2b99d9fb39d' },
+  { path: 'lib/roster-metrics.ts', sourceDigest: '29e9bd6540b8bd308171808b2b501f0bdee47db67a7b3d43f6d61f9095aaa890' },
+  { path: 'lib/site-calendar-authority.ts', sourceDigest: 'eb05990fb261ac7c5c23c3a5b93066b3b76e7a3fa01779a3f2b6c34def9f383d' },
+  { path: 'lib/site-week.ts', sourceDigest: '50b00696478812a59b80d144cfd78c083370d99d97e759ab8b912ad96e0c61df' },
+  { path: 'lib/sleeper-catalog-types.ts', sourceDigest: 'cdd4c6e67cc289b983957f8977193ae963f25f031f0a17a41732999ddef0c218' },
+  { path: 'lib/sleeper-history-validation.ts', sourceDigest: 'f54c85b0d651bdb8c0e86d3d6c78ec15c164374d8cff65aa1d63a598f3240aae' },
+  { path: 'lib/sleeper-lineup.ts', sourceDigest: 'c075b2a24c1baeb0de0fd44aa17e6798d7c70f0d5e269f41064908f3e9cb788a' },
+  { path: 'lib/sleeper-player-cache-policy.ts', sourceDigest: 'd08c75d3150e584a2b438b842d305550ca7a635dd6d0c161f2c86de492fd346f' },
+  { path: 'lib/sleeper-player-catalog.ts', sourceDigest: '7b04d04e6aca3578334b0e916960a705258a166eb7ec0725ab3cf11cf668d1ca' },
+  { path: 'lib/sleeper-public-response.ts', sourceDigest: '160dbb8bf04138d95e81ea468492d6477f3a7a4270413a7c733a5132a637e2cb' },
+  { path: 'lib/sleeper.ts', sourceDigest: '19311adb64f3993dde952afc39e803121b5d2d9fa4868ff69dd2ed14ed7a827b' },
+  { path: 'lib/transaction-time.ts', sourceDigest: 'cd0a282a80c36325a2ad08a260f4122ed86a416d21d5a89393dfa94d6089c787' },
+  { path: 'lib/transform.ts', sourceDigest: '2edd33c8745298a06cd88201ee531a84a6c7dadc8be4d9ed8e3d81f78c57e23a' },
+  { path: 'lib/types.ts', sourceDigest: '888effbc1cd6146eda6160d05e752cd702ba2d5584c315767a9059772bdab360' },
+  { path: 'migrations/001_projection_foundation.sql', sourceDigest: 'eefa3aa224dbc6f0c6bb3edc9e4690425e2d6af7094938f3528059717d205050' },
+  { path: 'migrations/002_manager_snapshot_payloads.sql', sourceDigest: '74585dec3e2717eede0579f9281a041a4e3cc0b0cd8378383fe2e3d64fd7214d' },
+  { path: 'migrations/003_league_period_authority.sql', sourceDigest: '6f98e09646834cc542a6413e00c0d0c2d84ad4a5ff33905e429aba87c951406e' },
+  { path: 'migrations/004_durable_projection_slates.sql', sourceDigest: '8ad48c22dea0d942a0a14027dcb240cda18f1bd728403e41aafa6b76f42f95b9' },
+  { path: 'migrations/005_future_projection_refresh.sql', sourceDigest: '02bb6a3c6a183e7074fbea156b5f393d5772619098ab7c07be9dcc5528003c75' },
+  { path: 'migrations/006_flexed_kickoff_candidate_index.sql', sourceDigest: 'd2c54c4e17439d3773cfab8db8ed68bf332abd1073fe793f62138efa89e1a3b0' },
+  { path: 'migrations/007_lineup_freshness.sql', sourceDigest: '1a92f9517294fe289bd25d74923dd042d0cb394d143b5c89d33ed017963c3e47' },
+  { path: 'migrations/008_additive_write_guards.sql', sourceDigest: '2447ffac523e1f5536e218887d5c29895c3a095385f89bd6beb55cb7c5e95814' },
+  { path: 'migrations/009_game_clock_plausibility.sql', sourceDigest: '86df8afd868bb4fd589a76bf1e1693cdc546037cfc61b54ae972e660fbda056a' },
+  { path: 'migrations/010_all_player_statistics.sql', sourceDigest: 'f9f2aa0c4dc7a0a3097bf770a7f08ef0719ed7f019307dcf629fa17058af31b4' },
+  { path: 'migrations/011_all_player_foundation_guards.sql', sourceDigest: '0eaa96bcc0b65053ac8dab48657eb7bfe22fadbfd41b4f4c78c3472ca8a512b6' },
+  { path: 'migrations/012_all_player_provider_participation.sql', sourceDigest: 'bea4bd568c05eee7da177811b25a1389180d37329b9061b3e79ee60d546aa4ed' },
+  { path: 'migrations/013_all_player_participation_assumption.sql', sourceDigest: '4e03581db2b9a33d0df77110fe32b81745bec7f1ab001a20bfd788c4b4283d80' },
+  { path: 'migrations/014_all_player_hourly_collection.sql', sourceDigest: '3aa6e19555c1e38bf7805199d401b0c6acd3ada00716950e04e54573867b1fc3' },
+  { path: 'migrations/015_all_player_dynasty_publication.sql', sourceDigest: 'f7bf9b74cc14c0ede7a7534257ea956f99edc2615983b5b66ae546f2812fef8a' },
+  { path: 'migrations/016_portable_league_administration.sql', sourceDigest: 'd662d9e9709153a4e9a6cbc93522bdd4d14c5b0a0c74a7c7ea8648455896596c' },
+  { path: 'migrations/017_enrolled_all_player_publication.sql', sourceDigest: '1247dbfbdfbc79f41a448cf3b2e95fb4f9387e951a26f340e9533754e5c9c361' },
+  { path: 'migrations/018_all_player_partial_context.sql', sourceDigest: 'd8ceba13b99a862a13de74bfa51f27bd2c0afbc16f93e4e9b67b6f79997390cc' },
+  { path: 'migrations/019_live_defense_weekly_statistics.sql', sourceDigest: 'e4ab682773a2441000d9403a762b21f917abab59f840a979713418d2b865c77d' },
+  { path: 'migrations/020_account_foundation.sql', sourceDigest: '10260342c3ea679b02f99df442c2b9e38d7a20d810b2c720744ef4a57755a918' },
+  { path: 'migrations/021_website_auth.sql', sourceDigest: 'ad13e3cb1d6f6b60fbbf08cb161f2f4128ae760b9522a568979b43cf5f34b1e9' },
+  { path: 'migrations/022_sleeper_actual_scoring_events.sql', sourceDigest: 'c7b72bb4bd3275744a65722f36d516f54af7fe28532dd1656f63f3e1524340a9' },
+  { path: 'migrations/023_all_player_league_acceptance.sql', sourceDigest: 'ce1e15f1bc6891b84bca34b1eb63c446fe3246e5a76baaf646c22e624d73712a' },
+  { path: 'migrations/024_all_player_scoped_completion.sql', sourceDigest: 'b03fd10c692f982f712488ecc6b4eaccc5fd483bd544d3275c9ec74ade8ec892' },
+  { path: 'migrations/025_account_league_enrollment.sql', sourceDigest: 'fb2dcb87c9b8f437e4c873515b9b9bede6e7b34b683cb59d3a38469e968d241b' },
+  { path: 'migrations/026_source_mapping_revisions.sql', sourceDigest: '0785d8d1ddb10c3dfd298edaeb429a88411391fc8f71964000c79a4242bf193e' },
+  { path: 'migrations/027_current_roster_acceptance.sql', sourceDigest: 'aa531ad9bbc9b6f6aa137e17294e105ee2ea7120e51e7bc98b72040d1ff687ec' },
+  { path: 'migrations/028_team_manager_relationships.sql', sourceDigest: '39d9f939474ce5df41b458bca590fdbeb73162de12fe80909113e5930d7567c5' },
+  { path: 'migrations/029_league_season_settings.sql', sourceDigest: '0e2ea29e60fe80bd28d8f275764276683585ce237a653e045b983d3b759f51bd' },
+  { path: 'migrations/030_exact_period_matchups.sql', sourceDigest: 'b7345a1a64a639bf7aa9b9bffcd6f0e4676dab0cf1f48919c07a1107e5586b2a' },
+  { path: 'migrations/031_native_period_mapping_evidence.sql', sourceDigest: '5c5a95a2788fbc543058fa841af3463cb0354740ba6373eb4773ea16c43ce9f0' },
+  { path: 'migrations/032_calculation_source_history.sql', sourceDigest: '5373dbf2451e9a6b33fefbdc3dc835fea8d2d2f9ad69f8ce8848765bd480f042' },
+  { path: 'migrations/033_transaction_capture_acceptance.sql', sourceDigest: '0f5d8bf7c2192e46c038d1a232f41f9ad60eba7736a66d0d9230b78c7a299fcd' },
+  { path: 'migrations/034_public_data_intake.sql', sourceDigest: '75a80dfe271dae678982cf6c7619e3683ced8711dce21c5895a055c7e4bf9e92' },
+  { path: 'migrations/035_team_manager_evidence_v2.sql', sourceDigest: '77c1cb79c9dea2b41e70cc9aff74780c7eed794a68f3b537a0aefced34e74144' },
+  { path: 'migrations/036_public_data_refresh.sql', sourceDigest: '1bc1ee30e0244b732fe0b58b6c7586c2a0bd80c0c1b95e39f77504fc901cbd06' },
+  { path: 'migrations/037_official_data_registration.sql', sourceDigest: '9a046d2f84af1c705be088b1eff31fab0fcec0e4ecd8c3ce8c306bd94fb5d189' },
+  { path: 'migrations/038_public_data_exact_periods.sql', sourceDigest: '0fd9c8415e993714e7f7b01f7da52bf17d81ce6de0b086b3dc4954e4962dcaf8' },
+  { path: 'migrations/039_public_data_capture_witness.sql', sourceDigest: '5fd67b14ef40612122beb6e6ffbc5847cd3e89e6c7f085b4451bc18e74cf029a' },
+  { path: 'migrations/040_legacy_all_player_data_membership.sql', sourceDigest: 'f3ca03630b786a26242ba881c9f59ea9145a2629369d8a025f5a3324c6ae060c' },
+  { path: 'migrations/041_shared_player_directory.sql', sourceDigest: 'f8e2a34fa0bee75094b8afb276c72e6630f3a3cdc155e6dafd2cbe8e4ff0cdbf' },
+  { path: 'migrations/042_roster_player_links.sql', sourceDigest: '73bd322087d3de51bc65446d38661aaadfffd81e096202e7168656c968ee0f0c' },
+  { path: 'migrations/043_manager_directory_facts.sql', sourceDigest: '0fa81e8c9a61df7716cfbcc723c4b269fe8f3a51a6f9d2984498ee15e4e61f25' },
+  { path: 'migrations/044_public_data_period_inventory.sql', sourceDigest: '7562ebe5f48cde351742144bc72dbbd5f6b4aece87d0edec7463c375fda7f76b' },
+  { path: 'migrations/045_exact_matchup_values.sql', sourceDigest: '40bf8fa3eb8f1648487dcd1974a772ea15cbae66c0c0e9313a0cf98322367dee' },
+  { path: 'migrations/046_official_brackets.sql', sourceDigest: '98f3388e14e7c26d0be4dab4f512f7ccae269ae64c495c5b9a795f6c0418a957' },
+  { path: 'migrations/047_public_data_brackets.sql', sourceDigest: 'aa925726e32afe05e83a97dceb9d2e2957ca57aa3b617eae7403d70bbcf520b0' },
+  { path: 'migrations/048_official_standings.sql', sourceDigest: '5d5052a19970592fdfdf3db090b734ddde9b164caf2b92c846e3f7c8f7ba8059' },
+  { path: 'migrations/049_weekly_reports.sql', sourceDigest: '8b38bbe6c474befc289c4975165d45b04618e303997bd078dd533508b90b8163' },
+  { path: 'migrations/050_public_report_intake.sql', sourceDigest: 'db12d902acb9e898ee351fff41bfbcc62040a2e29e866864dde8b45b24a9e609' },
+  { path: 'migrations/051_public_transaction_intake.sql', sourceDigest: 'e6e35ef2328708d5f6310dbc3446f2d959b2756025a464654dc21465d6d18a3c' },
+  { path: 'migrations/052_public_transaction_history.sql', sourceDigest: 'c6e20295bc21a04158cb0cf1ec83b642d2ece51074613a2c96ac5a87394058b9' },
+  { path: 'migrations/053_draft_metadata.sql', sourceDigest: '27b5a34d1b3b1a56424cfffe907f71d1b453e6934a9d70b4eba08986851d736e' },
+  { path: 'migrations/054_draft_selections.sql', sourceDigest: 'adea290105f31e8b08e7c35d1de03dc304a365461691b008ed46500a9d71b453' },
+  { path: 'migrations/055_traded_pick_ownership.sql', sourceDigest: 'c39f8842e977428db9148b9bc090d38368c70f86efeb94d51f9c282a7a394939' },
+  { path: 'migrations/056_public_draft_intake.sql', sourceDigest: '83d709a4132e585642f57cbcec89b23406239474515355ed544b272135b35a00' },
+  { path: 'migrations/057_public_data_controls.sql', sourceDigest: '910388a94d449156f508dfab78c73fecdf573233f427f108b5559b0a63be8090' },
+  { path: 'migrations/058_public_data_batches.sql', sourceDigest: '9fedc0836f295c20b9004c84292bb80f1066ac4db6f8c725d8bb5e75b1f5c926' },
+  { path: 'migrations/059_public_data_resource_schedule.sql', sourceDigest: '97449430a4f8e48df14c9deefa1170ee0eae8c517abd0612b4cc758560b598f8' },
+  { path: 'migrations/060_public_data_correction_cycle_admission.sql', sourceDigest: '166aa68fd7eba37a32f935f49702e283b7d9f3828f9c493db31a29972ac895c6' },
+  { path: 'migrations/061_public_data_active_brackets.sql', sourceDigest: 'c4daa9c12e1dd4d11e723f05fa1aa4b4932cf431835b7901849cecbbc0f3821c' },
+  { path: 'migrations/062_public_data_settled_request_budget.sql', sourceDigest: 'e9f22e0704ec3fc0c2a72b9a3341ac75e06e03ca9356409b40bb814cb76714b3' },
+  { path: 'migrations/063_roster_player_link_contents.sql', sourceDigest: '86f92a4100383ac708a20ca01b12ec491f29ad56bdc9092bb6aec00277e33ad6' },
+  { path: 'migrations/064_roster_population_contents.sql', sourceDigest: '5598586c948bcac01d706c07b65a6bf0ad99cc50a354e965e6c93e318edcea00' },
+  { path: 'migrations/065_roster_provenance_contents.sql', sourceDigest: '57d28d751b0b31e07b8b407b657560d5eb68e993d76efbdde0d4bd0c8a796b33' },
+  { path: 'migrations/066_canonical_source_identities.sql', sourceDigest: '45b39660b6d624a0f57b30d1fdc6fce3156127e7aba92f3103a881c7d90a16b1' },
+  { path: 'migrations/067_canonical_standings.sql', sourceDigest: '7c43c277533695e2fd2823dfc7ecc6cda7390ff8a812dc75b850c43115957dc2' },
+  { path: 'migrations/068_canonical_standings_acceptance.sql', sourceDigest: '478ba511ec758c7eb9335684f66a3dc9040b18b8ec9328ae60672b07d973932e' },
+  { path: 'migrations/069_canonical_native_compatibility.sql', sourceDigest: '168749fe592935fb773f03dae38a87f25e15bd296ff690ed5706ce51c0888b15' },
+  { path: 'package.json', sourceDigest: '814f811d5d578c66c9140ec5b11a68e5bee66bd876b7323da62e3f0c1862e468' },
+  { path: 'scripts/provision-account-role.sql', sourceDigest: '1b7d1cac7ebab477640b370364ea8aa46e3e42f417b8e3732299f4288a922d61' },
+  { path: 'scripts/provision-auth-role.sql', sourceDigest: 'a65e2df5165bc866fa32646ff9d8796ad83f1b3af6f4c00ed11c628a46c5e8b9' },
+  { path: 'scripts/provision-runtime-role.sql', sourceDigest: 'e381cb927af763cc1c9137f547e9d7af9867607ad45c35476a89d83ab912f705' },
+  { path: 'scripts/run-disposable-integration.ts', sourceDigest: '8eb64772c886d175b7e5150b9f7c474168b0a94312cb526e374cca11d52d77e5' },
+  { path: 'test-support/fixtures/cp26-named-source-2026.json', sourceDigest: '6d816511eb669004ca9e5afc6a5d7ea15c07881ee2c0d34d2452bfbdfa560d2b' },
+  { path: 'tsconfig.json', sourceDigest: '9c73cf280ef044e5b2557572af01310c7bb24a714ec22d1a7bdb85e6f152cb0b' },
+  { path: 'vitest.integration.config.ts', sourceDigest: 'fa516b6fd4ea253281417d66129ec18ac4f2fd99d3e2be422eeea29b68ed648e' },
+];
+export async function assertCanonicalStandingsSupportSources(siteRoot: string): Promise<void> {
+  assert.match(CANONICAL_STANDINGS_SOURCE_DIGEST, /^[0-9a-f]{64}$/u, 'Canonical standings qualification source is not sealed.');
+  assert(CANONICAL_STANDINGS_SUPPORT_SOURCES.length > 0, 'Canonical standings support source manifest is not sealed.');
+  for (const entry of CANONICAL_STANDINGS_SUPPORT_SOURCES) assert.equal(
+    qualificationSourceDigest(await readFile(join(siteRoot, entry.path), 'utf8')), entry.sourceDigest,
+    'Canonical standings source differs from the reviewed LF digest: ' + entry.path);
+}
 
 // Closed CP26 fleet candidates. These pins authorize no execution and leave every historical profile unchanged.
 export const FLEET_HEALTHY_SOURCE_DIGEST = 'ec3fbb027bfabf4727aa3dd462b7d7517adfaa56b9b14a49b66c0de45eb039f9';
@@ -801,7 +1134,7 @@ export const JOURNEY_SUITE = 'live public DATA intake and refresh through the ex
 export const JOURNEY_TEST = 'retains ClawMachineJedi discovery, all associated leagues and one complete refresh [live slow SQL]';
 export const JOURNEY_FULL_NAME = JOURNEY_SUITE + ' > ' + JOURNEY_TEST;
 export const JOURNEY_PATTERN = '^' + (JOURNEY_SUITE + ' ' + JOURNEY_TEST).replace(/[.*+?^{}$()|[\]\\]/gu, '\\$&') + '$';
-export type QualificationProfile = 'full' | typeof STORAGE_MEASUREMENT_PROFILE | typeof READER_PERFORMANCE_PROFILE | 'data-freshness-capacity-ownership-v1' | 'data-live-public-batch-v1' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
+export type QualificationProfile = 'full' | typeof CANONICAL_STANDINGS_PROFILE | typeof STORAGE_MEASUREMENT_PROFILE | typeof READER_PERFORMANCE_PROFILE | 'data-freshness-capacity-ownership-v1' | 'data-live-public-batch-v1' | 'data-freshness-capacity-daily-v1' | 'data-freshness-capacity-healthy-v1' | 'data-freshness-capacity-recovery-v1' | typeof BATCH_CALIBRATION_PROFILE | typeof SELECTED_PROFILE | typeof INGESTION_PROFILE | typeof LIVE_PROFILE | typeof JOURNEY_PROFILE | typeof OFFICIAL_PROFILE | typeof GUARDS_PROFILE | typeof CONCURRENCY_PROFILE | typeof LATE_WRITE_PROFILE
   | typeof RUNNER_CYCLES_PROFILE | typeof BACKEND_CONTROLS_PROFILE | typeof COMPETING_WORKERS_PROFILE | typeof PROCESS_RECOVERY_PROFILE | typeof FRESH_INSTALL_PROFILE | typeof WITHIN_SEASON_HISTORY_PROFILE | typeof DRAFT_INTAKE_PROFILE | typeof DRAFT_REFRESH_PROFILE | typeof DRAFT_INTAKE_RECOVERY_PROFILE | typeof TRADED_PICKS_PROFILE | typeof DRAFT_SELECTIONS_PROFILE | typeof DRAFT_METADATA_PROFILE | typeof OFFICIAL_RESULTS_PLAYED_PROFILE | typeof TRANSACTION_HISTORY_INTAKE_PROFILE | typeof TRANSACTION_HISTORY_REFRESH_PROFILE | typeof TRANSACTION_HISTORY_RECOVERY_PROFILE | typeof TRANSACTION_PERIOD_INTAKE_PROFILE | typeof WEEKLY_REPORTS_PROFILE | typeof OFFICIAL_RESULTS_EVIDENCE_PROFILE | typeof OFFICIAL_RESULTS_PROFILE | typeof BRACKET_INTAKE_PROFILE | typeof TYPED_BRACKETS_PROFILE | typeof EXACT_MATCHUP_VALUES_PROFILE | typeof PERIOD_SETTINGS_CONTEXT_PROFILE | typeof PERIOD_INVENTORY_PROFILE | typeof TEAM_MANAGER_FACTS_PROFILE | typeof ROSTER_PLAYER_LINKS_PROFILE | typeof LIVE_PLAYER_DIRECTORY_PROFILE | typeof PLAYER_DIRECTORY_PROFILE | typeof CORE_COMPATIBILITY_PROFILE | typeof INTAKE_RECOVERY_PROFILE | typeof REFRESH_HISTORY_PROFILE | typeof PERIOD_RECOVERY_PROFILE | typeof PERIOD_EXHAUSTION_PROFILE;
 export const SELECTED_SOURCE_DIGEST = '899c526471fd9f9df3917a357721c52b249d44c7aed5660fb658dda39d675abf';
 export const SELECTED_MODULE = 'integration/public-data-intake.integration-case.ts';
@@ -899,6 +1232,7 @@ export const CLOSEOUT_PROFILES = [
     suites: [PERIOD_SUITE] },
 ] as const;
 function selectedCase(profile: QualificationProfile) {
+  if (profile === CANONICAL_STANDINGS_PROFILE) return { names: CANONICAL_STANDINGS_FULL_NAMES, pattern: CANONICAL_STANDINGS_PATTERN };
   if (profile === STORAGE_MEASUREMENT_PROFILE) return { names: STORAGE_MEASUREMENT_FULL_NAMES, pattern: STORAGE_MEASUREMENT_PATTERN };
   const fleet=fleetProfile(profile);if(fleet)return{names:fleet.names,pattern:fleet.pattern};
   if (profile === READER_PERFORMANCE_PROFILE) return { names: READER_PERFORMANCE_FULL_NAMES, pattern: READER_PERFORMANCE_PATTERN };
@@ -1099,6 +1433,7 @@ export function qualificationSourceDigest(source: string): string {
   return createHash('sha256').update(source.replace(/\r\n?/gu, '\n'), 'utf8').digest('hex');
 }
 function selectedModule(profile: QualificationProfile) {
+  if (profile === CANONICAL_STANDINGS_PROFILE) return CANONICAL_STANDINGS_MODULE;
   if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_MODULE;
   const fleet=fleetProfile(profile);if(fleet)return fleet.module;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_MODULE;
@@ -1123,6 +1458,7 @@ function selectedModule(profile: QualificationProfile) {
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_MODULE : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_MODULE : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_MODULE : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_MODULE : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_MODULE : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_MODULE : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_MODULE : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_MODULE : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_MODULE : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_MODULE : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? LIVE_PLAYER_DIRECTORY_MODULE : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_MODULE : profile === JOURNEY_PROFILE ? JOURNEY_MODULE : profile === LIVE_PROFILE ? LIVE_MODULE : SELECTED_MODULE;
 }
 function selectedDigest(profile: QualificationProfile) {
+  if (profile === CANONICAL_STANDINGS_PROFILE) return CANONICAL_STANDINGS_SOURCE_DIGEST;
   if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_SOURCE_DIGEST;
   const fleet=fleetProfile(profile);if(fleet)return fleet.sourceDigest;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_SOURCE_DIGEST;
@@ -1151,6 +1487,7 @@ function selectedModules(profile: QualificationProfile) {
     : [{ path: selectedModule(profile), sourceDigest: selectedDigest(profile) }];
 }
 function selectedInventory(profile: QualificationProfile, path?: string): readonly string[] {
+  if (profile === CANONICAL_STANDINGS_PROFILE) return CANONICAL_STANDINGS_FULL_NAMES;
   if (profile === STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_FULL_NAMES;
   const fleet=fleetProfile(profile);if(fleet)return fleet.names;
   if (profile === READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_FULL_NAMES;
@@ -1179,6 +1516,11 @@ function selectedInventory(profile: QualificationProfile, path?: string): readon
   return profile === WEEKLY_REPORTS_PROFILE ? WEEKLY_REPORTS_FULL_NAMES : profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE ? OFFICIAL_RESULTS_EVIDENCE_FULL_NAMES : profile === OFFICIAL_RESULTS_PROFILE ? OFFICIAL_RESULTS_FULL_NAMES : profile === BRACKET_INTAKE_PROFILE ? BRACKET_INTAKE_FULL_NAMES : profile === TYPED_BRACKETS_PROFILE ? TYPED_BRACKETS_FULL_NAMES : profile === EXACT_MATCHUP_VALUES_PROFILE ? EXACT_MATCHUP_VALUES_FULL_NAMES : profile === PERIOD_SETTINGS_CONTEXT_PROFILE ? PERIOD_SETTINGS_CONTEXT_FULL_NAMES : profile === PERIOD_INVENTORY_PROFILE ? PERIOD_INVENTORY_FULL_NAMES : profile === TEAM_MANAGER_FACTS_PROFILE ? TEAM_MANAGER_FACTS_FULL_NAMES : profile === ROSTER_PLAYER_LINKS_PROFILE ? ROSTER_PLAYER_LINKS_FULL_NAMES : profile === LIVE_PLAYER_DIRECTORY_PROFILE ? [LIVE_PLAYER_DIRECTORY_FULL_NAME] : profile === PLAYER_DIRECTORY_PROFILE ? PLAYER_DIRECTORY_FULL_NAMES : profile === JOURNEY_PROFILE ? [JOURNEY_FULL_NAME] : profile === LIVE_PROFILE ? [LIVE_FULL_NAME] : SELECTED_INVENTORY;
 }
 function profileDigest(profile: QualificationProfile) {
+  if (profile === CANONICAL_STANDINGS_PROFILE) return qualificationDigest({ version: 1, profile,
+    module: CANONICAL_STANDINGS_MODULE, pattern: CANONICAL_STANDINGS_PATTERN, sourceDigest: CANONICAL_STANDINGS_SOURCE_DIGEST,
+    inventory: CANONICAL_STANDINGS_FULL_NAMES, supportSources: CANONICAL_STANDINGS_SUPPORT_SOURCES,
+    caseTimeoutsMs: CANONICAL_STANDINGS_CASE_TIMEOUTS_MS, beforeAllMs: CANONICAL_STANDINGS_BEFORE_ALL_MS,
+    afterAllMs: CANONICAL_STANDINGS_AFTER_ALL_MS, limits: CANONICAL_STANDINGS_LIMITS });
   if (profile === STORAGE_MEASUREMENT_PROFILE) return qualificationDigest({ version: 1, profile, module: STORAGE_MEASUREMENT_MODULE, pattern: STORAGE_MEASUREMENT_PATTERN, sourceDigest: STORAGE_MEASUREMENT_SOURCE_DIGEST, inventory: STORAGE_MEASUREMENT_FULL_NAMES, supportSources: STORAGE_MEASUREMENT_SUPPORT_SOURCES });
   const fleet=fleetProfile(profile);if(fleet)return qualificationDigest({version:1,profile,module:fleet.module,pattern:fleet.pattern,sourceDigest:fleet.sourceDigest,inventory:fleet.names,supportSources:FLEET_SUPPORT_SOURCES});
   if (profile === READER_PERFORMANCE_PROFILE) return qualificationDigest({ version: 1, profile,
@@ -1205,6 +1547,7 @@ function profileDigest(profile: QualificationProfile) {
     pattern: profile === 'full' ? null : selectedCase(profile).pattern, sourceDigest: profile === 'full' ? null : selectedDigest(profile), inventory: profile === 'full' ? null : selectedInventory(profile) });
 }
 export function parseQualificationArguments(args: readonly string[]): QualificationProfile {
+  if (args.length === 1 && args[0] === '--profile=' + CANONICAL_STANDINGS_PROFILE) return CANONICAL_STANDINGS_PROFILE;
   if(args.length===1){for(const profile of [FLEET_HEALTHY_PROFILE,FLEET_RECOVERY_PROFILE,FLEET_DAILY_PROFILE,FLEET_LIVE_PROFILE,FLEET_OWNERSHIP_PROFILE] as const)if(args[0]==='--profile='+profile)return profile;}
   if (args.length === 1 && args[0] === '--profile=' + STORAGE_MEASUREMENT_PROFILE) return STORAGE_MEASUREMENT_PROFILE;
   if (args.length === 1 && args[0] === '--profile=' + READER_PERFORMANCE_PROFILE) return READER_PERFORMANCE_PROFILE;
@@ -1253,10 +1596,10 @@ export function parseQualificationArguments(args: readonly string[]): Qualificat
   throw new Error('Only the closed data-reader-performance-v1, data-batch-calibration-v1, data-runner-cycles-v1, data-backend-controls-v1, data-competing-workers-v1, data-process-recovery-v1, data-fresh-install-v1, data-within-season-history-v1, data-traded-picks-v1, data-draft-selections-v1, data-draft-metadata-v1, data-transaction-history-intake-v1, data-transaction-history-refresh-v1, data-transaction-history-recovery-v1, data-transaction-period-intake-v1, data-official-results-played-v1, data-weekly-reports-v1, data-official-results-evidence-v1, data-official-results-v1, data-bracket-intake-v1, data-typed-brackets-v1, data-exact-matchup-values-v1, data-period-settings-context-v1, data-period-inventory-v1, data-team-manager-facts-v1, data-roster-player-links-v1, data-live-player-directory-v1, data-player-directory-v1, data-core-compatibility-v1, data-intake-recovery-v1, data-refresh-history-v1, data-period-recovery-v1, data-period-exhaustion-v1, data-late-write-rollback-v1, data-refresh-concurrency-v1, data-ingestion-guards-v1, data-official-preconfiguration-v1, data-live-public-intake-v1, data-live-league-two-v1, data-core-refresh-v1 and data-core-ingestion-v1 qualification selectors are accepted.');
 }
 export function qualificationArguments(profile: QualificationProfile, reporter: string): string[] {
-  assert(fleetProfile(profile)!==null || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE || profile === BATCH_CALIBRATION_PROFILE || profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
+  assert(profile === CANONICAL_STANDINGS_PROFILE || fleetProfile(profile)!==null || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE || profile === BATCH_CALIBRATION_PROFILE || profile === RUNNER_CYCLES_PROFILE || profile === BACKEND_CONTROLS_PROFILE || profile === COMPETING_WORKERS_PROFILE || profile === PROCESS_RECOVERY_PROFILE || profile === FRESH_INSTALL_PROFILE || profile === WITHIN_SEASON_HISTORY_PROFILE || profile === DRAFT_INTAKE_PROFILE || profile === DRAFT_REFRESH_PROFILE || profile === DRAFT_INTAKE_RECOVERY_PROFILE || profile === TRADED_PICKS_PROFILE || profile === DRAFT_SELECTIONS_PROFILE || profile === DRAFT_METADATA_PROFILE || profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || profile === TRANSACTION_HISTORY_REFRESH_PROFILE || profile === TRANSACTION_HISTORY_INTAKE_PROFILE || profile === 'full' || profile === TRANSACTION_PERIOD_INTAKE_PROFILE || profile === OFFICIAL_RESULTS_PLAYED_PROFILE || profile === WEEKLY_REPORTS_PROFILE || profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || profile === OFFICIAL_RESULTS_PROFILE || profile === BRACKET_INTAKE_PROFILE || profile === TYPED_BRACKETS_PROFILE || profile === EXACT_MATCHUP_VALUES_PROFILE || profile === PERIOD_SETTINGS_CONTEXT_PROFILE || profile === PERIOD_INVENTORY_PROFILE || profile === TEAM_MANAGER_FACTS_PROFILE || profile === ROSTER_PLAYER_LINKS_PROFILE || profile === LIVE_PLAYER_DIRECTORY_PROFILE || profile === PLAYER_DIRECTORY_PROFILE || profile === CORE_COMPATIBILITY_PROFILE || profile === SELECTED_PROFILE || profile === INGESTION_PROFILE || profile === LIVE_PROFILE || profile === JOURNEY_PROFILE || profile === OFFICIAL_PROFILE || profile === GUARDS_PROFILE || profile === CONCURRENCY_PROFILE || profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === profile), 'Unknown qualification profile.');
   return ['--reporter', 'verbose', '--reporter', reporter,
     // Preserve deferred server-only validator imports while loading these selected profiles.
-    ...(profile === FLEET_LIVE_PROFILE || profile === FLEET_OWNERSHIP_PROFILE || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE ? ['--configLoader', 'runner'] : []),
+    ...(profile === CANONICAL_STANDINGS_PROFILE || profile === FLEET_LIVE_PROFILE || profile === FLEET_OWNERSHIP_PROFILE || profile === STORAGE_MEASUREMENT_PROFILE || profile === READER_PERFORMANCE_PROFILE ? ['--configLoader', 'runner'] : []),
     ...(profile === 'full' ? [] : [...selectedModules(profile).map(module => module.path), '--testNamePattern', selectedCase(profile).pattern])];
 }
 function exactKeys(value: object, keys: string[]) {
@@ -1268,12 +1611,13 @@ function validateContext(value: QualificationContext): QualificationContext {
   assert.equal(value.kind, 'integration-qualification-context-v1');
   for (const id of [value.runId, value.nonce]) assert.match(id, /^[0-9a-f]{8}-[0-9a-f-]{27}$/u);
   assert.match(value.gitSha, /^[0-9a-f]{40}$/u);
-  assert(fleetProfile(value.profile)!==null || value.profile === STORAGE_MEASUREMENT_PROFILE || value.profile === READER_PERFORMANCE_PROFILE || value.profile === BATCH_CALIBRATION_PROFILE || value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
+  assert(value.profile === CANONICAL_STANDINGS_PROFILE || fleetProfile(value.profile)!==null || value.profile === STORAGE_MEASUREMENT_PROFILE || value.profile === READER_PERFORMANCE_PROFILE || value.profile === BATCH_CALIBRATION_PROFILE || value.profile === RUNNER_CYCLES_PROFILE || value.profile === BACKEND_CONTROLS_PROFILE || value.profile === COMPETING_WORKERS_PROFILE || value.profile === PROCESS_RECOVERY_PROFILE || value.profile === FRESH_INSTALL_PROFILE || value.profile === WITHIN_SEASON_HISTORY_PROFILE || value.profile === DRAFT_INTAKE_PROFILE || value.profile === DRAFT_REFRESH_PROFILE || value.profile === DRAFT_INTAKE_RECOVERY_PROFILE || value.profile === TRADED_PICKS_PROFILE || value.profile === DRAFT_SELECTIONS_PROFILE || value.profile === DRAFT_METADATA_PROFILE || value.profile === TRANSACTION_HISTORY_RECOVERY_PROFILE || value.profile === TRANSACTION_HISTORY_REFRESH_PROFILE || value.profile === TRANSACTION_HISTORY_INTAKE_PROFILE || value.profile === 'full' || value.profile === TRANSACTION_PERIOD_INTAKE_PROFILE || value.profile === OFFICIAL_RESULTS_PLAYED_PROFILE || value.profile === WEEKLY_REPORTS_PROFILE || value.profile === OFFICIAL_RESULTS_EVIDENCE_PROFILE || value.profile === OFFICIAL_RESULTS_PROFILE || value.profile === BRACKET_INTAKE_PROFILE || value.profile === TYPED_BRACKETS_PROFILE || value.profile === EXACT_MATCHUP_VALUES_PROFILE || value.profile === PERIOD_SETTINGS_CONTEXT_PROFILE || value.profile === PERIOD_INVENTORY_PROFILE || value.profile === TEAM_MANAGER_FACTS_PROFILE || value.profile === ROSTER_PLAYER_LINKS_PROFILE || value.profile === LIVE_PLAYER_DIRECTORY_PROFILE || value.profile === PLAYER_DIRECTORY_PROFILE || value.profile === CORE_COMPATIBILITY_PROFILE || value.profile === SELECTED_PROFILE || value.profile === INGESTION_PROFILE || value.profile === LIVE_PROFILE || value.profile === JOURNEY_PROFILE || value.profile === OFFICIAL_PROFILE || value.profile === GUARDS_PROFILE || value.profile === CONCURRENCY_PROFILE || value.profile === LATE_WRITE_PROFILE || CLOSEOUT_PROFILES.some(selection => selection.profile === value.profile));
   assert.equal(value.profileDigest, profileDigest(value.profile));
   assert(Array.isArray(value.modules) && value.modules.length > 0 && value.modules.length <= 128);
   for (const entry of value.modules) {
     exactKeys(entry, ['path', 'sourceDigest']);
     if (fleetProfile(value.profile)) assert.equal(entry.path,fleetProfile(value.profile)!.module);
+    else if (value.profile === CANONICAL_STANDINGS_PROFILE) assert.equal(entry.path, CANONICAL_STANDINGS_MODULE);
     else if (value.profile === STORAGE_MEASUREMENT_PROFILE) assert.equal(entry.path, STORAGE_MEASUREMENT_MODULE);
     else if (value.profile === READER_PERFORMANCE_PROFILE) assert.equal(entry.path, READER_PERFORMANCE_MODULE);
     else if (value.profile === BATCH_CALIBRATION_PROFILE) assert.equal(entry.path, BATCH_CALIBRATION_MODULE);
@@ -1287,6 +1631,7 @@ function validateContext(value: QualificationContext): QualificationContext {
   }
   unique(value.modules.map(module => module.path));
   if(fleetProfile(value.profile))assert.equal(value.modules[0].sourceDigest,fleetProfile(value.profile)!.sourceDigest,'Fleet source differs from the reviewed LF digest.');
+  if (value.profile === CANONICAL_STANDINGS_PROFILE) assert.equal(value.modules[0].sourceDigest, CANONICAL_STANDINGS_SOURCE_DIGEST, 'Canonical standings source differs from the reviewed LF digest.');
   if (value.profile === STORAGE_MEASUREMENT_PROFILE) assert.equal(value.modules[0].sourceDigest, STORAGE_MEASUREMENT_SOURCE_DIGEST, 'Selected qualification source differs from the reviewed LF digest.');
   if (value.profile === READER_PERFORMANCE_PROFILE) assert.equal(value.modules[0].sourceDigest, READER_PERFORMANCE_SOURCE_DIGEST,
     'Reader performance source differs from the reviewed LF digest.');
@@ -1336,6 +1681,7 @@ function validateContext(value: QualificationContext): QualificationContext {
 export async function createQualificationContext(siteRoot: string, gitSha: string, runId: string,
   profile: QualificationProfile = 'full'): Promise<QualificationContext> {
   if(fleetProfile(profile))await assertFleetSupportSources(siteRoot);
+  if (profile === CANONICAL_STANDINGS_PROFILE) await assertCanonicalStandingsSupportSources(siteRoot);
   if (profile === STORAGE_MEASUREMENT_PROFILE) await assertStorageMeasurementSupportSources(siteRoot);
   if (profile === READER_PERFORMANCE_PROFILE) await assertReaderPerformanceSupportSources(siteRoot);
   if (profile === BATCH_CALIBRATION_PROFILE) await assertBatchCalibrationSupportSources(siteRoot);
@@ -1549,6 +1895,18 @@ export function validateQualificationReport(context: QualificationContext, repor
         const previous = entry.cases[index - 1].diagnostic, current = entry.cases[index].diagnostic;
         assert(previous && current && current.startTime >= previous.startTime,
           'CP19 draft draft-refresh cases must execute in chronological source order.');
+      }
+    }
+    if (context.profile === CANONICAL_STANDINGS_PROFILE) {
+      assert.deepEqual(entry.cases.map(test => test.name), CANONICAL_STANDINGS_FULL_NAMES);
+      assert.equal(entry.suites.length, 1); const suite = entry.suites[0];
+      assert.equal(suite.name, CANONICAL_STANDINGS_SUITE); assert.equal(suite.mode, 'run');
+      sameInventory(report.hooks.map(hook => hook.key), ['beforeAll', 'afterAll'].map(name => suite.id + ':' + name));
+      for (const hook of report.hooks) assert.equal(hook.starts, 1);
+      for (const [index, test] of entry.cases.entries()) {
+        assert(test.diagnostic && test.diagnostic.duration <= CANONICAL_STANDINGS_CASE_TIMEOUTS_MS[index]);
+        if (index > 0) assert(test.diagnostic.startTime >= entry.cases[index - 1].diagnostic!.startTime,
+          'Canonical standings cases must retain their source order.');
       }
     }
     if (context.profile === STORAGE_MEASUREMENT_PROFILE) {
@@ -2006,6 +2364,12 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
   assert.deepEqual(ack, { kind: 'integration-qualification-cleanup-v1', contextDigest: qualificationDigest(binding.context),
     reportDigest: qualificationSourceDigest(raw), globalDatabaseCleanup: 'complete' });
   let companionDigest: string | undefined;
+  if (binding.context.profile === CANONICAL_STANDINGS_PROFILE) {
+    const companion = await import('./canonical-standings-profile');
+    const rawEvidence = await readBounded(binding.directory, companion.CANONICAL_STANDINGS_EVIDENCE_FILE);
+    companion.assertCanonicalStandingsEvidence(JSON.parse(rawEvidence), qualificationDigest(binding.context));
+    companionDigest = qualificationSourceDigest(rawEvidence);
+  }
   if(fleetProfile(binding.context.profile)){const name=binding.context.profile===FLEET_LIVE_PROFILE?'cp26-fleet-live-evidence.json':binding.context.profile===FLEET_OWNERSHIP_PROFILE?'cp26-fleet-ownership-evidence.json':binding.context.profile===FLEET_DAILY_PROFILE?'cp26-fleet-daily-evidence.json':binding.context.profile===FLEET_HEALTHY_PROFILE?'cp26-fleet-healthy-evidence.json':'cp26-fleet-recovery-evidence.json';const rawEvidence=await readBounded(binding.directory,name);const validators=await import('./freshness-capacity-profile');await (binding.context.profile===FLEET_LIVE_PROFILE?validators.validateFleetLiveCompanion:binding.context.profile===FLEET_OWNERSHIP_PROFILE?validators.validateFleetOwnershipCompanion:validators.validateFleetCompanion)(JSON.parse(rawEvidence),binding);companionDigest=qualificationSourceDigest(rawEvidence);}
   if (binding.context.profile === STORAGE_MEASUREMENT_PROFILE) {
     const rawEvidence = await readBounded(binding.directory, 'cp28-storage-evidence.json');
@@ -2049,6 +2413,7 @@ export async function validateQualificationArtifacts(binding: QualificationBindi
 /** The distinct live suffix never matches default full discovery. Only a validated bound profile opts in. */
 export function qualificationIncludes(environment: Record<string, string | undefined> = process.env): string[] {
   const profile = qualificationBinding(environment)?.context.profile;
+  if (profile === CANONICAL_STANDINGS_PROFILE) return [CANONICAL_STANDINGS_MODULE];
   if(profile&&fleetProfile(profile))return[fleetProfile(profile)!.module];
   if (profile === STORAGE_MEASUREMENT_PROFILE) return [STORAGE_MEASUREMENT_MODULE];
   if (profile === READER_PERFORMANCE_PROFILE) return [READER_PERFORMANCE_MODULE];

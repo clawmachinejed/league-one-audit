@@ -12,6 +12,8 @@ The [current DATA backend scope](docs/aggregator-backend/data-backend-scope.md) 
 
 The [historical Step 2 implementation checklist](docs/aggregator-backend/step-2-checklist.md) tracks shared screen bundles and evidence still required before a later reader cutover. It is not the completion ledger for the current DATA outcome.
 
+The [architecture reference](docs/architecture-reference.md) maps the current owners and boundaries. The [provider-independence remediation plan](docs/aggregator-backend/provider-independence-remediation.md) defines the three phases, mandatory drift controls and four-point handoff. Its [shared design](docs/aggregator-backend/provider-independence-phase1-design.md), [family coverage](docs/aggregator-backend/provider-independence-phase1-coverage.md) and [first standings specification](docs/aggregator-backend/provider-independence-standings-design.md) preserve the complete success criteria. The [standings implementation and evidence record](docs/aggregator-backend/provider-independence-standings-implementation.md) tracks this isolated candidate and its unexecuted qualification; CP28 remains frozen and canonical production selection remains disabled.
+
 ## Current product
 
 A mobile-first home for League One, its League Two promotion and relegation league, and Dynasty League, powered by public Sleeper league data. My Fantasy uses explicit browser My Team selections for guests and has a separate account-membership path when authentication and private persistence are enabled; those account features default off. Each league shares My Team, Matchups, Standings, and Managers, with rosters, transaction history and schedules inside each manager profile. Each league uses its own official Sleeper scoring settings.
