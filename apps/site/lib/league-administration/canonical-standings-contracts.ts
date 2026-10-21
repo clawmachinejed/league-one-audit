@@ -1,7 +1,7 @@
 import type { ObservedCoverage, SourceScope } from '../aggregator/contracts';
 import type { OfficialStandingsRead } from '../aggregator/official-standings';
 import type { AdministrationWriteFence, JsonValue, PublicCaptureWitness } from './contracts';
-import type { AdministrationWriteResult } from './store-contracts';
+import type { AdministrationWriteResult } from './administration-write-result';
 import type { CanonicalSourceMappingV1, CanonicalSourceReference } from './canonical-source-contracts';
 import { assertCanonicalSourceMapping } from './canonical-source-contracts';
 import { compatibleRevision } from '../projections/shared/revision-compatibility';

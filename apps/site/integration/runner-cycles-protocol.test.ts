@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import net from 'node:net';
 import tls from 'node:tls';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -10,7 +10,7 @@ import { normalizeAdministrationObservation } from '../lib/league-administration
 import type { JsonValue } from '../lib/league-administration/contracts';
 import { projectExactMatchupValues } from '../lib/aggregator/exact-matchup-values';
 import { runnerFixture, runnerFetch, runnerEnvironment, parseRunnerConfig, runnerCommand, parseRunnerCommand, parseRunnerMessage,
-  runnerTimestamp, runnerSnapshotQuery, RUNNER_PROTECTED_PUBLIC_TABLES, RUNNER_CONFIG, RUNNER_VERSION,
+  runnerTimestamp, runnerSnapshotQuery, RUNNER_PROTECTED_PUBLIC_TABLES, RUNNER_CONFIG, RUNNER_VERSION, RUNNER_REGISTRY_SQL_DIGEST,
   type RunnerConfig, type RunnerMessage, type RunnerSqlObservation } from './runner-cycles-protocol';
 
 vi.mock('server-only',()=>({}));
@@ -64,15 +64,36 @@ it('forwards the installed Neon driver request with original inputs and AbortSig
     ['https://tank01.invalid/',{}],['https://api.sleeper.app/v1/league/foreign/rosters',{}]] as const)await expect(fetch(input,options)).rejects.toThrow('nonfixture');
   expect(transport).toHaveBeenCalledOnce();
 });
+// Exact no-season/no-selector query from frozen 8f026c21. Historical classifier
+// proof must not follow the current application's reviewed registry changes.
+const historicalRegistryQuery = `/* league-administration:list-enrollments */
+    SELECT league.id AS league_id,league.league_key,league.name,season.id AS league_season_id,
+      intended.season AS intended_season,season.season,season.scoring_profile_id,enrollment.provider,connection.external_league_id
+    FROM public.league_administration_enrollments enrollment
+    JOIN public.leagues league ON league.id=enrollment.league_id
+    LEFT JOIN LATERAL (SELECT candidate.season FROM public.league_administration_enrollment_seasons candidate
+      WHERE candidate.league_id=league.id AND candidate.provider=enrollment.provider
+        AND (candidate.evidence<>'public-data-intake-v1' OR (enrollment.evidence='account-onboarding-v1'
+          AND (to_jsonb(enrollment)->'data_adopted_seasons') @> jsonb_build_array(candidate.season)))
+      ORDER BY candidate.season DESC LIMIT 1) intended ON true
+    LEFT JOIN public.league_seasons season ON season.league_id=league.id AND season.season=intended.season
+    LEFT JOIN public.league_source_connections connection ON connection.league_season_id=season.id AND connection.provider=enrollment.provider
+    WHERE enrollment.active ORDER BY league.league_key`;
+const currentRegistryDigest = 'e733dafaa80b6973066e851665c808ddbcec6879b62fbe04c75859b7d2cdfad9';
+const registryDigest = (query: string) => createHash('sha256').update(query.replace(/\r\n?/gu,'\n')).digest('hex');
 async function registryStatement() {
   let query='';
   await readEnrollmentInventory({enabled:true,query:async(statement,parameters)=>{
     expect(parameters).toEqual([]);query=statement;return[];
   }});
-  expect(query).toContain('/* league-administration:list-enrollments */');return query;
+  expect(registryDigest(query)).toBe(currentRegistryDigest);
+  expect(query).toContain("candidate.evidence<>'canonical-official-data-v1'");
+  expect(query).toContain("enrollment.evidence<>'canonical-official-data-v1'");return query;
 }
 it('identifies only the exact bounded registry envelope and never consumes or exempts unknown request bodies',async()=>{
-  vi.stubEnv('VERCEL_ENV','development');const query=await registryStatement(),observations:RunnerSqlObservation[]=[],calls:Parameters<typeof fetch>[]=[];
+  vi.stubEnv('VERCEL_ENV','development');const query=historicalRegistryQuery,observations:RunnerSqlObservation[]=[],calls:Parameters<typeof fetch>[]=[];
+  expect(registryDigest(query)).toBe(RUNNER_REGISTRY_SQL_DIGEST);
+  const currentQuery=await registryStatement();expect(currentRegistryDigest).not.toBe(RUNNER_REGISTRY_SQL_DIGEST);
   const transport=vi.fn<typeof fetch>(async(...args)=>{calls.push(args);return Response.json({fields:[],rows:[],command:'SELECT',rowCount:0});});
   const fetch=runnerFetch({runtimeUrl:url,fixtureId:config.fixtureId,variant:()=>1,originalFetch:transport,
     sql:value=>{observations.push(value);},source:()=>{throw new Error('No provider request expected.');}});
@@ -82,7 +103,7 @@ it('identifies only the exact bounded registry envelope and never consumes or ex
   await database.query(query,[],{signal});await database.query(query.replaceAll('\n','\r\n'),[],{signal});
   expect(observations).toEqual([{signal:true,registry:true},{signal:true,registry:true}]);
   const [endpoint,init]=calls[0];
-  const bodies=[JSON.stringify({query:query+'; SELECT 1',params:[]}),JSON.stringify({query:'/* league-administration:list-enrollments */ SELECT 1',params:[]}),
+  const bodies=[JSON.stringify({query:currentQuery,params:[]}),JSON.stringify({query:query+'; SELECT 1',params:[]}),JSON.stringify({query:'/* league-administration:list-enrollments */ SELECT 1',params:[]}),
     JSON.stringify({query,params:['extra']}),JSON.stringify({queries:[{query,params:[]}]}),JSON.stringify({query,params:[],extra:true}),
     JSON.stringify({query,params:[]})+' '.repeat(8_193),'not JSON',new URLSearchParams({query})];
   for(const body of bodies){const options={...init,body};await fetch(endpoint,options);expect(calls.at(-1)?.[1]).toBe(options);}
@@ -107,7 +128,9 @@ it('runs the actual omitted and false facade through its real abort-aware regist
     const invocationStartedAt=Date.now();
     await expect(runProductionProjectionSync(selection==='omitted'?{invocationStartedAt}:{invocationStartedAt,
       publicDataRefresh:{enabled:false,managerEvidenceVersion:'v2'} as never})).rejects.toThrow('No accepted league enrollment is available.');
-    expect(observations).toEqual([{signal:true,registry:true}]);expect(transport).toHaveBeenCalledOnce();expect(source).not.toHaveBeenCalled();
+    // The frozen CP25 classifier intentionally rejects this current query.
+    // The exact request above independently proves one registry read and no DATA SQL.
+    expect(observations).toEqual([{signal:true,registry:false}]);expect(transport).toHaveBeenCalledOnce();expect(source).not.toHaveBeenCalled();
   }
   expect(durations).toEqual([3_000,3_000]);expect(denied).not.toHaveBeenCalled();
 });
@@ -133,8 +156,11 @@ it('keeps the enabled real facade busy-path DATA signals distinct from its ordin
     originalFetch:transport,sql:value=>{observations.push(value);},source}));
   await expect(runProductionProjectionSync({invocationStartedAt:Date.now(),publicDataRefresh:{enabled:true,managerEvidenceVersion:'v2'}}))
     .rejects.toThrow('No accepted league enrollment is available.');
-  expect(observations.filter(row=>row.registry)).toEqual([{registry:true,signal:true}]);
-  expect(observations.filter(row=>!row.registry)).toEqual([{registry:false,signal:true},{registry:false,signal:true}]);
+  // Independent exact-query recognition separates current registry from DATA;
+  // the unchanged historical classifier correctly exempts none of these calls.
+  expect(observations).toEqual(Array.from({length:3},()=>({registry:false,signal:true})));
+  expect(transport).toHaveBeenCalledTimes(3);expect(signals.filter(row=>row.registry)).toHaveLength(1);
+  expect(signals.filter(row=>!row.registry)).toHaveLength(2);
   expect(markers).toEqual(['projection-store:acquire-job','projection-store:read-job-state']);
   const registrySignal=signals.find(row=>row.registry)?.signal;expect(registrySignal).toBeInstanceOf(AbortSignal);
   for(const row of signals.filter(row=>!row.registry)){expect(row.signal).toBeInstanceOf(AbortSignal);expect(row.signal).not.toBe(registrySignal);}

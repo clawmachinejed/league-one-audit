@@ -280,10 +280,10 @@ BEGIN
       OR native_content.family<>'rosters' OR native_content.week<>0
       OR native_content.league_season_id<>(mapping->>'leagueSeasonId')::uuid
       OR native_content.external_league_id IS DISTINCT FROM mapping->'scope'->>'externalLeagueId'
-      OR public.roster_capture_population_evidence(receipt) IS DISTINCT FROM CASE
+      OR public.roster_capture_population_evidence(receipt) IS DISTINCT FROM (CASE
         WHEN NULLIF(p_input->'populationEvidence','null'::jsonb) IS NULL THEN NULL ELSE jsonb_build_object(
           'observationId',p_input->'populationEvidence'->>'observationId','contentHash',p_input->'populationEvidence'->>'contentHash',
-          'provenance',p_input->'populationEvidence'->'envelope'->'provenance') END
+          'provenance',p_input->'populationEvidence'->'envelope'->'provenance') END)
       OR (NULLIF(p_input->'populationEvidence','null'::jsonb) IS NOT NULL AND NOT EXISTS(
         SELECT 1 FROM public.league_administration_contents configuration WHERE configuration.id=receipt.configuration_content_id
           AND configuration.payload=p_input->'populationEvidence'->'envelope'->'payload'

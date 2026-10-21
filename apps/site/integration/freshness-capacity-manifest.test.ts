@@ -111,13 +111,16 @@ describe('CP26 supplied source binding', () => {
     if (mutation === 'last-good-hash') lane.lastGood[0].payloadSha256 = '0'.repeat(64);
     expect(() => bindCapacityManifest(plan, source, events, lane)).toThrow();
   });
-  it('retains additional native periods as explicit unqualified gaps and freezes outage/backlog separately', () => {
+  it('retains additional native periods as explicit unqualified gaps in an outage manifest', () => {
     const { source, events } = fixture(plan); source.leagues[0].nativePeriods.push('19'); source.leagues[0].extraPeriodCoverageGaps.push('19');
     const manifest = bindCapacityManifest(plan, source, events, { kind: 'outage', startOffsetMs: 1_800_000,
       durationMs: 1_800_000, backlog: [{ id: 'declared-backlog-1', pairId: plan.pairs[0].id, reader: events[0].expectedReader }],
       lastGood: source.initialReaders.map(row => ({ pairId: row.pairId, reader: row.reader, payloadSha256: events.find(event => event.id === row.pairId + '/event-1')!.before.sha256 })), dependency: 'provider' });
     expect(manifest.source.leagues[0].extraPeriodCoverageGaps).toEqual(['19']);
-    expect(() => bindCapacityManifest(plan, source, events, { ...manifest.lane, kind: 'outage', startOffsetMs: 9_000_000,
+  });
+  it('rejects an outage extending beyond the planned observation horizon', () => {
+    const { source, events } = fixture(plan); source.leagues[0].nativePeriods.push('19'); source.leagues[0].extraPeriodCoverageGaps.push('19');
+    expect(() => bindCapacityManifest(plan, source, events, { kind: 'outage', startOffsetMs: 9_000_000,
       durationMs: 1_800_000, backlog: [], lastGood: [], dependency: 'provider' })).toThrow();
   });
 });
