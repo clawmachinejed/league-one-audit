@@ -4322,8 +4322,9 @@ it('CP26 fleet binds frozen support bytes rejects current harness and supervisor
  const changed:string[]=[];for(const entry of FLEET_SUPPORT_SOURCES){
   if(qualificationSourceDigest(await readFile(join(sourceRoot,entry.path),'utf8'))!==entry.sourceDigest)changed.push(entry.path);
  }
- // Shared storage and canonical standings plumbing change support sources; accepted CP26 pins remain historical.
- const sharedStorageDrift=['lib/league-administration/neon/roster-player-links.ts','scripts/provision-runtime-role.sql',
+ // Shared storage, canonical standings and RPR6 digest reuse change support sources; accepted CP26 pins remain historical.
+ const sharedStorageDrift=['integration/freshness-capacity-manifest.ts','integration/freshness-capacity-evidence.ts',
+  'lib/league-administration/neon/roster-player-links.ts','scripts/provision-runtime-role.sql',
   'lib/league-administration/neon/official-standings.ts','lib/league-administration/neon/exact-period-context.ts',
   'lib/league-administration/neon/current-roster.ts', 'lib/league-administration/public-intake.ts',
   'lib/league-administration/runtime.ts', 'lib/league-administration/store-contracts.ts', 'lib/league-administration/store.ts'];
@@ -4602,9 +4603,9 @@ it('CP28 preserves the accepted historical profile and rejects shared-storage so
   expect(qualificationIncludes({[QUALIFICATION_CONTEXT_ENV]:JSON.stringify(binding.context),PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY:binding.directory})).toEqual([STORAGE_MEASUREMENT_MODULE]);
   const root=fileURLToPath(new URL('..',import.meta.url));
   // The accepted 168a856 measurement keeps its original 107 support pins. Canonical
-  // standings now changes the first differing intake source; B2 reader drift remains.
+  // standings and RPR6 change support sources; the digest helper is now the first drift.
   // A future run requires separately reviewed pins.
-  const sourceDrift='CP28 support source differs from the reviewed LF digest: lib/league-administration/public-intake.ts';
+  const sourceDrift='CP28 support source differs from the reviewed LF digest: integration/freshness-capacity-manifest.ts';
   await expect(assertStorageMeasurementSupportSources(root)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),STORAGE_MEASUREMENT_PROFILE)).rejects.toThrow(sourceDrift);
   await expect(createQualificationContext(root,'a'.repeat(40),randomUUID(),READER_PERFORMANCE_PROFILE)).rejects.toThrow('reviewed LF digest');

@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createCapacityFleetFixture } from './freshness-capacity-fixtures';
-import { bindCapacityManifest, capacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan, assertCapacityEndpointInventory, assertCapacityManifest,
+import { bindCapacityManifest, capacityDigest, createCapacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan, assertCapacityEndpointInventory, assertCapacityManifest,
   type CapacitySource } from './freshness-capacity-manifest';
 
 const fixtureCache = new Map<string, ReturnType<typeof createCapacityFleetFixture>>();
@@ -44,6 +44,34 @@ describe('CP26 immutable planning inventory', () => {
     expect(capacityDigest({ b: null, a: 0 })).toBe(capacityDigest({ a: 0, b: null }));
     expect(capacityDigest([0, null])).not.toBe(capacityDigest([null, 0]));
     expect(() => capacityDigest({ bad: Infinity })).toThrow(); expect(() => capacityDigest(undefined)).toThrow();
+  });
+  it('keeps scoped subtree reuse byte-compatible with independent JSON values', () => {
+    const digest = createCapacityDigest(), shared = { b: null, a: 0, flags: [false, true] };
+    const values = [shared, { nested: shared }, [shared, shared], JSON.parse(JSON.stringify([shared, shared]))];
+    for (const value of values) expect(digest(value)).toBe(capacityDigest(value));
+    expect(digest({ b: null, a: 0 })).toBe(digest({ a: 0, b: null }));
+    expect(digest([0, null])).not.toBe(digest([null, 0]));
+  });
+  it('preserves scoped canonical JSON rejection for nonfinite and non-JSON values', () => {
+    const digest = createCapacityDigest();
+    for (const value of [NaN, Infinity, -Infinity, { bad: Infinity }]) {
+      expect(() => digest(value)).toThrow('nonfinite JSON value');
+      expect(() => capacityDigest(value)).toThrow('nonfinite JSON value');
+    }
+    for (const value of [undefined, 1n, Symbol('invalid'), () => 0, { bad: undefined }]) {
+      expect(() => digest(value)).toThrow('non-JSON value');
+      expect(() => capacityDigest(value)).toThrow('non-JSON value');
+    }
+  });
+  it('rehashes mutated nested inputs across separate scopes and legacy digest calls', () => {
+    const value = { nested: { score: 1 } }, before = capacityDigest(value);
+    expect(createCapacityDigest()(value)).toBe(before);
+    value.nested.score = 2;
+    expect(capacityDigest(value)).not.toBe(before);
+    expect(createCapacityDigest()(value)).toBe(capacityDigest(value));
+    value.nested.score = Infinity;
+    expect(() => capacityDigest(value)).toThrow('nonfinite JSON value');
+    expect(() => createCapacityDigest()(value)).toThrow('nonfinite JSON value');
   });
   it('permits only predeclared native-category substitutions with a source reason', () => {
     const plan = createCapacityPlan('substitution', [{ leagueKey: 'league-01', sourceEvidenceRef: 'retained-no-native-category' }]);
