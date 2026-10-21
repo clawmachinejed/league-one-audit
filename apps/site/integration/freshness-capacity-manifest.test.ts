@@ -168,12 +168,24 @@ describe('strict complete native inventory and format bindings', () => {
 });
 
 beforeAll(()=>{fixtureCache.set('unit-policy',createCapacityFleetFixture('unit-policy'));},30_000);
-it('freezes an explicit DATA-only request policy without changing historical omitted-policy manifests',()=>{
- const plan=createCapacityPlan('unit-policy'),{source,events}=fixture(plan);
- expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBeUndefined();
- source.requestBudgetPolicy='cp1-data-with-separate-existing-owners-v1';
- expect(()=>bindCapacityManifest(plan,source,events,{kind:'healthy'})).toThrow();
- source.requestOwners=['data-refresh','independent-measurement','primary-projection','administration-maintenance'];
- expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBe(source.requestBudgetPolicy);
- expect(()=>bindCapacityManifest(plan,{...source,requestBudgetPolicy:'combined' as never},events,{kind:'healthy'})).toThrow();
+it('preserves omitted request policies in historical manifests', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  expect(bindCapacityManifest(plan, source, events, { kind: 'healthy' }).source.requestBudgetPolicy).toBeUndefined();
+});
+it('rejects an explicit DATA-only request policy without separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  expect(() => bindCapacityManifest(plan, source, events, { kind: 'healthy' })).toThrow();
+});
+it('freezes an explicit DATA-only request policy with separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  source.requestOwners = ['data-refresh', 'independent-measurement', 'primary-projection', 'administration-maintenance'];
+  expect(bindCapacityManifest(plan, source, events, { kind: 'healthy' }).source.requestBudgetPolicy).toBe(source.requestBudgetPolicy);
+});
+it('rejects an unknown request policy with separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  source.requestOwners = ['data-refresh', 'independent-measurement', 'primary-projection', 'administration-maintenance'];
+  expect(() => bindCapacityManifest(plan, { ...source, requestBudgetPolicy: 'combined' as never }, events, { kind: 'healthy' })).toThrow();
 });
