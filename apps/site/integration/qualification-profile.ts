@@ -9,7 +9,7 @@ import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 
 /** New RFQ1 source pins only. Historical definitions remain byte-for-byte unchanged. */
-export const CANONICAL_STANDINGS_SOURCE_DIGEST = '93fc7e091b7189e59d095472a9edee878cfe265105982d1b31cc7081aac2ab63';
+export const CANONICAL_STANDINGS_SOURCE_DIGEST = 'c6ba12800fadd6f8e71c3a284587404d49990486254aaef1316dc13754ec8e9d';
 export const CANONICAL_STANDINGS_SUPPORT_SOURCES: readonly Readonly<{ path: string; sourceDigest: string }>[] = [
   { path: '../../.github/workflows/integration.yml', sourceDigest: 'dcdeba82c2740b19500c6ebf2ab9c51268bd3c4ae227e918e0446fa7dab7e097' },
   { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'a073787759851045909475f7b47a36f5daf01530604d1556a3afe9cf43ff785f' },
@@ -320,7 +320,7 @@ export const CANONICAL_STANDINGS_SUPPORT_SOURCES: readonly Readonly<{ path: stri
   { path: 'migrations/065_roster_provenance_contents.sql', sourceDigest: '57d28d751b0b31e07b8b407b657560d5eb68e993d76efbdde0d4bd0c8a796b33' },
   { path: 'migrations/066_canonical_source_identities.sql', sourceDigest: '45b39660b6d624a0f57b30d1fdc6fce3156127e7aba92f3103a881c7d90a16b1' },
   { path: 'migrations/067_canonical_standings.sql', sourceDigest: '3b13c8be39ab662303b23bc031292cbbbf214319225f046188211966f1d40438' },
-  { path: 'migrations/068_canonical_standings_acceptance.sql', sourceDigest: '478ba511ec758c7eb9335684f66a3dc9040b18b8ec9328ae60672b07d973932e' },
+  { path: 'migrations/068_canonical_standings_acceptance.sql', sourceDigest: '88590e51c8088f584a2aa2dc7835cb4f36d016c167e40eeae9ba9af93ee76a92' },
   { path: 'migrations/069_canonical_native_compatibility.sql', sourceDigest: '168749fe592935fb773f03dae38a87f25e15bd296ff690ed5706ce51c0888b15' },
   { path: 'package.json', sourceDigest: '814f811d5d578c66c9140ec5b11a68e5bee66bd876b7323da62e3f0c1862e468' },
   { path: 'scripts/provision-account-role.sql', sourceDigest: '1b7d1cac7ebab477640b370364ea8aa46e3e42f417b8e3732299f4288a922d61' },

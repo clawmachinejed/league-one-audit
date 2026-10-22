@@ -11,6 +11,26 @@ import type { AdministrationSourceMapping } from '../lib/league-administration/s
 import type { CanonicalStandingsDelivery, CanonicalObservationWriteResult, CanonicalResourceAttempt } from '../lib/league-administration/canonical-standings-contracts';
 import type { LeagueAdministrationStore } from '../lib/league-administration/store-contracts';
 const selection = vi.hoisted(() => ({ native: false }));
+const nativeFailure = vi.hoisted(() => ({ stage: 'capture', first: null as null | { stage: string; name: string; code: string | null; message: string } }));
+function rememberNativeFailure(error: unknown) {
+  if (!selection.native || nativeFailure.first) return;
+  const value = error instanceof Error ? error : new Error('Non-Error canonical failure');
+  const code = 'code' in value && typeof value.code === 'string' && /^[A-Z0-9]{5}$/u.test(value.code) ? value.code : null;
+  nativeFailure.first = { stage: nativeFailure.stage, name: value.name.slice(0, 80), code,
+    message: value.message.replace(/postgres(?:ql)?:\/\/[^\s]+/giu, '[DATABASE_URL]').slice(0, 1024) };
+}
+// Test-only observation before the intake facade converts an exception to unavailable.
+// The original operation, error and public outcome remain unchanged.
+vi.mock('../lib/league-administration/runtime', async importOriginal => {
+  const original = await importOriginal<typeof import('../lib/league-administration/runtime')>();
+  return { ...original, recordCapturedAdministration: async (...args: Parameters<typeof original.recordCapturedAdministration>) => {
+    try { return await original.recordCapturedAdministration(...args); }
+    catch (error) {
+      rememberNativeFailure(error);
+      throw error;
+    }
+  } };
+});
 // Qualification composition only; SQL still verifies every tuple independently.
 vi.mock('../lib/league-administration/canonical-standings-policy', async importOriginal => {
   const original = await importOriginal<typeof import('../lib/league-administration/canonical-standings-policy')>();
@@ -96,9 +116,16 @@ describe.sequential(CANONICAL_STANDINGS_SUITE, () => {
   async function rejection(run: () => Promise<unknown>, code = 'P0001', diagnostic?: RegExp) {
     let caught: unknown;
     try { await run(); } catch (error) { caught = error; }
-    expect(caught, 'Expected genuine SQL rejection').toBeDefined();
-    expect(caught).toMatchObject({ code });
-    if (diagnostic) expect(String(caught)).toMatch(diagnostic);
+    try {
+      expect(caught, 'Expected genuine SQL rejection').toBeDefined();
+      expect(caught).toMatchObject({ code });
+      if (diagnostic) expect(String(caught)).toMatch(diagnostic);
+    } catch (error) {
+      // Preserve an unexpected SQL error before the assertion wraps its code.
+      // Expected negative probes remain ordinary successful assertions.
+      if (caught !== undefined) rememberNativeFailure(caught);
+      throw error;
+    }
   }
   async function sqlRejection(database: DatabaseClient, sql: string, args: readonly unknown[] = [], code?: string) {
     await database.query('BEGIN');
@@ -184,136 +211,144 @@ describe.sequential(CANONICAL_STANDINGS_SUITE, () => {
   }
   async function nativeJourney(source: typeof nativeSources[number], selected: boolean) {
     selection.native = selected; allowedNative = source;
-    const intake = createPublicIntakeStore(runtime.database), administration = store(), requestId = randomUUID();
-    const originalCanonical = administration.recordCanonicalObservation;
-    const observed: LeagueAdministrationStore = selected ? { ...administration,
-      recordCanonicalObservation: async (delivery, mapping, attempt, fence) => {
-        if (!originalCanonical) throw new Error('Missing native canonical writer.');
-        const atomicBefore = await counts();
-        await instrument('league_canonical_resource_receipts', "RAISE EXCEPTION 'qualification native companion rollback';");
-        try { await rejection(() => rawWrite(delivery), 'P0001', /qualification native companion rollback/u); }
-        finally { await removeInstrumentation(); }
-        expect(await counts()).toEqual(atomicBefore); mutationsRejected.push('native-companion-atomic-rollback');
-        const result = await originalCanonical(delivery, mapping, attempt, fence), before = await counts();
-        const nativeReceipt = result.legacyResult?.rosterAcceptance?.receiptId;
-        const hashBefore = await q('SELECT evidence_hash FROM league_roster_capture_receipts WHERE id=$1', [nativeReceipt]);
-        expect(hashBefore).toHaveLength(1); expect(hashBefore[0].evidence_hash).toMatch(/^[0-9a-f]{64}$/u);
-        bridgeReplay = await originalCanonical(delivery, mapping, attempt, fence);
-        expect(await counts()).toEqual(before);
-        expect(await q('SELECT evidence_hash FROM league_roster_capture_receipts WHERE id=$1', [nativeReceipt])).toEqual(hashBefore);
-        const witness = delivery.provenance.acquisition as PublicCaptureWitness;
-        const [oldNative] = await q(`SELECT receipt.attempt_id FROM league_roster_capture_receipts receipt
-          JOIN league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
-          WHERE attempt.source_mapping->>'leagueSeasonId'=$1 LIMIT 1`, [oldMapping.leagueSeasonId]);
-        const changed = [
-          ['bridge-replay-capture-id', { ...delivery, provenance: { ...delivery.provenance, captureId: randomUUID() } }, /replay|evidence/u],
-          ['bridge-swapped-witness', { ...delivery, provenance: { ...delivery.provenance, acquisition: { ...witness, dispatchNonce: randomUUID() } } }, /witness|acquisition/u],
-          ['bridge-swapped-payload', { ...delivery, nativePayload: [] }, /legacy submission mismatch/u],
-          ['bridge-swapped-attempt', { ...delivery, attempt: { ...attempt, nonce: randomUUID() } }, /attempt mismatch/u],
-          ['bridge-old-native-receipt', { ...delivery, nativeSourceRef: { kind: 'sleeper-roster-bridge-v1', nativeAttemptId: oldNative.attempt_id } }, /companion\/native reservation mismatch/u],
-        ] as const;
-        for (const [label, value, diagnostic] of changed) { await rejection(() => rawWrite(value), 'P0001', diagnostic); mutationsRejected.push(label); }
-        await q('BEGIN');
-        try {
-          const freshAttempt = await canonicalStandingsMethods(runtime.database).beginCanonicalResourceAttempt(mapping, randomUUID(), delivery.policy, fence);
-          await rejection(() => rawWrite({ ...delivery, attempt: freshAttempt, provenance: { ...delivery.provenance, captureId: randomUUID() } }),
-            'P0001', /companion\/native reservation mismatch/u);
-          mutationsRejected.push('bridge-old-capture-new-attempt');
-        } finally { await q('ROLLBACK'); }
-        expect(await counts()).toEqual(before);
-        bridge = { fixture: fixtureById('sleeper-parity'), database: runtime.database, delivery, mapping, attempt, fence, result };
-        return result;
-      } } : administration;
-    const originalWitness = intake.captureWitness;
-    const observedIntake = !selected ? intake : { ...intake, captureWitness: async (...args: Parameters<NonNullable<typeof originalWitness>>) => {
-      if (!originalWitness) throw new Error('Missing native witness capability.');
-      const witness = await originalWitness(...args);
-      if (args[0].kind === 'core') {
-        expect(Object.keys(witness.attempts).sort()).toEqual(['managers', 'players', 'settings']);
-        const mapping = args[1]!;
-        const canonicalMapping = { ...mapping, scope: { ...mapping.scope, nativeNamespace: 'nfl' }, sourceNamespace: 'nfl:2026' };
-        const [companion] = await q(`SELECT attempt.id,attempt.scope_id FROM league_roster_resource_attempts attempt
-          JOIN league_roster_resource_scopes scope ON scope.id=attempt.scope_id
-          WHERE attempt.write_fence=$1::jsonb AND scope.identity->'scope'->>'family'='standings'`, [JSON.stringify(args[2])]);
-        expect(companion).toBeDefined();
-        // Owner-corrupted metadata under SET LOCAL ROLE is validator fault
-        // injection. Only the restored positive path is a genuine runtime LOGIN.
-        const wrongMapping = { ...oldMapping, scope: { ...oldMapping.scope, nativeNamespace: 'nfl' }, sourceNamespace: 'nfl:2026' };
-        const mutations = [
-          ['zero-native-companion', 'UPDATE league_roster_resource_attempts SET write_fence=NULL WHERE id=$1', [companion.id], null],
-          ['null-companion-nonce', 'UPDATE league_roster_resource_attempts SET capture_nonce=NULL WHERE id=$1', [companion.id], /canonical companion mismatch/u],
-          ['predispatch-companion', `UPDATE league_roster_resource_attempts SET reserved_at=(SELECT admitted_at-interval '1 microsecond'
-            FROM public_data_dispatches WHERE worker_id=$2 AND generation=$3) WHERE id=$1`, [companion.id, args[2].workerId, args[2].generation], /canonical companion mismatch/u],
-          ['late-native-companion', 'UPDATE league_roster_resource_attempts SET reserved_at=clock_timestamp() WHERE id=$1', [companion.id], /must precede native players/u],
-          ['wrong-mapping-companion', 'UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1', [companion.id, JSON.stringify(wrongMapping)], /canonical companion mismatch/u],
-          ['unknown-native-companion', `UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1;
-            UPDATE league_roster_resource_scopes SET identity=jsonb_set(identity,'{scope,family}','"unknown"') WHERE id=$3`,
-          [companion.id, JSON.stringify(mapping), companion.scope_id], /resource group mismatch/u],
-        ] as const;
-        for (const [label, sql, parameters, diagnostic] of mutations) {
-          await oq('BEGIN');
+    try {
+      nativeFailure.stage = 'capture-or-delivery'; nativeFailure.first = null;
+      const intake = createPublicIntakeStore(runtime.database), administration = store(), requestId = randomUUID();
+      const originalCanonical = administration.recordCanonicalObservation;
+      const observed: LeagueAdministrationStore = selected ? { ...administration,
+        recordCanonicalObservation: async (delivery, mapping, attempt, fence) => {
+          nativeFailure.stage = 'canonical-wrapper-entry';
+          if (!originalCanonical) throw new Error('Missing native canonical writer.');
+          const atomicBefore = await counts();
+          await instrument('league_canonical_resource_receipts', "RAISE EXCEPTION 'qualification native companion rollback';");
+          nativeFailure.stage = 'native-companion-atomic-rollback';
+          try { await rejection(() => rawWrite(delivery), 'P0001', /qualification native companion rollback/u); }
+          finally { await removeInstrumentation(); }
+          expect(await counts()).toEqual(atomicBefore); mutationsRejected.push('native-companion-atomic-rollback');
+          nativeFailure.stage = 'canonical-original-write';
+          const result = await originalCanonical(delivery, mapping, attempt, fence), before = await counts();
+          const nativeReceipt = result.legacyResult?.rosterAcceptance?.receiptId;
+          const hashBefore = await q('SELECT evidence_hash FROM league_roster_capture_receipts WHERE id=$1', [nativeReceipt]);
+          expect(hashBefore).toHaveLength(1); expect(hashBefore[0].evidence_hash).toMatch(/^[0-9a-f]{64}$/u);
+          nativeFailure.stage = 'canonical-exact-replay';
+          bridgeReplay = await originalCanonical(delivery, mapping, attempt, fence);
+          expect(await counts()).toEqual(before);
+          expect(await q('SELECT evidence_hash FROM league_roster_capture_receipts WHERE id=$1', [nativeReceipt])).toEqual(hashBefore);
+          const witness = delivery.provenance.acquisition as PublicCaptureWitness;
+          const [oldNative] = await q(`SELECT receipt.attempt_id FROM league_roster_capture_receipts receipt
+            JOIN league_roster_resource_attempts attempt ON attempt.id=receipt.attempt_id
+            WHERE attempt.source_mapping->>'leagueSeasonId'=$1 LIMIT 1`, [oldMapping.leagueSeasonId]);
+          const changed = [
+            ['bridge-replay-capture-id', { ...delivery, provenance: { ...delivery.provenance, captureId: randomUUID() } }, /replay|evidence/u],
+            ['bridge-swapped-witness', { ...delivery, provenance: { ...delivery.provenance, acquisition: { ...witness, dispatchNonce: randomUUID() } } }, /witness|acquisition/u],
+            ['bridge-swapped-payload', { ...delivery, nativePayload: [] }, /legacy submission mismatch/u],
+            ['bridge-swapped-attempt', { ...delivery, attempt: { ...attempt, nonce: randomUUID() } }, /attempt mismatch/u],
+            ['bridge-old-native-receipt', { ...delivery, nativeSourceRef: { kind: 'sleeper-roster-bridge-v1', nativeAttemptId: oldNative.attempt_id } }, /companion\/native reservation mismatch/u],
+          ] as const;
+          for (const [label, value, diagnostic] of changed) { nativeFailure.stage = label; await rejection(() => rawWrite(value), 'P0001', diagnostic); mutationsRejected.push(label); }
+          await q('BEGIN');
           try {
-            await oq('ALTER TABLE league_roster_resource_attempts DISABLE TRIGGER roster_attempt_immutable');
-            if (label === 'unknown-native-companion') await oq('ALTER TABLE league_roster_resource_scopes DISABLE TRIGGER roster_scope_immutable');
-            // node-postgres extended queries accept one parameterized statement.
-            if (label === 'unknown-native-companion') {
-              await oq('UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1', parameters.slice(0, 2));
-              await oq(`UPDATE league_roster_resource_scopes SET identity=jsonb_set(identity,'{scope,family}','"unknown"') WHERE id=$1`, [companion.scope_id]);
-              await oq('ALTER TABLE league_roster_resource_scopes ENABLE TRIGGER roster_scope_immutable');
-            } else await oq(sql, parameters);
-            await oq('ALTER TABLE league_roster_resource_attempts ENABLE TRIGGER roster_attempt_immutable');
-            await oq('SET LOCAL ROLE league_one_runtime');
-            const actual = createPublicIntakeStore(owner.database).captureWitness!;
-            if (diagnostic === null) expect(await actual(...args)).toEqual(witness);
-            else await rejection(() => actual(...args), 'P0001', diagnostic);
-          } finally { await oq('ROLLBACK'); }
-          expect(await originalWitness(...args)).toEqual(witness); mutationsRejected.push(label);
+            const freshAttempt = await canonicalStandingsMethods(runtime.database).beginCanonicalResourceAttempt(mapping, randomUUID(), delivery.policy, fence);
+            await rejection(() => rawWrite({ ...delivery, attempt: freshAttempt, provenance: { ...delivery.provenance, captureId: randomUUID() } }),
+              'P0001', /companion\/native reservation mismatch/u);
+            mutationsRejected.push('bridge-old-capture-new-attempt');
+          } finally { await q('ROLLBACK'); }
+          expect(await counts()).toEqual(before);
+          bridge = { fixture: fixtureById('sleeper-parity'), database: runtime.database, delivery, mapping, attempt, fence, result };
+          return result;
+        } } : administration;
+      const originalWitness = intake.captureWitness;
+      const observedIntake = !selected ? intake : { ...intake, captureWitness: async (...args: Parameters<NonNullable<typeof originalWitness>>) => {
+        if (!originalWitness) throw new Error('Missing native witness capability.');
+        const witness = await originalWitness(...args);
+        if (args[0].kind === 'core') {
+          expect(Object.keys(witness.attempts).sort()).toEqual(['managers', 'players', 'settings']);
+          const mapping = args[1]!;
+          const canonicalMapping = { ...mapping, scope: { ...mapping.scope, nativeNamespace: 'nfl' }, sourceNamespace: 'nfl:2026' };
+          const [companion] = await q(`SELECT attempt.id,attempt.scope_id FROM league_roster_resource_attempts attempt
+            JOIN league_roster_resource_scopes scope ON scope.id=attempt.scope_id
+            WHERE attempt.write_fence=$1::jsonb AND scope.identity->'scope'->>'family'='standings'`, [JSON.stringify(args[2])]);
+          expect(companion).toBeDefined();
+          // Owner-corrupted metadata under SET LOCAL ROLE is validator fault
+          // injection. Only the restored positive path is a genuine runtime LOGIN.
+          const wrongMapping = { ...oldMapping, scope: { ...oldMapping.scope, nativeNamespace: 'nfl' }, sourceNamespace: 'nfl:2026' };
+          const mutations = [
+            ['zero-native-companion', 'UPDATE league_roster_resource_attempts SET write_fence=NULL WHERE id=$1', [companion.id], null],
+            ['null-companion-nonce', 'UPDATE league_roster_resource_attempts SET capture_nonce=NULL WHERE id=$1', [companion.id], /canonical companion mismatch/u],
+            ['predispatch-companion', `UPDATE league_roster_resource_attempts SET reserved_at=(SELECT admitted_at-interval '1 microsecond'
+              FROM public_data_dispatches WHERE worker_id=$2 AND generation=$3) WHERE id=$1`, [companion.id, args[2].workerId, args[2].generation], /canonical companion mismatch/u],
+            ['late-native-companion', 'UPDATE league_roster_resource_attempts SET reserved_at=clock_timestamp() WHERE id=$1', [companion.id], /must precede native players/u],
+            ['wrong-mapping-companion', 'UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1', [companion.id, JSON.stringify(wrongMapping)], /canonical companion mismatch/u],
+            ['unknown-native-companion', `UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1;
+              UPDATE league_roster_resource_scopes SET identity=jsonb_set(identity,'{scope,family}','"unknown"') WHERE id=$3`,
+            [companion.id, JSON.stringify(mapping), companion.scope_id], /resource group mismatch/u],
+          ] as const;
+          for (const [label, sql, parameters, diagnostic] of mutations) {
+            await oq('BEGIN');
+            try {
+              await oq('ALTER TABLE league_roster_resource_attempts DISABLE TRIGGER roster_attempt_immutable');
+              if (label === 'unknown-native-companion') await oq('ALTER TABLE league_roster_resource_scopes DISABLE TRIGGER roster_scope_immutable');
+              // node-postgres extended queries accept one parameterized statement.
+              if (label === 'unknown-native-companion') {
+                await oq('UPDATE league_roster_resource_attempts SET source_mapping=$2::jsonb WHERE id=$1', parameters.slice(0, 2));
+                await oq(`UPDATE league_roster_resource_scopes SET identity=jsonb_set(identity,'{scope,family}','"unknown"') WHERE id=$1`, [companion.scope_id]);
+                await oq('ALTER TABLE league_roster_resource_scopes ENABLE TRIGGER roster_scope_immutable');
+              } else await oq(sql, parameters);
+              await oq('ALTER TABLE league_roster_resource_attempts ENABLE TRIGGER roster_attempt_immutable');
+              await oq('SET LOCAL ROLE league_one_runtime');
+              const actual = createPublicIntakeStore(owner.database).captureWitness!;
+              if (diagnostic === null) expect(await actual(...args)).toEqual(witness);
+              else await rejection(() => actual(...args), 'P0001', diagnostic);
+            } finally { await oq('ROLLBACK'); }
+            expect(await originalWitness(...args)).toEqual(witness); mutationsRejected.push(label);
+          }
+          const triggers = await q(`SELECT tgname,tgenabled FROM pg_trigger WHERE (tgrelid='public.league_roster_resource_attempts'::regclass
+            AND tgname='roster_attempt_immutable') OR (tgrelid='public.league_roster_resource_scopes'::regclass AND tgname='roster_scope_immutable') ORDER BY tgname`);
+          expect(triggers).toEqual([{ tgname: 'roster_attempt_immutable', tgenabled: 'O' }, { tgname: 'roster_scope_immutable', tgenabled: 'O' }]);
+          await rejection(() => originalWitness({ kind: 'users', requestId: witness.work.requestId, revision: witness.work.revision,
+            externalLeagueId: mapping.scope.externalLeagueId, season: mapping.scope.season }, args[1], args[2]), 'P0001', /checkpoint changed|original public dispatch/u);
+          mutationsRejected.push('wrong-work-companion');
+          await runtime.database.query('BEGIN');
+          try {
+            await canonicalStandingsMethods(runtime.database).beginCanonicalResourceAttempt(canonicalMapping, randomUUID(), resolveCanonicalStandingsPolicy(canonicalMapping), args[2]);
+            await rejection(() => originalWitness(...args), 'P0001', /canonical companion mismatch/u); mutationsRejected.push('duplicate-native-companion');
+          } finally { await runtime.database.query('ROLLBACK'); }
+          expect(await originalWitness(...args)).toEqual(witness);
         }
-        const triggers = await q(`SELECT tgname,tgenabled FROM pg_trigger WHERE (tgrelid='public.league_roster_resource_attempts'::regclass
-          AND tgname='roster_attempt_immutable') OR (tgrelid='public.league_roster_resource_scopes'::regclass AND tgname='roster_scope_immutable') ORDER BY tgname`);
-        expect(triggers).toEqual([{ tgname: 'roster_attempt_immutable', tgenabled: 'O' }, { tgname: 'roster_scope_immutable', tgenabled: 'O' }]);
-        await rejection(() => originalWitness({ kind: 'users', requestId: witness.work.requestId, revision: witness.work.revision,
-          externalLeagueId: mapping.scope.externalLeagueId, season: mapping.scope.season }, args[1], args[2]), 'P0001', /checkpoint changed|original public dispatch/u);
-        mutationsRejected.push('wrong-work-companion');
-        await runtime.database.query('BEGIN');
-        try {
-          await canonicalStandingsMethods(runtime.database).beginCanonicalResourceAttempt(canonicalMapping, randomUUID(), resolveCanonicalStandingsPolicy(canonicalMapping), args[2]);
-          await rejection(() => originalWitness(...args), 'P0001', /canonical companion mismatch/u); mutationsRejected.push('duplicate-native-companion');
-        } finally { await runtime.database.query('ROLLBACK'); }
-        expect(await originalWitness(...args)).toEqual(witness);
+        return witness;
+      } };
+      const dependencies: PublicIntakeDependencies = { intake: observedIntake, administration: observed, jobs: createProjectionStore(runtime.database),
+        source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+          core: async (external, family, signal, witness) => {
+            const capture = await capturePublicSleeperCore(external, family, signal, undefined, witness);
+            assertOriginalPublicCapture(capture, witness!);
+            expect(() => assertOriginalPublicCapture({ ...capture }, witness!)).toThrow();
+            captures.push(capture); return capture;
+          } } };
+      await intake.submit({ id: requestId, username: source.username, seasons: [2026] });
+      const started = Date.now(), before = requests.length;
+      for (const stage of ['identity', 'leagues', 'bootstrap', 'core']) {
+        const stageStarted = Date.now(), waits = { busy: 0, backoff: 0 };
+        let done = false;
+        while (!done && Date.now() - started < 225_000) {
+          const stepStarted = Date.now();
+          const outcome = await runPublicIntakeStep(requestId, dependencies, AbortSignal.timeout(20_000));
+          if (outcome.status === 'unavailable' && nativeFailure.first) console.error(JSON.stringify({ kind: 'canonical-native-first-error', error: nativeFailure.first }));
+          if (outcome.status === 'busy' || outcome.status === 'backoff') { waits[outcome.status]++; await delay(500); continue; }
+          const elapsed = Date.now() - stepStarted; nativeStepDurationsMs.push(elapsed);
+          expect(elapsed).toBeLessThan(20_000);
+          expect(outcome).toMatchObject({ status: 'progress', resource: stage, providerRequests: stage === 'core' ? 2 : 1 }); done = true;
+        }
+        console.log(JSON.stringify({ kind: 'canonical-native-stage', requestId, stage, done, waits,
+          stageElapsedMs: Date.now() - stageStarted, journeyElapsedMs: Date.now() - started }));
+        expect(done, 'Native dispatch exceeded bounded real-time interval').toBe(true);
       }
-      return witness;
-    } };
-    const dependencies: PublicIntakeDependencies = { intake: observedIntake, administration: observed, jobs: createProjectionStore(runtime.database),
-      source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
-        core: async (external, family, signal, witness) => {
-          const capture = await capturePublicSleeperCore(external, family, signal, undefined, witness);
-          assertOriginalPublicCapture(capture, witness!);
-          expect(() => assertOriginalPublicCapture({ ...capture }, witness!)).toThrow();
-          captures.push(capture); return capture;
-        } } };
-    await intake.submit({ id: requestId, username: source.username, seasons: [2026] });
-    const started = Date.now(), before = requests.length;
-    for (const stage of ['identity', 'leagues', 'bootstrap', 'core']) {
-      const stageStarted = Date.now(), waits = { busy: 0, backoff: 0 };
-      let done = false;
-      while (!done && Date.now() - started < 225_000) {
-        const stepStarted = Date.now();
-        const outcome = await runPublicIntakeStep(requestId, dependencies, AbortSignal.timeout(20_000));
-        if (outcome.status === 'busy' || outcome.status === 'backoff') { waits[outcome.status]++; await delay(500); continue; }
-        const elapsed = Date.now() - stepStarted; nativeStepDurationsMs.push(elapsed);
-        expect(elapsed).toBeLessThan(20_000);
-        expect(outcome).toMatchObject({ status: 'progress', resource: stage, providerRequests: stage === 'core' ? 2 : 1 }); done = true;
-      }
-      console.log(JSON.stringify({ kind: 'canonical-native-stage', requestId, stage, done, waits,
-        stageElapsedMs: Date.now() - stageStarted, journeyElapsedMs: Date.now() - started }));
-      expect(done, 'Native dispatch exceeded bounded real-time interval').toBe(true);
-    }
-    const mapping = await administration.readSourceMapping(source.id); if (!mapping) throw new Error('Native mapping absent.');
-    expect(requests.slice(before)).toEqual([`/v1/user/${source.username}`, `/v1/user/${source.manager}/leagues/nfl/2026`,
-      `/v1/league/${source.id}`, `/v1/league/${source.id}`, `/v1/league/${source.id}/rosters`]);
-    nativeTiming.completedRequestId = requestId;
-    allowedNative = null; selection.native = false; return mapping;
+      const mapping = await administration.readSourceMapping(source.id); if (!mapping) throw new Error('Native mapping absent.');
+      expect(requests.slice(before)).toEqual([`/v1/user/${source.username}`, `/v1/user/${source.manager}/leagues/nfl/2026`,
+        `/v1/league/${source.id}`, `/v1/league/${source.id}`, `/v1/league/${source.id}/rosters`]);
+      nativeTiming.completedRequestId = requestId;
+      return mapping;
+    } finally { allowedNative = null; selection.native = false; }
   }
   beforeAll(async () => {
     const selected = qualificationBinding();

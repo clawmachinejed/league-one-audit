@@ -14,7 +14,9 @@ const args = process.argv.slice(2);
 assert(args.length >= 1 && args.length <= 2 && args[0].startsWith('--pg-bin='));
 const reproduce = args[1] === '--reproduce-fixture-defect';
 const nativeTiming = ['--reproduce-native-timing', '--verify-native-timing'].includes(args[1]) ? args[1] : null;
-assert(args.length === 1 || reproduce || nativeTiming, 'Unknown diagnostic argument');
+const canonicalSuite = args[1] === '--verify-canonical-suite';
+const arrayAppend = args[1] === '--reproduce-canonical-array-append';
+assert(args.length === 1 || reproduce || nativeTiming || canonicalSuite || arrayAppend, 'Unknown diagnostic argument');
 const binary = realpathSync(args[0].slice('--pg-bin='.length));
 const executable = name => join(binary, name + (process.platform === 'win32' ? '.exe' : ''));
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -46,7 +48,7 @@ const admin = 'l1_setup_cluster_admin', owner = 'l1_setup_owner';
 const password = randomBytes(32).toString('hex'), ownerPassword = randomBytes(32).toString('hex');
 const sentinel = randomUUID();
 const report = { kind: 'canonical-local-sql-setup-v1', startedAt: new Date().toISOString(),
-  mode: nativeTiming ?? (reproduce ? 'original-defect-reproduction' : 'complete-local-setup'), host, port, sentinel,
+  mode: arrayAppend ? 'canonical-array-append-expression-only' : canonicalSuite ? 'complete-local-canonical-suite' : nativeTiming ?? (reproduce ? 'original-defect-reproduction' : 'complete-local-setup'), host, port, sentinel,
   cloudCalls: 0, paidRuns: 0, hostedQualification: false, steps: [], status: 'running', cleanup: false };
 let stage = 'preflight', started = false;
 const additionalSecrets = [];
@@ -79,6 +81,24 @@ function migrations(database, files) {
 }
 function provision(database, names = ['runtime', 'account', 'auth']) {
   for (const name of names) sql(database, source(`scripts/provision-${name}-role.sql`), 'provision-' + name);
+}
+function arrayAppendChecks(database) {
+  const migration = source('migrations/068_canonical_standings_acceptance.sql');
+  const declaration = /keys text\[\]:=(ARRAY\[[^\]]+\]);/.exec(migration);
+  assert(declaration, 'Exact canonical key declaration missing');
+  assert(migration.includes("THEN keys:=keys||'legacyInput'; END IF;"), 'Original ambiguous append is absent');
+  const expected = [...declaration[1].matchAll(/'([^']+)'/g)].map(match => match[1]);
+  assert.equal(expected.length, 17); assert(!expected.includes('legacyInput'));
+  sql(database, `DO $$ DECLARE keys text[]:=${declaration[1]}; BEGIN keys:=keys||'legacyInput'; END; $$;`,
+    'original-canonical-array-append', { expectError: '22P02: malformed array literal: "legacyInput"' });
+  const corrected = JSON.parse(sql(database, `SELECT array_to_json(keys||ARRAY['legacyInput'])
+    FROM (SELECT ${declaration[1]} AS keys) original;`, 'explicit-canonical-array-append'));
+  assert.deepEqual(corrected, [...expected, 'legacyInput']);
+  report.expression = { source: 'migrations/068_canonical_standings_acceptance.sql',
+    sourceSha256: sources.get('migrations/068_canonical_standings_acceptance.sql').sha256,
+    original: "keys||'legacyInput'", originalSqlState: '22P02', originalMessage: 'malformed array literal: "legacyInput"',
+    corrected: "keys||ARRAY['legacyInput']", originalKeys: expected, correctedKeys: corrected,
+    fullCaseExecuted: false, applicationMigrationsInstalled: false };
 }
 function createDatabase(database) {
   assert(/^l1_setup_(fresh|upgrade)_[0-9a-f]{8}$/.test(database));
@@ -304,6 +324,100 @@ async function nativeTimingChecks(database) {
   report.nativeTiming = output.trim().split(/\r?\n/).map(line => JSON.parse(line)).find(row => row.kind === 'native-timing-result');
   assert(report.nativeTiming?.passed, 'Missing native timing result');
 }
+async function canonicalSuiteChecks(database, baseMigrationNames) {
+  const runtimePassword = randomBytes(32).toString('hex'); additionalSecrets.push(runtimePassword);
+  sql(database, `ALTER ROLE league_one_runtime PASSWORD '${runtimePassword}';`, 'local-runtime-password');
+  for (const role of ['league_one_runtime', 'league_one_account', 'league_one_auth']) {
+    sql(database, `GRANT ${role} TO ${owner} WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;`, 'local-set-role-' + role);
+  }
+  stage = 'canonical-suite';
+  for (const path of ['integration/canonical-standings-local-setup.ts', 'integration/qualification-reporter.ts',
+    'integration/neon-integration-harness.ts', 'integration/server-only-stub.ts', 'integration/canonical-standings-profile.ts',
+    'integration/canonical-standings.qualification-case.ts']) source(path);
+  const contextResult = spawnSync(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--input-type=module', '-e',
+    `import { createQualificationContext,qualificationArguments } from './integration/qualification-profile.ts';
+    const context=await createQualificationContext(process.cwd(),process.argv[1],process.argv[2],'data-canonical-standings-v1');
+    console.log(JSON.stringify({context,args:qualificationArguments(context.profile,'./integration/qualification-reporter.ts')}));`,
+    report.baseCommit, sentinel], { cwd: site, env, encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  assert.equal(contextResult.status, 0, 'Local canonical context binding failed: ' + scrub(contextResult.stderr));
+  const binding = JSON.parse(contextResult.stdout);
+  writeFileSync(join(directory, 'local-qualification-context.json'), JSON.stringify(binding.context, null, 2));
+  const configPath = join(directory, 'local-vitest.config.mjs');
+  const slash = path => path.replaceAll('\\', '/');
+  const config = `export default ${JSON.stringify({ root: slash(site), resolve: { alias: {
+    '@': slash(site), 'server-only': slash(join(site, 'integration/server-only-stub.ts')),
+  } }, test: { environment: 'node', fileParallelism: false, maxWorkers: 1, hookTimeout: 120000,
+    testTimeout: 60000, includeTaskLocation: true, include: ['integration/canonical-standings.qualification-case.ts'],
+    setupFiles: [slash(join(site, 'integration/canonical-standings-local-setup.ts'))], retry: 0,
+  } }, null, 2)};\n`;
+  writeFileSync(configPath, config, { flag: 'wx' });
+  report.localConfigSha256 = sha(config);
+  const local = { authorization: 'I_AUTHORIZE_OWNED_LOOPBACK_CANONICAL_SUITE', database, port, sentinel,
+    version: report.versionNum, site, directory, baseMigrationNames,
+    ownerUrl: `postgresql://${owner}:${ownerPassword}@${host}:${port}/${database}`,
+    runtimeUrl: `postgresql://league_one_runtime:${runtimePassword}@${host}:${port}/${database}` };
+  const remaining = 1800000 - (Date.now() - report.canonicalSetupStartedAtMs);
+  assert(remaining > 0);
+  const child = spawn(process.execPath, ['node_modules/vitest/vitest.mjs', 'run', '--config', configPath, ...binding.args], {
+    cwd: site, env: { ...env, L1_LOCAL_CANONICAL_CONTEXT: JSON.stringify(local),
+      PROJECTION_INTEGRATION_QUALIFICATION_CONTEXT: JSON.stringify(binding.context),
+      PROJECTION_INTEGRATION_ARTIFACT_DIRECTORY: directory }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '', pendingOutput = '', timedOut = false, childClosed = false, spawnError;
+  const closed = new Promise(ok => child.once('close', code => { childClosed = true; ok(code); }));
+  child.once('error', error => { spawnError = error; });
+  const terminate = () => {
+    if (process.platform === 'win32' && child.pid) spawnSync('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { env, windowsHide: true });
+    else child.kill();
+  };
+  const capture = data => {
+    pendingOutput += String(data);
+    const end = pendingOutput.lastIndexOf('\n');
+    if (end < 0) return;
+    const value = scrub(pendingOutput.slice(0, end + 1));
+    pendingOutput = pendingOutput.slice(end + 1); output += value; process.stdout.write(value);
+  };
+  let timer, code;
+  try {
+    child.stdout.on('data', capture); child.stderr.on('data', capture);
+    timer = setTimeout(() => { timedOut = true; terminate(); }, remaining);
+    code = await closed;
+    if (spawnError) throw spawnError;
+  } finally {
+    clearTimeout(timer);
+    if (!childClosed) { terminate(); await closed; }
+  }
+  if (pendingOutput) { const value = scrub(pendingOutput); output += value; process.stdout.write(value); }
+  writeFileSync(join(directory, 'canonical-suite.log'), output);
+  report.localSuite = { exitCode: code, timedOut, hostedQualification: false,
+    sourceState: 'baseCommit plus receipt-bound working source bytes; not a clean committed candidate',
+    transport: 'installed driver over owned loopback Socket; existing pinned harness session and savepoints',
+    setupTiming: 'Preinstalled 001–065 plus launch/import and actual beforeAll measured conservatively through S01 start; hosted TLS/lifecycle not exercised.' };
+  const validation = spawnSync(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--input-type=module', '-e',
+    `import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs'; import {join} from 'node:path';
+    import {validateQualificationReport,qualificationDigest} from './integration/qualification-profile.ts';
+    import {assertCanonicalStandingsEvidence,CANONICAL_STANDINGS_TESTS,CANONICAL_STANDINGS_BEFORE_ALL_MS} from './integration/canonical-standings-profile.ts';
+    const directory=process.argv[1], started=Number(process.argv[2]);
+    const context=JSON.parse(readFileSync(join(directory,'local-qualification-context.json'),'utf8'));
+    const report=JSON.parse(readFileSync(join(directory,'qualification-report.json'),'utf8'));
+    const evidence=JSON.parse(readFileSync(join(directory,'canonical-standings-evidence.json'),'utf8'));
+    const cases=report.modules.flatMap(module=>module.cases), first=cases.find(value=>value.name.endsWith(CANONICAL_STANDINGS_TESTS[0]));
+    const setupElapsedMs=first?.diagnostic?.startTime-started;
+    const result={kind:'canonical-local-case-validation-v1',collected:cases.length,executed:cases.filter(c=>c.readyEvents===1).length,
+      passed:cases.filter(c=>c.state==='passed').length,failed:cases.filter(c=>c.state==='failed').length,
+      skipped:cases.filter(c=>c.state==='skipped').length,boundaries:evidence.boundaryAssertions.length,setupElapsedMs,accepted:false};
+    try { assert(first?.state==='passed'); assert(Number.isFinite(setupElapsedMs)&&setupElapsedMs>=0&&setupElapsedMs<=CANONICAL_STANDINGS_BEFORE_ALL_MS);
+      validateQualificationReport(context,report); assertCanonicalStandingsEvidence(evidence,qualificationDigest(context));
+      const sessions=JSON.parse(readFileSync(join(directory,'local-session-evidence.json'),'utf8')); assert.equal(sessions.prepared,true);assert.equal(sessions.forbiddenFetches,0);
+      result.accepted=true;
+    } catch(error) { result.failure=error.message.slice(0,1024); process.exitCode=1; }
+    console.log(JSON.stringify(result));`, directory, String(report.canonicalSetupStartedAtMs)],
+    { cwd: site, env, encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  writeFileSync(join(directory, 'canonical-suite-validation.log'), scrub(validation.stdout + validation.stderr));
+  if (validation.stdout.trim()) report.localSuite.validation = JSON.parse(validation.stdout.trim());
+  assert.equal(code, 0, 'Actual local canonical case failed; retained original report and diagnostics');
+  assert.equal(validation.status, 0, 'Local canonical report/companion/setup-budget validation failed');
+}
 try {
   source('scripts/check-canonical-sql-setup.mjs');
   source('integration/qualification-profile.ts');
@@ -347,8 +461,13 @@ try {
   const files = readdirSync(join(site, 'migrations')).filter(name => /^\d+_[a-z0-9_]+\.sql$/.test(name)).sort();
   assert.equal(files.length, 69); assert.equal(files.at(-1), '069_canonical_native_compatibility.sql');
   const suffix = randomBytes(4).toString('hex');
-  const fresh = 'l1_setup_fresh_' + suffix; createDatabase(fresh); migrations(fresh, files); provision(fresh);
-  if (nativeTiming) { await nativeTimingChecks(fresh); } else {
+  const fresh = 'l1_setup_fresh_' + suffix;
+  if (canonicalSuite) report.canonicalSetupStartedAtMs = Date.now();
+  createDatabase(fresh);
+  if (!arrayAppend) { migrations(fresh, canonicalSuite ? files.slice(0, 65) : files); provision(fresh); }
+  if (arrayAppend) { arrayAppendChecks(fresh); }
+  else if (canonicalSuite) { await canonicalSuiteChecks(fresh, files.slice(0, 65)); }
+  else if (nativeTiming) { await nativeTimingChecks(fresh); } else {
   const clockSource = source('integration/all-player-schedule-test-clock.ts');
   const clockSql = /await ownerQuery\(`([\s\S]*?)`\);/.exec(clockSource); assert(clockSql);
   sql(fresh, clockSql[1], 'schedule-clock-install');
@@ -401,9 +520,52 @@ try {
     if (existsSync(data)) {
       const actual = realpathSync(data), allowed = realpathSync(directory) + sep;
       assert(actual.startsWith(allowed) && actual === join(realpathSync(directory), 'data'));
-      rmSync(actual, { recursive: true, maxRetries: 10, retryDelay: 200 });
+      if (process.platform === 'win32' && report.pid) {
+        const systemRoot = Object.entries(env).find(([key]) => key.toLowerCase() === 'systemroot')?.[1];
+        assert(systemRoot, 'Trusted Windows system directory missing');
+        const powershell = realpathSync(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+        // Fixed native code receives literal values only through this owned child environment.
+        // All guards and removal run in one shell; a reused PID fails closed without termination.
+        const removalScript = String.raw`
+$ErrorActionPreference = 'Stop'
+$parent = (Resolve-Path -LiteralPath $env:LEAGUE_ONE_CLEANUP_PARENT).ProviderPath
+$target = (Resolve-Path -LiteralPath $env:LEAGUE_ONE_CLEANUP_TARGET).ProviderPath
+if ($parent -cne $env:LEAGUE_ONE_CLEANUP_PARENT -or $target -cne $env:LEAGUE_ONE_CLEANUP_TARGET -or
+    $target -cne (Join-Path $parent 'data')) { throw 'Owned cleanup path mismatch' }
+$ownedProcessId = [int]$env:LEAGUE_ONE_CLEANUP_PID
+$ownedPort = [int]$env:LEAGUE_ONE_CLEANUP_PORT
+$owned = Get-Content -Raw -LiteralPath (Join-Path $parent 'owner.json') | ConvertFrom-Json
+if ($owned.dataDirectory -cne $target -or $owned.pid -ne $ownedProcessId -or $owned.port -ne $ownedPort -or
+    $owned.host -cne '127.0.0.1' -or $owned.sentinel -cne $env:LEAGUE_ONE_CLEANUP_SENTINEL) { throw 'Owned cleanup identity mismatch' }
+if ((Test-Path -LiteralPath (Join-Path $target 'postmaster.pid')) -or
+    ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+    ((Get-Item -LiteralPath $target -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+    @(Get-ChildItem -LiteralPath $target -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
+  throw 'Owned cleanup live postmaster or reparse point found'
+}
+$processPresent = $false
+try { $null = [Diagnostics.Process]::GetProcessById($ownedProcessId); $processPresent = $true } catch [ArgumentException] {}
+if ($processPresent) { throw 'Owned cleanup process still present' }
+$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Parse('127.0.0.1'), $ownedPort)
+$listener.Server.ExclusiveAddressUse = $true
+try { $listener.Start() } finally { $listener.Stop() }
+Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+if (Test-Path -LiteralPath $target) { throw 'Owned cleanup data remains' }
+Write-Output 'Verified owned data removal completed.'
+`;
+        report.cleanupMethod = 'windows-native-literal-path';
+        report.cleanupExecutable = { path: powershell, sha256: sha(readFileSync(powershell)) };
+        const removal = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', removalScript], {
+          env: { ...env, LEAGUE_ONE_CLEANUP_PARENT: realpathSync(directory), LEAGUE_ONE_CLEANUP_TARGET: actual,
+            LEAGUE_ONE_CLEANUP_PID: String(report.pid), LEAGUE_ONE_CLEANUP_PORT: String(port), LEAGUE_ONE_CLEANUP_SENTINEL: sentinel },
+          encoding: 'utf8', windowsHide: true, timeout: 30_000, maxBuffer: 1024 * 1024 });
+        writeFileSync(join(directory, 'cleanup-data.log'), scrub(removal.stdout) + scrub(removal.stderr));
+        assert(!removal.error && removal.status === 0, 'Owned native Windows removal failed; see cleanup-data.log');
+        assert(!existsSync(data), 'Owned data remains after native removal');
+      } else rmSync(actual, { recursive: true, maxRetries: 10, retryDelay: 200 });
     }
     if (existsSync(passwordFile)) rmSync(passwordFile);
+    assert(!existsSync(data) && !existsSync(passwordFile), 'Owned cleanup files remain');
     report.cleanup = true;
   } catch (error) { report.status = 'failed'; report.cleanupFailure = scrub(error.message); process.exitCode = 1; }
   report.sources = Object.fromEntries(sources); report.finishedAt = new Date().toISOString();

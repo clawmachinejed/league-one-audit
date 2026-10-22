@@ -52,7 +52,7 @@ DECLARE attempt public.league_roster_resource_attempts%ROWTYPE; native_attempt p
   keys text[]:=ARRAY['contractVersion','canonicalSchemaVersion','hashVersion','adapterVersion','nativeVerifierVersion',
     'canonicalNormalizerVersion','mapping','scope','policy','attempt','fence','provenance','nativePayload','canonicalValue','coverage','nativeSourceRef','populationEvidence'];
 BEGIN
-  IF p_require_legacy_input AND p_input->'nativeSourceRef'->>'kind'='sleeper-roster-bridge-v1' THEN keys:=keys||'legacyInput'; END IF;
+  IF p_require_legacy_input AND p_input->'nativeSourceRef'->>'kind'='sleeper-roster-bridge-v1' THEN keys:=keys||ARRAY['legacyInput']; END IF;
   IF NOT public.canonical_exact_keys(p_input,keys) THEN RAISE EXCEPTION 'canonical delivery has mixed or unknown fields'; END IF;
   PERFORM public.assert_canonical_job_fence(p_input->'fence');
   PERFORM public.validate_canonical_resource_mapping(p_input->'mapping');
