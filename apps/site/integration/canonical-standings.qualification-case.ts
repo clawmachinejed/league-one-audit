@@ -22,6 +22,7 @@ import { canonicalStandingsMethods } from '../lib/league-administration/neon/can
 import { createLeagueAdministrationStore, createPublicIntakeStore } from '../lib/league-administration/store';
 import { createProjectionStore } from '../lib/projection-store';
 import { runPublicIntakeStep, type PublicIntakeDependencies } from '../lib/league-administration/public-intake';
+import { PUBLIC_INTAKE_JOB } from '../lib/league-administration/public-intake-contracts';
 import { capturePublicSleeperCore, capturePublicSleeperIdentity, capturePublicSleeperLeagueList } from '../lib/sleeper';
 import { assertOriginalPublicCapture } from '../lib/league-administration/public-capture-witness';
 import { normalizeAdministrationObservation } from '../lib/league-administration/normalize';
@@ -69,6 +70,7 @@ describe.sequential(CANONICAL_STANDINGS_SUITE, () => {
   const captures: CapturedAdministrationDocument[] = [], mutationsRejected: string[] = [];
   const completed: string[] = [], observations: Recorded[] = [];
   const nativeStepDurationsMs: number[] = [];
+  const nativeTiming: { completedRequestId: string; cooldown: unknown } = { completedRequestId: '', cooldown: null };
   const q: Query = (sql, args, options) => runtime.database.query(sql, args, options);
   const oq: Query = (sql, args, options) => owner.database.query(sql, args, options);
   const store = (database = runtime.database) => createLeagueAdministrationStore(database);
@@ -293,20 +295,24 @@ describe.sequential(CANONICAL_STANDINGS_SUITE, () => {
     await intake.submit({ id: requestId, username: source.username, seasons: [2026] });
     const started = Date.now(), before = requests.length;
     for (const stage of ['identity', 'leagues', 'bootstrap', 'core']) {
+      const stageStarted = Date.now(), waits = { busy: 0, backoff: 0 };
       let done = false;
       while (!done && Date.now() - started < 225_000) {
         const stepStarted = Date.now();
         const outcome = await runPublicIntakeStep(requestId, dependencies, AbortSignal.timeout(20_000));
-        if (outcome.status === 'busy' || outcome.status === 'backoff') { await delay(500); continue; }
+        if (outcome.status === 'busy' || outcome.status === 'backoff') { waits[outcome.status]++; await delay(500); continue; }
         const elapsed = Date.now() - stepStarted; nativeStepDurationsMs.push(elapsed);
         expect(elapsed).toBeLessThan(20_000);
         expect(outcome).toMatchObject({ status: 'progress', resource: stage, providerRequests: stage === 'core' ? 2 : 1 }); done = true;
       }
+      console.log(JSON.stringify({ kind: 'canonical-native-stage', requestId, stage, done, waits,
+        stageElapsedMs: Date.now() - stageStarted, journeyElapsedMs: Date.now() - started }));
       expect(done, 'Native dispatch exceeded bounded real-time interval').toBe(true);
     }
     const mapping = await administration.readSourceMapping(source.id); if (!mapping) throw new Error('Native mapping absent.');
     expect(requests.slice(before)).toEqual([`/v1/user/${source.username}`, `/v1/user/${source.manager}/leagues/nfl/2026`,
       `/v1/league/${source.id}`, `/v1/league/${source.id}`, `/v1/league/${source.id}/rosters`]);
+    nativeTiming.completedRequestId = requestId;
     allowedNative = null; selection.native = false; return mapping;
   }
   beforeAll(async () => {
@@ -336,6 +342,28 @@ describe.sequential(CANONICAL_STANDINGS_SUITE, () => {
       requests.push(url.pathname); return new Response(JSON.stringify(payload), { headers: { 'content-type': 'application/json' } });
     });
     oldMapping = await nativeJourney(nativeSources[0], false);
+    // BEGIN canonical native fixture cooldown
+    // The next journey needs three internal cadence gaps; age the previous
+    // completed singleton here, inside the existing setup budget, without claiming it.
+    const cooldownSql = `SELECT to_jsonb(job)::text AS job_snapshot, job_key,state,lease_owner,lease_until,
+      payload->>'requestId' AS request_id, completed_at IS NOT NULL AS has_completion,
+      scheduled_for::text AS scheduled_for, completed_at::text AS completed_at,
+      clock_timestamp()::text AS observed_at,
+      completed_at <= clock_timestamp()-interval '60 seconds' AS cooldown_expired
+      FROM projection_jobs job WHERE job_key=$1`;
+    expect(nativeTiming.completedRequestId === '').toBe(false);
+    const [priorNativeJob] = await q(cooldownSql, [PUBLIC_INTAKE_JOB]);
+    expect(priorNativeJob).toMatchObject({ job_key: PUBLIC_INTAKE_JOB, state: 'completed',
+      lease_owner: null, lease_until: null, request_id: nativeTiming.completedRequestId, has_completion: true });
+    const cooldownStarted = Date.now();
+    await delay(60_000);
+    const [readyNativeJob] = await q(cooldownSql, [PUBLIC_INTAKE_JOB]);
+    expect(readyNativeJob.job_snapshot).toBe(priorNativeJob.job_snapshot);
+    expect(readyNativeJob.cooldown_expired).toBe(true);
+    expect(Date.parse(String(readyNativeJob.scheduled_for)) < Math.floor(Date.now() / 60_000) * 60_000).toBe(true);
+    nativeTiming.cooldown = { prior: priorNativeJob, ready: readyNativeJob, elapsedMs: Date.now() - cooldownStarted };
+    console.log(JSON.stringify({ kind: 'canonical-native-cooldown', cooldown: nativeTiming.cooldown }));
+    // END canonical native fixture cooldown
     oldRead = await store().readOfficialStandings!(oldMapping); expect(oldRead).toMatchObject({ status: 'available' }); oldSnapshot = await oldEvidence();
     for (const name of migrations) {
       const sql = (await readFile(new URL(`../migrations/${name}`, import.meta.url), 'utf8')).replace(/\r\n?/gu, '\n');

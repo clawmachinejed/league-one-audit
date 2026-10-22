@@ -13,7 +13,8 @@ const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 assert(args.length >= 1 && args.length <= 2 && args[0].startsWith('--pg-bin='));
 const reproduce = args[1] === '--reproduce-fixture-defect';
-assert(args.length === 1 || reproduce, 'Unknown diagnostic argument');
+const nativeTiming = ['--reproduce-native-timing', '--verify-native-timing'].includes(args[1]) ? args[1] : null;
+assert(args.length === 1 || reproduce || nativeTiming, 'Unknown diagnostic argument');
 const binary = realpathSync(args[0].slice('--pg-bin='.length));
 const executable = name => join(binary, name + (process.platform === 'win32' ? '.exe' : ''));
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -45,10 +46,11 @@ const admin = 'l1_setup_cluster_admin', owner = 'l1_setup_owner';
 const password = randomBytes(32).toString('hex'), ownerPassword = randomBytes(32).toString('hex');
 const sentinel = randomUUID();
 const report = { kind: 'canonical-local-sql-setup-v1', startedAt: new Date().toISOString(),
-  mode: reproduce ? 'original-defect-reproduction' : 'complete-local-setup', host, port, sentinel,
+  mode: nativeTiming ?? (reproduce ? 'original-defect-reproduction' : 'complete-local-setup'), host, port, sentinel,
   cloudCalls: 0, paidRuns: 0, hostedQualification: false, steps: [], status: 'running', cleanup: false };
 let stage = 'preflight', started = false;
-const scrub = value => String(value ?? '').replaceAll(password, '[LOCAL_SECRET]').replaceAll(ownerPassword, '[LOCAL_SECRET]');
+const additionalSecrets = [];
+const scrub = value => [password, ownerPassword, ...additionalSecrets].reduce((text, secret) => text.replaceAll(secret, '[LOCAL_SECRET]'), String(value ?? ''));
 function command(name, arguments_, options = {}) {
   const result = spawnSync(executable(name), arguments_, { env, encoding: 'utf8', windowsHide: true,
     timeout: 60000, maxBuffer: 8 * 1024 * 1024, ...options });
@@ -152,6 +154,156 @@ function fixtureChecks(database) {
   report.steps.push({ label: 'fixture-assertions', database, passed: true, registryEntries: 18,
     completeRegistryParity: true, verifierCases: 18, canonicalDuplicateRejected: true, numericCases: cases.length, privateRoleChecks: 30 });
 }
+async function nativeTimingProgram() {
+  const assert = (await import('node:assert/strict')).default;
+  const { readFileSync } = await import('node:fs');
+  const { createHash, randomUUID } = await import('node:crypto');
+  const { Socket } = await import('node:net');
+  const { setTimeout: delay } = await import('node:timers/promises');
+  const { stripTypeScriptTypes } = await import('node:module');
+  const { Client } = await import('@neondatabase/serverless');
+  const { createJobMethods } = await import('./lib/projections/adapters/neon/jobs.ts');
+  const { createPublicIntakeStore, createLeagueAdministrationStore } = await import('./lib/league-administration/store.ts');
+  const { runPublicIntakeStep } = await import('./lib/league-administration/public-intake.ts');
+  const { capturePublicSleeperIdentity, capturePublicSleeperLeagueList, capturePublicSleeperCore } = await import('./lib/sleeper.ts');
+  const { PUBLIC_INTAKE_JOB } = await import('./lib/league-administration/public-intake-contracts.ts');
+  const config = JSON.parse(process.env.L1_LOCAL_TIMING_CONTEXT);
+  delete process.env.L1_LOCAL_TIMING_CONTEXT;
+  const moduleText = readFileSync('integration/canonical-standings.qualification-case.ts', 'utf8').replace(/\r\n/g, '\n');
+  assert.equal(createHash('sha256').update(moduleText).digest('hex'), config.moduleSha256);
+  const fixtureText = moduleText.slice(moduleText.indexOf('const nativeSources ='), moduleText.indexOf('/** Source candidate'));
+  const { nativeSources, nativeLeague, nativeRosters } = new Function(stripTypeScriptTypes(fixtureText) + '\nreturn { nativeSources, nativeLeague, nativeRosters };')();
+  const loopStart = moduleText.indexOf('    const started = Date.now(), before = requests.length;');
+  const loopEnd = moduleText.indexOf('    const mapping = await administration.readSourceMapping', loopStart);
+  assert(loopStart > 0 && loopEnd > loopStart);
+  const loopSource = moduleText.slice(loopStart, loopEnd);
+  assert(loopSource.includes('225_000') && loopSource.includes('AbortSignal.timeout(20_000)'));
+  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+  const runLoop = new AsyncFunction('requestId', 'dependencies', 'requests', 'nativeStepDurationsMs', 'runPublicIntakeStep', 'delay', 'expect', loopSource);
+  const expect = (actual, message) => ({
+    toBe: expected => assert.equal(actual, expected, message),
+    toBeLessThan: expected => assert(actual < expected, message),
+    toMatchObject: expected => { for (const [key, value] of Object.entries(expected)) assert.deepEqual(actual[key], value, message); },
+  });
+  const socket = new Socket();
+  const client = new Client({ host: '127.0.0.1', port: config.port, database: config.database,
+    user: 'league_one_runtime', password: config.password, ssl: false, stream: socket,
+    application_name: 'canonical-native-timing-local', connectionTimeoutMillis: 5000,
+    statement_timeout: 10000, query_timeout: 15000, idle_in_transaction_session_timeout: 30000 });
+  client.on('error', () => {});
+  const query = async (statement, parameters = [], options = {}) => {
+    options.signal?.throwIfAborted();
+    const result = await client.query(statement, [...parameters]);
+    options.signal?.throwIfAborted(); return (Array.isArray(result) ? result.at(-1) : result).rows;
+  };
+  const database = { enabled: true, query, queryAfterLock: async (statement, parameters, lock, options = {}) => {
+    options.signal?.throwIfAborted(); await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+    try {
+      const locked = await query(lock.statement, lock.parameters, options);
+      const result = await query(statement, parameters, options);
+      if (lock.verifyAfter) await query(lock.verifyAfter.statement, lock.verifyAfter.parameters, options);
+      options.signal?.throwIfAborted(); await client.query('COMMIT'); return [locked, result];
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+  } };
+  const requests = [], nativeStepDurationsMs = [], journeys = [];
+  let allowedNative = null, forbiddenRequests = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : String(input)), source = allowedNative;
+    if (url.origin !== 'https://api.sleeper.app' || !source || (init?.method ?? 'GET') !== 'GET') {
+      forbiddenRequests++; throw new Error('Local timing provider tripwire');
+    }
+    let payload;
+    if (url.pathname === `/v1/user/${source.username}`) payload = { user_id: source.manager, username: source.username, display_name: source.username };
+    else if (url.pathname === `/v1/user/${source.manager}/leagues/nfl/2026`) payload = [nativeLeague(source)];
+    else if (url.pathname === `/v1/league/${source.id}`) payload = nativeLeague(source);
+    else if (url.pathname === `/v1/league/${source.id}/rosters`) payload = nativeRosters(source.manager);
+    else { forbiddenRequests++; throw new Error('Unregistered local timing fixture path'); }
+    requests.push({ path: url.pathname, at: new Date().toISOString() });
+    return new Response(JSON.stringify(payload), { headers: { 'content-type': 'application/json' } });
+  };
+  const snapshot = async () => (await query(`SELECT clock_timestamp() AS database_now, job_key,state,scheduled_for,completed_at,attempt_count,lease_until,
+    (SELECT max(admitted_at) FROM public_data_dispatches) AS last_admitted_at
+    FROM projection_jobs WHERE job_key=$1`, [PUBLIC_INTAKE_JOB]))[0] ?? null;
+  try {
+    await client.connect(); assert.equal(socket.remoteAddress, '127.0.0.1'); assert.equal(socket.remotePort, config.port);
+    const [identity] = await query(`SELECT current_database() AS database,current_user,session_user,host(inet_server_addr()) AS host,
+      inet_server_port() AS port,current_setting('server_version_num') AS version,shobj_description(d.oid,'pg_database') AS sentinel,
+      r.rolsuper,r.rolcreatedb,r.rolcreaterole,r.rolreplication,r.rolbypassrls,r.rolcanlogin,
+      EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS memberships
+      FROM pg_database d JOIN pg_roles r ON r.rolname=current_user WHERE d.datname=current_database()`);
+    assert.deepEqual(identity, { database: config.database, current_user: 'league_one_runtime', session_user: 'league_one_runtime', host: '127.0.0.1',
+      port: config.port, version: config.version, sentinel: config.sentinel, rolsuper: false, rolcreatedb: false, rolcreaterole: false,
+      rolreplication: false, rolbypassrls: false, rolcanlogin: true, memberships: false });
+    const intake = createPublicIntakeStore(database), administration = createLeagueAdministrationStore(database);
+    const dependencies = { intake, administration, jobs: createJobMethods(database),
+      source: { identity: capturePublicSleeperIdentity, leagues: capturePublicSleeperLeagueList,
+        core: (external, family, signal, witness) => capturePublicSleeperCore(external, family, signal, undefined, witness) } };
+    const journey = async (source, index) => {
+      allowedNative = source; const requestId = randomUUID(); await intake.submit({ id: requestId, username: source.username, seasons: [2026] });
+      const result = { index, requestId, startedAt: new Date().toISOString(), initialJob: await snapshot(), statuses: {}, progress: [], passed: false };
+      const observed = async (...args) => {
+        const value = await runPublicIntakeStep(...args);
+        result.statuses[value.status] = (result.statuses[value.status] ?? 0) + 1;
+        if (value.status !== 'busy' && value.status !== 'backoff') {
+          const progress = { resource: value.resource, status: value.status, providerRequests: value.providerRequests,
+            at: new Date().toISOString(), job: await snapshot() }; result.progress.push(progress);
+          console.log(JSON.stringify({ kind: 'native-timing-stage', index, ...progress }));
+        }
+        return value;
+      };
+      try { await runLoop(requestId, dependencies, requests, nativeStepDurationsMs, observed, delay, expect); result.passed = true; }
+      catch (error) { result.failure = { name: error.name, message: error.message }; }
+      result.finishedAt = new Date().toISOString(); result.finalJob = await snapshot(); journeys.push(result); return result;
+    };
+    const setupStartedAt = Date.now();
+    const first = await journey(nativeSources[0], 1); assert(first.passed, 'Initial native timing journey failed');
+    let cooldown = null, nativeSetupSegmentMs = Date.now() - setupStartedAt;
+    if (config.corrected) {
+      const start = moduleText.indexOf('    // BEGIN canonical native fixture cooldown');
+      const end = moduleText.indexOf('    // END canonical native fixture cooldown', start);
+      assert(start > 0 && end > start, 'Missing actual qualification cooldown fragment');
+      const fragment = moduleText.slice(start, end);
+      const state = { completedRequestId: first.requestId, cooldown: null };
+      await new AsyncFunction('q', 'delay', 'expect', 'PUBLIC_INTAKE_JOB', 'nativeTiming', fragment)(query, delay, expect, PUBLIC_INTAKE_JOB, state);
+      cooldown = state.cooldown;
+      nativeSetupSegmentMs = Date.now() - setupStartedAt;
+      assert(nativeSetupSegmentMs < 420000, 'Native setup segment exceeded unchanged420s allowance');
+      console.log(JSON.stringify({ kind: 'native-timing-cooldown', cooldown }));
+    }
+    const second = await journey(nativeSources[1], 2);
+    assert.equal(second.passed, config.corrected);
+    assert.deepEqual(second.progress.map(row => row.resource), config.corrected ? ['identity', 'leagues', 'bootstrap', 'core'] : ['identity', 'leagues', 'bootstrap']);
+    if (!config.corrected) assert.match(second.failure.message, /Native dispatch exceeded bounded real-time interval/);
+    const dispatches = await query(`SELECT resource,admitted_at,worker_id,generation,intake_id FROM public_data_dispatches ORDER BY admitted_at`);
+    assert.equal(dispatches.length, config.corrected ? 8 : 7);
+    for (let index = 1; index < dispatches.length; index++) assert(new Date(dispatches[index].admitted_at) - new Date(dispatches[index - 1].admitted_at) >= 60000);
+    assert.equal(requests.length, config.corrected ? 10 : 8); assert.equal(forbiddenRequests, 0);
+    console.log(JSON.stringify({ kind: 'native-timing-result', passed: true, corrected: config.corrected, identity, moduleSha256: config.moduleSha256,
+      loopSha256: createHash('sha256').update(loopSource).digest('hex'), journeys, cooldown, dispatches, requests, nativeStepDurationsMs,
+      nativeSetupSegmentMs,
+      forbiddenRequests, actualProviderRequests: 0, limits: { journeyMs: 225000, caseMs: 240000, setupMs: 420000, cadenceMs: 60000, invocationMs: 20000, leaseMs: 25000 },
+      limitation: 'Ordinary intake timing only: real jobs/admission/storage with fixture HTTP. Canonical companion selection, acceptance, replay and mutation probes are not executed. The 420s check covers the first native journey plus cooldown, not the complete beforeAll; the hosted 13-case qualification is not executed.' }));
+  } finally { globalThis.fetch = originalFetch; try { await client.end(); } finally { socket.destroy(); } }
+}
+async function nativeTimingChecks(database) {
+  const runtimePassword = randomBytes(32).toString('hex'); additionalSecrets.push(runtimePassword);
+  sql(database, `ALTER ROLE league_one_runtime PASSWORD '${runtimePassword}';`, 'local-runtime-password');
+  const config = { database, port, password: runtimePassword, sentinel, version: report.versionNum,
+    corrected: nativeTiming === '--verify-native-timing', moduleSha256: sha(source('integration/canonical-standings.qualification-case.ts')) };
+  const program = '(' + nativeTimingProgram.toString() + ')().catch(error=>{ console.error(JSON.stringify({kind:"native-timing-error",name:error.name,message:error.message,code:error.code})); process.exitCode=1; });';
+  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', '--input-type=module', '-e', program],
+    { cwd: site, env: { ...env, L1_LOCAL_TIMING_CONTEXT: JSON.stringify(config) }, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '', diagnostics = '';
+  child.stdout.on('data', data => { const text = scrub(data).replaceAll(runtimePassword, '[LOCAL_SECRET]'); output += text; process.stdout.write(text); });
+  child.stderr.on('data', data => { diagnostics += scrub(data).replaceAll(runtimePassword, '[LOCAL_SECRET]'); });
+  const timer = setTimeout(() => child.kill(), 600000);
+  const code = await new Promise((ok, no) => { child.once('error', no); child.once('close', ok); }).finally(() => clearTimeout(timer));
+  writeFileSync(join(directory, 'native-timing.log'), output + diagnostics);
+  assert.equal(code, 0, 'Native timing diagnostic failed; see owned log');
+  report.nativeTiming = output.trim().split(/\r?\n/).map(line => JSON.parse(line)).find(row => row.kind === 'native-timing-result');
+  assert(report.nativeTiming?.passed, 'Missing native timing result');
+}
 try {
   source('scripts/check-canonical-sql-setup.mjs');
   source('integration/qualification-profile.ts');
@@ -196,6 +348,7 @@ try {
   assert.equal(files.length, 69); assert.equal(files.at(-1), '069_canonical_native_compatibility.sql');
   const suffix = randomBytes(4).toString('hex');
   const fresh = 'l1_setup_fresh_' + suffix; createDatabase(fresh); migrations(fresh, files); provision(fresh);
+  if (nativeTiming) { await nativeTimingChecks(fresh); } else {
   const clockSource = source('integration/all-player-schedule-test-clock.ts');
   const clockSql = /await ownerQuery\(`([\s\S]*?)`\);/.exec(clockSource); assert(clockSql);
   sql(fresh, clockSql[1], 'schedule-clock-install');
@@ -231,6 +384,7 @@ try {
       const ledger = JSON.parse(sql(database, "SELECT jsonb_agg(jsonb_build_object('name',name,'checksum',checksum) ORDER BY name) FROM app_schema_migrations;", 'verify-migration-ledger'));
       assert.deepEqual(ledger, files.map(name => ({ name, checksum: sources.get('migrations/' + name).sha256 })));
     }
+  }
   }
   for (const path of sources.keys()) source(path);
   report.status = 'passed';

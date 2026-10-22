@@ -9,7 +9,7 @@ import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative } from 'node:path';
 
 /** New RFQ1 source pins only. Historical definitions remain byte-for-byte unchanged. */
-export const CANONICAL_STANDINGS_SOURCE_DIGEST = 'de0b5b88e9061ca3f294e5f3714c2ff21b061fa1a07fe401f8ff15d262b9c510';
+export const CANONICAL_STANDINGS_SOURCE_DIGEST = '93fc7e091b7189e59d095472a9edee878cfe265105982d1b31cc7081aac2ab63';
 export const CANONICAL_STANDINGS_SUPPORT_SOURCES: readonly Readonly<{ path: string; sourceDigest: string }>[] = [
   { path: '../../.github/workflows/integration.yml', sourceDigest: 'dcdeba82c2740b19500c6ebf2ab9c51268bd3c4ae227e918e0446fa7dab7e097' },
   { path: '../../docs/aggregator-backend/data-backend-cp28-measurement-fixture.json', sourceDigest: 'a073787759851045909475f7b47a36f5daf01530604d1556a3afe9cf43ff785f' },
