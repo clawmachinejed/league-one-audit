@@ -103,6 +103,10 @@ describe('receipt-bound exact-period configuration context', () => {
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain('accepted.receipt_id=receipt.id AND accepted.scope_id=scope.id');
     expect(EXACT_PERIOD_CONTEXT_SQL).toContain('connection.current_mapping_revision_id=accepted.source_mapping_revision_id');
     expect(EXACT_PERIOD_CONTEXT_SQL).not.toContain('league_roster_resource_heads');
+    expect(EXACT_PERIOD_CONTEXT_SQL).toContain("THEN source_receipt.provenance ELSE public.roster_capture_population_evidence(source_receipt)->'provenance' END");
+    expect(EXACT_PERIOD_CONTEXT_SQL).not.toContain("source_receipt.population_evidence->'provenance'");
+    expect(EXACT_PERIOD_CONTEXT_SQL).toContain("configuration_observation.id=(receipt.population_evidence->>'observationId')::uuid");
+    expect(EXACT_PERIOD_CONTEXT_SQL).not.toContain('roster_capture_population_evidence(receipt)');
     expect(EXACT_LINEUP_APPLICABILITY_COLUMNS).toContain("activation.component='roster'");
     expect(EXACT_LINEUP_APPLICABILITY_COLUMNS).not.toContain("'content',to_jsonb");
   });
@@ -213,6 +217,20 @@ describe('receipt-bound exact-period configuration context', () => {
   it.each([0, 19, 1.5])('rejects native period %s before querying', async nativeWeek => {
     const { read, query } = reader(); expect(await read(mapping, { ...selection, nativeWeek })).toMatchObject({ status: 'unavailable' });
     expect(query).not.toHaveBeenCalled();
+  });
+  it('does not substitute matchup population for missing selected configuration-source provenance', async () => {
+    const row = fixture();
+    const newest = { ...evidence('scoring', 1, 3, 16), source: { ...evidence('scoring', 1, 3, 16).source, provenance: null } };
+    const input: DatabaseRow = { ...row, applicability_evidence: { ...row.applicability_evidence,
+      scoring: [...row.applicability_evidence.scoring, newest] } };
+    expect(await reader([input]).read(mapping, selection)).toMatchObject({ status: 'available',
+      observedConfiguration: { provenance }, configuration: {
+        scoring: { status: 'unknown', reason: 'invalid_applicability_evidence' }, roster: { status: 'known' }, competition: { status: 'known' } } });
+  });
+  it('does not retry or use another receipt after the shared configuration-source accessor rejects its binding', async () => {
+    const { read, query } = reader(); query.mockRejectedValue(new Error('Invalid shared roster population binding.'));
+    expect(await read(mapping, bound)).toEqual({ status: 'unavailable', reason: 'period_context_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
   });
   it('distinguishes missing history from invalid or failed reads', async () => {
     expect(await reader([]).read(mapping, selection)).toEqual({ status: 'missing' });

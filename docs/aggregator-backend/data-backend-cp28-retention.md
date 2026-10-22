@@ -1,5 +1,158 @@
 # CP28 retention and storage growth analysis
 
+## Current B2a provenance candidate — October 20, 2026
+
+**Local source candidate implemented; native qualification incomplete. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [provenance report](data-backend-cp28-provenance-storage.md) records the additive dormant candidate, three failed local attempts, 133 cumulative reservations and verified cleanup for each. Semantics and binding/security passed in later attempts; the third also passed both deadline probes before its concurrency fixture timed out. The final fixture repair is source-reviewed and unit/type/lint checked but has not run against PostgreSQL. No B2 storage measurement or accepted native forecast exists, and the original bounded campaign was not extended or reset.
+
+The consolidated preparation now replaces the unexecuted comparison cohort with absolute final-candidate cost at 20 teams/160 held players per league, saving 34 core captures while preserving correctness checks. The [complete accounting package and execution plan](data-backend-cp28-provenance-storage.md#complete-accounting-package-and-execution-plan--october-20-2026) covers all fifteen terms with explicit source multiplicities, conditional prices and unresolved costs. Historical cost assumptions already produce a conditional over-budget scenario before candidate core costs; they are not current measured rates or proven bounds. A separately approved core run can qualify the candidate and replace its pending coefficient, but cannot by itself certify whole-workload capacity. A core-only pass will not close CP28. The accepted A+B figures below remain unchanged. This candidate is local and unpublished; PR318 remains at 168a856, with no new CI, preview, hosted, merge or deployment qualification.
+
+
+## Current combined A+B local proof — October 19, 2026
+
+**Combined behavior/storage proof: PASS. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [combined report](data-backend-cp28-combined-storage.md) records three passing selected PostgreSQL cases, both preserved fixture-observation failures, 428 cumulative reservations, all 64 real migrations and verified cleanup. Matched 32-core allocation fell from 2,891,776 to 368,640 bytes in directly affected tables (87.25%); all-public growth fell from 3,317,760 to 745,472 bytes. The final DATA rate is 18,176 bytes per core at the local ten-team/eighty-held-player geometry; it is a finite warmed observation, not a proven recurring production slope.
+
+The new [complete conditional accounting model](data-backend-cp28-combined-forecast.json) covers all eight official families with fifteen explicit unpriced terms. The five-minute DATA-core plus initial-catalog sensitivity is 10.046 GiB; the separate four-minute source-due sensitivity is 12.503 GiB. Ordinary controls and other required growth remain unknown, so capacity is not qualified. Further lossless provenance/mapping/fence normalization and complete family/benchmark pricing remain outstanding. Both shared writers remain dormant; this increment is local and unpublished. Earlier evidence below remains historical and unchanged.
+
+
+## Current local B1 implementation — October 19, 2026
+
+**Population-evidence sharing: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [B1 implementation report](data-backend-cp28-population-evidence.md) records six passing selected cases against all 64 real migrations and three provisioners, one preserved fixture-assertion failure, 326 cumulative local resource reservations and verified cleanup. Across 32 matched fresh cores per layout, the directly affected receipt/parent tables allocated 458,752 bytes inline versus 360,448 shared (21.43% less); distinct receipts and provenance remain intact. The comparison kept Slice A legacy and does not establish combined A+B or retained-horizon growth. Both shared writers remain dormant; this candidate is local and unpublished. Combined storage proof and a complete all-family 10-GiB forecast remain outstanding. Earlier checkpoints below are preserved.
+
+
+## Current local Slice A implementation — October 19, 2026
+
+**Shared roster content: locally validated. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The [Slice A implementation report](data-backend-cp28-shared-roster-content.md) records the additive schema and compatible reader, six passing selected cases against all 63 real migrations and three provisioners, matched roster-only storage observations, preserved failed attempts and verified local cleanup. The production writer remains legacy; this local candidate is unpublished and has no new CI, preview, hosted, merge or deployment qualification. Metadata reduction and a complete all-family 10-GiB forecast remain outstanding. The design-stage statements and accepted hosted evidence below describe their earlier checkpoints and are preserved unchanged.
+
+
+## Approved lossless design continuation — October 19, 2026
+
+The user selected the recommended design work with the 10-GiB budget and retained history unchanged. The [lossless storage design](data-backend-cp28-lossless-storage-design.md) specifies immutable shared roster content, compatible readers and a second capture-evidence normalization slice. Offline attribution shows the metadata remaining after ideal link elimination would still model 12.274 GiB DATA, or 16.365 GiB with the observed synthetic-control proxy; this makes metadata reduction a necessary investigation. The design does not claim measured savings or capacity fit. Implementation, new installed-schema proof and the complete all-family forecast remain outstanding. The measured calculator, original evidence and previous retention proof below are unchanged. No new SQL/hosted run, private Neon access, publication, merge or deployment is part of this continuation.
+
+
+## Current measured update — October 19, 2026
+
+**Focused hosted experiment: PASSED. Overall CP28: INCOMPLETE / CAPACITY UNQUALIFIED.** The accepted measurement at `168a856ae44e7431393b0a8a9404483dda294ccc` replaces the need to repeat that experiment. This continuation incorporates its observations into a separately labeled measured forecast, reviews retention protection and prepares a capacity decision. It does not change the 16-league benchmark, five-minute active freshness target, 10-GiB planning ceiling, or retention of every accepted 2026 record/correction and required provenance through at least March 31, 2028. There is no automatic purge after that date.
+
+The [compact measurement](data-backend-cp28-measurement.json) and [measured forecast](data-backend-cp28-measured-forecast.json) are the current measured-input lane of the existing [offline calculator](../../scripts/analyze-data-retention.mjs). The historical CP27 [seed](data-backend-cp28-seed.json), [assumptions](data-backend-cp28-assumptions.json) and [forecast](data-backend-cp28-forecast.json) remain byte-for-byte preserved. Their broader family estimates remain explicitly historical assumptions. **Do not add the measured whole-core totals to the historical core/proof/link totals:** those representations overlap.
+
+| Four-field scope | This continuation |
+| --- | --- |
+| Data resource | Retained typed history, corrections, source provenance, shared catalog and attributable DATA control storage. |
+| Existing path | Existing Sleeper adapters → typed administration stores and acceptance/link writers → stored DATA readers. The existing measurement harness, runtime and migrations are unchanged. |
+| Persisted result | A deterministic extracted JSON, measured forecast and reviewed retention/capacity report in the isolated CP28 worktree. No deployed application record or hosted resource is changed. |
+| Real proof and gaps | One accepted two-league PostgreSQL measurement supplies observed allocation deltas. Local retention verification is reported separately below. Fleet recurrence, unmeasured-family growth and account-specific capacity/cost remain distinct evidence gaps. |
+
+Before editing, clean local `main`, `origin/main`, fresh GitHub `main` and Vercel Ready production `8C3YSnXRCbmPETftQgRtirfyck5e` matched `87da4d0cb909ee280e125e73ad10e1c3dbd7cd9f`. Vercel remains bound to `clawmachinejed/league-one-audit`, `apps/site`, production branch `main`. The isolated branch started clean at `168a856`; [PR318](https://github.com/clawmachinejed/league-one-audit/pull/318) remains draft, open and unmerged. The published head's normal CI and preview were already verified. This local continuation does not transfer those results to changed calculator/report bytes or publish a new candidate.
+
+### Accepted experiment and measured costs
+
+[Run 39323139287](https://github.com/clawmachinejed/league-one-audit/actions/runs/39323139287), attempt 1, passed its sole case with no skips, filtered cases, retries or repeats. PostgreSQL 18.6 completed 17 phases over all 154 relations, 42 core captures, 168 typed receipts, 6,714 held links and two scoped replays. The case took 132.501 seconds; the supervisor lifecycle took 187.604 seconds on the fixed 0.25-CU child. The final read-only phase changed no scoped rows, logical bytes or physical allocation.
+
+Two independent reviews reconciled 107 source pins, source/profile/context/fixture bindings, every original archive member, all phase/group deltas and the cleanup acknowledgment. The coherent 13-receipt chain culminates in the acknowledged terminal cleanup success: child closure, schema cleanup, credential revocation and branch deletion succeeded, with no unresolved resources. Fresh authenticated Neon inventory independently showed child `br-winter-pine-b7gqc3u4` absent and only `integration-test-base` remaining. The original [artifact 12220502648](https://github.com/clawmachinejed/league-one-audit/actions/runs/39323139287/artifacts/12220502648) remains unchanged: 153,886 ZIP bytes, SHA-256 `4f6162dde2ca6698584d1cdbb3baf7c533f0cf70f9fb3dc69dcb6c161c6b4f01`. The companion is 1,631,137 bytes with SHA-256 `73668875846572a703d5667877e5d715062e82e098b6e0988510f28d123c96c5`. Artifact bytes are not database-storage bytes.
+
+| Observation | Measured physical allocation |
+| --- | ---: |
+| Empty migrated application, including 62 migration rows and one required control seed | 3,825,664 bytes / 3.65 MiB |
+| Final application, including controls and non-DATA baseline; 21,780 rows | 44,089,344 bytes / 42.05 MiB |
+| Once-only catalog DATA increment | 31,285,248 bytes / 29.84 MiB |
+| Additional controls during that catalog step | 32,768 bytes |
+| League A: 16 unchanged cores, DATA total / mean | 2,637,824 / 164,864 bytes |
+| League B: 16 unchanged cores, DATA total / mean | 2,564,096 / 160,256 bytes |
+| Combined unchanged mean, DATA only | 162,560 bytes / 158.75 KiB per core |
+| Combined unchanged mean, including observed synthetic controls | 169,984 bytes / 166 KiB per core |
+| Roster-link group alone within either unchanged batch | 140,288 bytes / 137 KiB per core |
+
+These are differences in allocated relation space, including indexes/TOAST. Logical tuple size, JSON size, database diagnostic size and transfer bytes are separately measured quantities and cannot be added to allocation. The two batches contain the same 160-held-player fixture occupancy. League A also allocated 65,536 shared bytes without new shared rows; this is itemized separately and is not an extra catalog capture. Four cumulative correction types per league are observed cases, not a population distribution or a universal correction slope. Same-request replay remains distinct from a new unchanged observation.
+
+### What the measured forecast says about 10 GiB
+
+The existing 821-day scenario assumes 126 active days at 24 hours/day and 695 inactive days. At five-minute active collection and one inactive collection/day, sixteen leagues produce **591,728 modeled core captures**. Those activity days and event volumes remain assumptions; the experiment did not observe elapsed recurrence.
+
+The following are overlapping component views of that same modeled workload, **not three numbers to sum**. They exclude starting allocation, corrections, other official families and unmeasured reserves:
+
+| Applied observed rate at fixed fixture occupancy | Modeled growth through the horizon |
+| --- | ---: |
+| Roster-link group only | 83,012,337,664 bytes / **77.311 GiB** |
+| Complete observed core DATA mean | 96,191,303,680 bytes / **89.585 GiB** |
+| Observed core DATA plus synthetic controls | 100,584,292,352 bytes / **93.676 GiB** |
+
+This is a linear sensitivity using a short measured batch. It is not a guaranteed lower/upper bound, a production exhaustion date or an actual future bill. Nevertheless, even the isolated dominant component's modeled demand is far above 10 GiB. **There is no defensible capacity PASS from these results under the unchanged target.** Slower illustrative scenarios do not satisfy the five-minute target and cannot be selected to manufacture a pass.
+
+The once-only shared catalog is counted once. Its initial load cannot establish repeated unchanged attempts or changed whole-catalog costs. Initial-core allocation is distinguished from recurrent unchanged batches. The measured forecast keeps corrections separate from unchanged event counts and discloses population/occupancy assumptions. Other exact-period, transaction, draft, bracket/report, directory, intake, failed/retried and normal scheduled-control growth remains unmeasured or historically estimated. Synthetic controls are not proof of the production distribution. MVCC, free space and auxiliary-fork effects are not long-term bloat measurements. No absent measurement is assigned a proven zero cost, and percentage reserves cannot establish complete coverage.
+
+### Capacity decision prepared for review
+
+The recommended next design is to reduce repeated unchanged storage while retaining every accepted observation and its provenance. The measured roster-link group is the first candidate: each unchanged acceptance currently persists another complete set of player-link rows. A design can investigate sharing identical immutable link content while keeping distinct acceptance receipts and all historical source/mapping/catalog evidence. It must prove changed-content retention, catalog/identity changes, exact historical reads, replay/concurrency safety and backward compatibility. It is not approved implementation, and its savings are not yet measured. Even removing the entire observed 140,288-byte link component would leave 22,272 DATA bytes per core, modeling **12.274 GiB** over the same 591,728 events before catalog, startup, other families and reserves. This is a sensitivity, not measured savings, and shows that link sharing alone cannot establish the target. Review must also attribute the remaining acceptance/receipt metadata before claiming a complete solution.
+
+The existing [standings storage](../../apps/site/migrations/048_official_standings.sql) already separates immutable content/team rows from fresh per-receipt captures and checks equality before reusing content. That pattern is the starting point for review; roster-link reuse additionally depends on catalog/identity/time-sensitive resolution.
+
+The concrete design boundary is the existing acceptance path, not a second pipeline:
+
+| Existing owner | Proposed design investigation; no implementation here |
+| --- | --- |
+| [Migration 042](../../apps/site/migrations/042_roster_player_links.sql), immutable link receipts/rows and `capture_roster_player_links` | A future forward migration could add immutable shared resolved-membership content and bind each distinct acceptance receipt to it. Preserve existing 042 rows; no rewrite, backfill or deletion is assumed. |
+| [Administration writer](../../apps/site/lib/league-administration/neon/administration.ts) → `record_league_administration_observation` → acceptance trigger | Keep this owner and every new capture's provenance. Reuse only when ordered membership, kind, identity state, canonical IDs, reasons and mapping proof all agree. Roster content alone is not a safe reuse key: directory versions and identity validity/conflicts can change. |
+| [Roster-link reader](../../apps/site/lib/league-administration/neon/roster-player-links.ts) and [current-roster caller](../../apps/site/lib/league-administration/neon/current-roster.ts) | Resolve shared rows behind the same historical receipt response, preserving exact capture time, source mapping/catalog bindings, strict association checks and current public behavior. |
+| [Runtime grants](../../apps/site/scripts/provision-runtime-role.sql) and [draft/identity cleanup](../../apps/site/migrations/054_draft_selections.sql) | Carry protection to new content references and prevent cleanup from orphaning retained roster or draft history. |
+
+Any selected implementation needs changed roster/directory/mapping tests, unchanged capture tests, historical readers, replay, competing writers/fences and cross-league isolation, followed by a newly reviewed bounded storage proof. No savings target, new execution allowance or implementation authority is inferred from this proposal.
+
+The alternative is an explicit revision of the storage budget, supported by a complete demand estimate, current account capacity/limits and costs. Increasing provider storage alone does not satisfy the existing 10-GiB contract. Neither option authorizes reducing collection cadence, deleting old corrections, discarding provenance or claiming partial coverage as complete. No runtime, migration, provider configuration, storage plan or contract is changed here.
+
+For a cost scale only, Neon's public list price checked October 19, 2026 is $0.35 per GB-month for database storage on Launch/Scale. Billing uses decimal GB and a 744-hour month. If the 100,584,292,352-byte core-plus-synthetic-control sensitivity were equal to billable storage and held for a full billing month, its storage-only illustration would be **$35.20/month**. This is neither the full forecast nor the account's price or expected bill: actual provider storage differs from summed relation allocation; compute, history, snapshots, other branches, transfer, other DATA families and negotiated terms are not included. Sources: [Neon pricing](https://neon.com/pricing), [usage and cost calculations](https://neon.com/docs/introduction/usage-calculations).
+
+Account-specific capacity and billing remain **UNVERIFIED**. Automatic approval review rejected one read-only navigation to the private production project `solitary-base-99261075`, stating that the project was not named in the CP28 authorization or established as its approved test target. No workaround or second access attempt followed. The resulting capacity response is a reviewable proposal, not an accepted capacity plan; direct permission to inspect that project's capacity/billing metadata is still needed if the larger-budget option is pursued.
+
+### Reproduce the local measured analysis
+
+Use the repository's Node 24 runtime from the worktree root. The calculator reads bounded local JSON and emits JSON to stdout; it makes no SQL/provider/network call, starts no child process and writes no file itself. The original accepted companion is retained under the ignored hosted evidence directory.
+
+~~~powershell
+node scripts/analyze-data-retention.mjs --measured --measurement-evidence test-results/cp28-hosted-168a856/extracted/artifacts/run-ncGccW/cp28-storage-evidence.json
+node scripts/analyze-data-retention.mjs --measured --self-test --measurement-evidence test-results/cp28-hosted-168a856/extracted/artifacts/run-ncGccW/cp28-storage-evidence.json
+node scripts/analyze-data-retention.mjs --derive-measurement --measurement-evidence test-results/cp28-hosted-168a856/extracted/artifacts/run-ncGccW/cp28-storage-evidence.json
+~~~
+
+The first command regenerates the measured forecast with exact-original-byte verification; the third regenerates the extracted measurement. Compare parsed JSON to the saved artifacts, or normalize line endings before text comparison. Original hashes always use untouched original bytes. A checkout without the retained original can use `--measured` to validate the pinned derived extraction, but must retain its explicit original-not-reverified status. The historical CLI and its three JSON inputs/outputs remain unchanged; this separation prevents a measured partial workload from silently replacing unmeasured family costs.
+
+### Retention proof and completion boundary
+
+Retention verification distinguishes ordinary restricted-writer behavior from privileged administration and CP29 restoration. The required policy is to preserve accepted 2026 typed records, all correction versions and necessary identity/source/catalog provenance at least through March 31, 2028; there is no automatic expiry after that date. Existing date-independent append-only protections can support this policy without inventing a new runtime date-hold feature. Privileged owner/migration and infrastructure actions remain controlled operational actions, not claimed impossible actions.
+
+**Local migrated-schema retention protection: PASSED for the tested ordinary-writer boundary at 168a856.** A fresh owned PostgreSQL 18.6 instance on loopback installed all 62 unchanged migrations and three unchanged role provisioners, yielding the actual 154-table schema. The audit cataloged 109 DATA/shared/control tables plus two additional calculation-provenance tables. Eighty-five declared immutable DATA tables had the unconditional UPDATE/DELETE history guard; `scoring_profiles` used its immutable-field guard, retained-parent foreign keys and runtime DELETE denial. Both additional calculation-provenance tables had history guards.
+
+The actual `league_one_runtime` LOGIN passed **223 expected destructive/DDL/owner-role denials**; **17 populated owner UPDATE/DELETE/FK checks** were rejected for their intended reasons. All inventoried tables denied runtime TRUNCATE, trigger alteration and MAINTAIN. Account/auth roles had no destructive table privileges. The existing DELETE exceptions were limited to `scoring_entities` and `projection_jobs`. Source review found the unchanged 48-hour projection prune excludes typed DATA history; completed jobs are operational state. Canonical orphan cleanup uses the caller's privileges and excludes identities referenced by retained roster/draft links; dependency foreign keys protect referenced identities. Disposable integration schema teardown remains a separate guarded path. Two owner-created accepted-content versions and their observations/child rows remained identical after negative checks. These are explicitly synthetic guard fixtures, not ordinary ingestion; the accepted hosted experiment separately supplies the real pipeline's correction/replay history proof.
+
+The final counts and sorted row digests of **all 154 application tables exactly matched the initial migrated baseline** after rollback. Independent review rehashed 68 source files and accepted the installed-catalog, rejection and rollback evidence. Cleanup removed the owned process, listener, data directory and fresh credential files; a second live process/listener check and retained-evidence secret scan passed. Original hosted artifacts were untouched. Two earlier local verifier attempts stopped on fixture ordering and an expected-error-text mismatch; both rolled back, remain retained as failed verifier attempts, and required changes only to ignored local verification scripts. They were not hosted retries or application defects.
+
+Evidence is retained under `test-results/cp28-forecast-update/retention-postgres18/` (final verification, installed schema/source hashes, both failed verifier receipts and cleanup), with `independent-retention-review.json` alongside it. The retained local verifier can be reviewed/reproduced with a fresh owned local setup; it is not a new production runtime or hosted dispatch profile. This proof supports date-independent ordinary-writer retention at the tested candidate. It does not attest to production-installed grants, privileged owner/migration resistance, infrastructure loss or restoration. A short test cannot prove durability by elapsed observation, and literal waiting until 2028 is not required. Isolated backup/restore and RPO/RTO remain CP29. CP26/CP27 and later installation/release gates remain unchanged.
+
+**CP28 closes only after the measured forecast, retained-history protection and an accepted capacity response are independently reviewed. The 10-GiB capacity decision is still open.** No further hosted measurement is automatically required or authorized. The next action is a capacity/design decision based on this evidence, followed by focused proof for whatever change is actually selected.
+
+### Final local verification and delivery state
+
+Bundled **Node 24.19.0** syntax validation and **64 calculator self-tests passed** (30 preserved historical plus 34 measured, zero failures). The author also verified 12 rejected invalid CLI combinations; these are reported separately, not folded into the suite count. Root and an independent reviewer reproduced the saved extraction and measured forecast from the exact original companion and independently checked the horizon arithmetic. The original calculator's default output and historical self-test behavior are unchanged. All three historical JSON files were never edited; raw checkout bytes and normalized Git content are distinguished where Windows CRLF differs from LF output.
+
+The final scope checker passed **307 reviewed-extension, 5 governance and 45 DATA-path changes** over its configured historical baseline; these are not counts of newly authored files. `git diff --check` passed. The application tree, all migrations, role provisioners, hosted fixture, qualification pins and historical seed/assumptions/forecast are unchanged from `168a856`. Independent calculator/source review found no remaining code blocker; independent retention/source review accepted the ordinary-writer boundary and its stated limitations. The new analysis is six local files: the calculator, two measured JSON files and three existing documentation files.
+
+| Delivery/evidence category | Current result |
+| --- | --- |
+| Focused hosted measurement | PASSED once at `168a856`; cleanup independently accepted; no new hosted attempt in this continuation. |
+| Local calculator/report | Complete and independently reviewed; measured partial forecast remains explicitly UNQUALIFIED for full capacity. |
+| Local retained-history protection | PASSED source-bound installed-schema/ordinary-writer checks: 223 restricted-login denials, 17 owner row/FK rejections, full 154-table rollback equality and verified cleanup. |
+| Full 16-league/all-family capacity | UNQUALIFIED; the partial dominant-component sensitivity exceeds 10 GiB. Neither the complete forecast nor a capacity-changing implementation is claimed done. |
+| Account-specific capacity/cost | UNVERIFIED; private read-only inspection was blocked by automatic approval review. Public pricing is illustrative only. |
+| New branch publication / ordinary CI / preview | Not performed for this local analysis. PR318 remains at the separately CI/preview-verified `168a856`; those results are historical to that exact published source. |
+| Full application build/unit/browser suite | Not rerun for this offline calculator/documentation change; targeted calculator, source-integrity and local retention checks are the new evidence. |
+| Merge / production deployment / DATA activation | Not performed. Production remains the revalidated `87da4d0`. |
+| Overall CP28 | INCOMPLETE: a reviewed capacity/design decision and proof of the selected solution remain. CP29 restoration is separate. |
+
+Original and derived local receipts are retained under `test-results/cp28-hosted-168a856/`, `test-results/cp28-retention-offline/` and `test-results/cp28-forecast-update/`. The final closeout records exact local source hashes, independent review and cleanup receipts. No additional private project access, paid run or runtime/retention/budget change is implied by these artifacts.
+
+## Historical CP27-based analysis — preserved October 18, 2026 record
+
+The following is the earlier source-bound analysis. Its local-only/unexecuted status statements and forecast numbers apply to that historical stage; the current measured update above supersedes those statements for CP28's focused experiment. Its original artifact, seed, assumptions and forecast remain unchanged.
+
 **Status: LOCAL ANALYSIS / CAPACITY UNQUALIFIED.** This report binds offline calculations to retained evidence; it does not qualify the 10 GiB target or execute a retention policy. CP26 remains **STOPPED / INCOMPLETE** and CP27 remains **DEFERRED / UNQUALIFIED**. Both remain open release obligations. No SQL, provisioning, paid run, publication, preview, merge, production change or DATA activation is authorized or performed by this work.
 
 ## Contract and source boundary

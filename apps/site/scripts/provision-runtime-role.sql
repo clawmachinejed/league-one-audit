@@ -563,6 +563,39 @@ DO $$ DECLARE link_table text; denied_privileges text:='INSERT,UPDATE,DELETE,TRU
 END; $$;
 -- END OPTIONAL ROSTER PLAYER LINKS GRANTS
 
+-- BEGIN OPTIONAL SHARED ROSTER PLAYER LINK CONTENT GRANTS
+DO $$ DECLARE relation_name text; helper text; role_name text;
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_player_link_contents') IS NOT NULL THEN
+    FOREACH relation_name IN ARRAY ARRAY['league_roster_player_link_contents','league_roster_player_link_content_entries'] LOOP
+      EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC,league_one_runtime',relation_name);
+      EXECUTE format('GRANT SELECT ON TABLE public.%I TO league_one_runtime',relation_name);
+      IF NOT has_table_privilege('league_one_runtime','public.'||relation_name,'SELECT')
+        OR has_table_privilege('league_one_runtime','public.'||relation_name,denied)
+        OR EXISTS(SELECT 1 FROM pg_class relation WHERE relation.oid=to_regclass('public.'||relation_name)
+          AND relation.relowner=(SELECT oid FROM pg_roles WHERE rolname='league_one_runtime')) THEN
+        RAISE EXCEPTION 'incorrect shared roster content privileges'; END IF;
+    END LOOP;
+    FOREACH helper IN ARRAY ARRAY['public.roster_player_link_content_value(uuid)','public.guard_roster_player_link_content_entry()','public.guard_legacy_roster_player_link_insert()','public.validate_shared_roster_player_link_receipt()','public.validate_roster_player_link_content()','public.store_roster_player_link_content(uuid,uuid,jsonb,jsonb)','public.capture_roster_player_links_shared()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN
+            RAISE EXCEPTION 'restricted role can execute private shared roster helper'; END IF;
+        END IF;
+      END LOOP;
+      IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+        LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+        WHERE function_entry.oid=to_regprocedure(helper) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+        RAISE EXCEPTION 'public can execute private shared roster helper'; END IF;
+    END LOOP;
+  END IF;
+END; $$;
+-- END OPTIONAL SHARED ROSTER PLAYER LINK CONTENT GRANTS
+
+
 -- BEGIN OPTIONAL MANAGER DIRECTORY FACTS GRANTS
 -- CP7 adds typed facts under the existing administration writer. Commissioner
 -- observations convey no roster ownership, account authority or direct write grant.
@@ -1067,3 +1100,184 @@ DO $$ DECLARE role_name text; helper text; entry_point text; table_name text;
   END IF;
 END; $$;
 -- END OPTIONAL SETTLED PUBLIC DATA REQUEST BUDGET GRANTS
+-- BEGIN OPTIONAL ROSTER POPULATION CONTENT GRANTS
+DO $$ DECLARE role_name text; helper text; accessor text:='public.roster_capture_population_evidence(public.league_roster_capture_receipts)';
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_population_contents') IS NOT NULL THEN
+    REVOKE ALL ON TABLE public.league_roster_population_contents FROM PUBLIC;
+    FOREACH helper IN ARRAY ARRAY['public.validate_roster_population_content()','public.intern_roster_population_evidence()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN RAISE EXCEPTION 'restricted role can execute private roster population helper'; END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',accessor);
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.league_roster_population_contents FROM %I',role_name);
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',accessor,role_name);
+        IF role_name='league_one_runtime' THEN
+          GRANT SELECT ON TABLE public.league_roster_population_contents TO league_one_runtime;
+          EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',accessor);
+          IF NOT has_table_privilege(role_name,'public.league_roster_population_contents','SELECT')
+            OR NOT has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'runtime cannot read roster population content'; END IF;
+        ELSIF has_table_privilege(role_name,'public.league_roster_population_contents','SELECT')
+          OR has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'account role can read roster population content'; END IF;
+        IF has_table_privilege(role_name,'public.league_roster_population_contents',denied)
+          OR has_any_column_privilege(role_name,'public.league_roster_population_contents','INSERT,UPDATE,REFERENCES') THEN
+          RAISE EXCEPTION 'restricted role can write roster population content'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+      LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+      WHERE function_entry.oid IN (to_regprocedure(accessor),to_regprocedure('public.validate_roster_population_content()'),
+        to_regprocedure('public.intern_roster_population_evidence()')) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute roster population function'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL ROSTER POPULATION CONTENT GRANTS
+-- BEGIN OPTIONAL ROSTER PROVENANCE CONTENT GRANTS
+DO $$ DECLARE role_name text; helper text; accessor text:='public.roster_capture_provenance(public.league_roster_capture_receipts)';
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'; BEGIN
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  IF to_regclass('public.league_roster_provenance_contents') IS NOT NULL THEN
+    REVOKE ALL ON TABLE public.league_roster_provenance_contents FROM PUBLIC;
+    FOREACH helper IN ARRAY ARRAY['public.validate_roster_provenance_content()','public.intern_roster_capture_provenance()'] LOOP
+      EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',helper);
+      FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+        IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+          EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',helper,role_name);
+          IF has_function_privilege(role_name,helper,'EXECUTE') THEN RAISE EXCEPTION 'restricted role can execute private roster provenance helper'; END IF;
+        END IF;
+      END LOOP;
+    END LOOP;
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',accessor);
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.league_roster_provenance_contents FROM %I',role_name);
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',accessor,role_name);
+        IF role_name='league_one_runtime' THEN
+          GRANT SELECT ON TABLE public.league_roster_provenance_contents TO league_one_runtime;
+          EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO league_one_runtime',accessor);
+          IF NOT has_table_privilege(role_name,'public.league_roster_provenance_contents','SELECT')
+            OR NOT has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'runtime cannot read roster provenance content'; END IF;
+        ELSIF has_table_privilege(role_name,'public.league_roster_provenance_contents','SELECT')
+          OR has_function_privilege(role_name,accessor,'EXECUTE') THEN RAISE EXCEPTION 'account role can read roster provenance content'; END IF;
+        IF has_table_privilege(role_name,'public.league_roster_provenance_contents',denied)
+          OR has_any_column_privilege(role_name,'public.league_roster_provenance_contents','INSERT,UPDATE,REFERENCES') THEN
+          RAISE EXCEPTION 'restricted role can write roster provenance content'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc function_entry,
+      LATERAL aclexplode(COALESCE(function_entry.proacl,acldefault('f',function_entry.proowner))) privilege
+      WHERE function_entry.oid IN (to_regprocedure(accessor),to_regprocedure('public.validate_roster_provenance_content()'),
+        to_regprocedure('public.intern_roster_capture_provenance()')) AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute roster provenance function'; END IF;
+  END IF;
+END; $$;
+-- END OPTIONAL ROSTER PROVENANCE CONTENT GRANTS
+
+-- BEGIN OPTIONAL CANONICAL STANDINGS GRANTS
+-- The sole fact writer and two guarded identity/reservation entry points are the complete public surface.
+-- Apply both here and in provisioning so rename/default/inherited ACLs cannot reopen an inner writer.
+DO $$ DECLARE function_entry record; role_name text; relation_name text; signature text; public_entry boolean;
+  denied text:='INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
+BEGIN
+  IF to_regclass('public.league_canonical_resource_receipts') IS NULL THEN RETURN; END IF;
+  IF current_setting('server_version_num')::integer>=170000 THEN denied:=denied||',MAINTAIN'; END IF;
+  -- Exact bounded inventory; historical wrappers were already private under
+  -- 027/030/031/032/033/035/043/046/048/049/053/054/055. Reassert only that denial.
+  FOREACH signature IN ARRAY ARRAY[
+    'public.canonical_legacy_team_namespace(integer,text)',
+    'public.canonical_jsonb_hash(jsonb)',
+    'public.assert_canonical_job_fence(jsonb)',
+    'public.canonical_source_namespace_policy(jsonb,integer)',
+    'public.guard_canonical_source_connection_identity()',
+    'public.fill_canonical_legacy_identity_namespaces()',
+    'public.guard_canonical_team_identity()',
+    'public.guard_canonical_enrollment_identity()',
+    'public.validate_canonical_enrollment_parent()',
+    'public.validate_canonical_registration_commit()',
+    'public.revise_canonical_source_connection(uuid,text,uuid,text,text,text)',
+    'public.validate_canonical_resource_mapping(jsonb)',
+    'public.canonical_registration_policy(jsonb,jsonb,jsonb)',
+    'public.resolve_canonical_season_teams(jsonb,jsonb,jsonb,jsonb)',
+    'public.register_canonical_official_source(jsonb,jsonb,jsonb)',
+    'public.canonical_exact_keys(jsonb,text[])',
+    'public.canonical_standings_scope(jsonb)',
+    'public.canonical_legacy_mapping(jsonb)',
+    'public.canonical_resource_policy(jsonb,jsonb)',
+    'public.canonical_fixture_job_context(jsonb,jsonb,jsonb)',
+    'public.begin_canonical_resource_attempt(jsonb,uuid,jsonb,jsonb,jsonb)',
+    'public.canonical_standings_fact_valid(jsonb,text)',
+    'public.canonical_standings_reasons_valid(jsonb,boolean)',
+    'public.validate_canonical_standings_value(jsonb,text,text)',
+    'public.canonical_standings_coverage(jsonb,integer,boolean,boolean)',
+    'public.verify_sleeper_standings_delivery(jsonb)',
+    'public.verify_registered_canonical_delivery(jsonb,jsonb)',
+    'public.canonical_native_hash(jsonb)',
+    'public.canonical_value_hash(jsonb)',
+    'public.canonical_attempt_identity(public.league_roster_resource_attempts)',
+    'public.canonical_receipt_delivery(public.league_canonical_resource_receipts)',
+    'public.canonical_receipt_evidence_hash(public.league_canonical_resource_receipts)',
+    'public.assert_canonical_delivery_context(jsonb,boolean)',
+    'public.canonical_standings_typed_value(uuid)',
+    'public.materialize_canonical_standings(uuid,jsonb)',
+    'public.guard_canonical_resource_insert()',
+    'public.validate_canonical_standings_complete()',
+    'public.validate_canonical_resource_receipt()',
+    'public.canonical_resource_write_result(public.league_canonical_resource_receipts,boolean)',
+    'public.accept_canonical_resource(jsonb,jsonb)',
+    'public.record_league_administration_observation(jsonb)',
+    'public.record_league_administration_observation_legacy_v65(jsonb)',
+    'public.record_league_administration_observation_v54(jsonb)',
+    'public.record_league_administration_observation_v53(jsonb)',
+    'public.record_league_administration_observation_v52(jsonb)',
+    'public.record_league_administration_observation_v48(jsonb)',
+    'public.record_league_administration_observation_v47(jsonb)',
+    'public.record_league_administration_observation_v45(jsonb)',
+    'public.record_league_administration_observation_v42(jsonb)',
+    'public.record_league_administration_observation_v34(jsonb)',
+    'public.record_league_administration_observation_v32(jsonb)',
+    'public.record_league_administration_observation_v31(jsonb)',
+    'public.record_league_administration_observation_v30(jsonb)',
+    'public.record_league_administration_observation_v29(jsonb)',
+    'public.record_league_administration_observation_v1(jsonb)'] LOOP
+    IF to_regprocedure(signature) IS NULL THEN RAISE EXCEPTION 'missing canonical function: %',signature; END IF;
+    SELECT proc.oid,proc.proname,proc.proowner INTO STRICT function_entry FROM pg_proc proc WHERE proc.oid=to_regprocedure(signature);
+    public_entry:=function_entry.proname IN ('record_league_administration_observation','begin_canonical_resource_attempt','register_canonical_official_source');
+    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',signature);
+    -- Preserve every existing inner writer's execution mode.
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON FUNCTION %s FROM %I',signature,role_name);
+        IF public_entry AND role_name='league_one_runtime' THEN EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO %I',signature,role_name); END IF;
+        IF has_function_privilege(role_name,function_entry.oid,'EXECUTE') IS DISTINCT FROM (public_entry AND role_name='league_one_runtime') THEN
+          RAISE EXCEPTION 'incorrect canonical function effective privilege: % / %',role_name,signature; END IF;
+        IF pg_has_role(role_name,function_entry.proowner,'MEMBER') THEN RAISE EXCEPTION 'restricted role can inherit or assume canonical function owner'; END IF;
+        IF has_schema_privilege(role_name,'public','CREATE') THEN RAISE EXCEPTION 'restricted role can replace public schema objects'; END IF;
+      END IF;
+    END LOOP;
+    IF EXISTS(SELECT 1 FROM pg_proc proc,LATERAL aclexplode(COALESCE(proc.proacl,acldefault('f',proc.proowner))) privilege
+      WHERE proc.oid=function_entry.oid AND privilege.grantee=0 AND privilege.privilege_type='EXECUTE') THEN
+      RAISE EXCEPTION 'public can execute canonical or inner writer function'; END IF;
+  END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['league_canonical_resource_contents','league_canonical_resource_receipts','league_canonical_standings_teams'] LOOP
+    EXECUTE format('REVOKE ALL ON TABLE public.%I FROM PUBLIC',relation_name);
+    FOREACH role_name IN ARRAY ARRAY['league_one_runtime','league_one_account','league_one_auth'] LOOP
+      IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=role_name) THEN
+        EXECUTE format('REVOKE ALL ON TABLE public.%I FROM %I',relation_name,role_name);
+        IF role_name='league_one_runtime' THEN EXECUTE format('GRANT SELECT ON TABLE public.%I TO %I',relation_name,role_name); END IF;
+        IF has_table_privilege(role_name,'public.'||relation_name,denied)
+          OR has_any_column_privilege(role_name,'public.'||relation_name,'INSERT,UPDATE,REFERENCES')
+          OR has_table_privilege(role_name,'public.'||relation_name,'SELECT') IS DISTINCT FROM (role_name='league_one_runtime') THEN
+          RAISE EXCEPTION 'incorrect canonical evidence effective privileges'; END IF;
+      END IF;
+    END LOOP;
+  END LOOP;
+END; $$;
+-- END OPTIONAL CANONICAL STANDINGS GRANTS

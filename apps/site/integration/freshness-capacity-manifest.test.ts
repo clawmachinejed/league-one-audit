@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createCapacityFleetFixture } from './freshness-capacity-fixtures';
-import { bindCapacityManifest, capacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan, assertCapacityEndpointInventory, assertCapacityManifest,
+import { bindCapacityManifest, capacityDigest, createCapacityDigest, capacityReadiness, createCapacityPlan, assertCapacityPlan, assertCapacityEndpointInventory, assertCapacityManifest,
   type CapacitySource } from './freshness-capacity-manifest';
 
 const fixtureCache = new Map<string, ReturnType<typeof createCapacityFleetFixture>>();
@@ -44,6 +44,34 @@ describe('CP26 immutable planning inventory', () => {
     expect(capacityDigest({ b: null, a: 0 })).toBe(capacityDigest({ a: 0, b: null }));
     expect(capacityDigest([0, null])).not.toBe(capacityDigest([null, 0]));
     expect(() => capacityDigest({ bad: Infinity })).toThrow(); expect(() => capacityDigest(undefined)).toThrow();
+  });
+  it('keeps scoped subtree reuse byte-compatible with independent JSON values', () => {
+    const digest = createCapacityDigest(), shared = { b: null, a: 0, flags: [false, true] };
+    const values = [shared, { nested: shared }, [shared, shared], JSON.parse(JSON.stringify([shared, shared]))];
+    for (const value of values) expect(digest(value)).toBe(capacityDigest(value));
+    expect(digest({ b: null, a: 0 })).toBe(digest({ a: 0, b: null }));
+    expect(digest([0, null])).not.toBe(digest([null, 0]));
+  });
+  it('preserves scoped canonical JSON rejection for nonfinite and non-JSON values', () => {
+    const digest = createCapacityDigest();
+    for (const value of [NaN, Infinity, -Infinity, { bad: Infinity }]) {
+      expect(() => digest(value)).toThrow('nonfinite JSON value');
+      expect(() => capacityDigest(value)).toThrow('nonfinite JSON value');
+    }
+    for (const value of [undefined, 1n, Symbol('invalid'), () => 0, { bad: undefined }]) {
+      expect(() => digest(value)).toThrow('non-JSON value');
+      expect(() => capacityDigest(value)).toThrow('non-JSON value');
+    }
+  });
+  it('rehashes mutated nested inputs across separate scopes and legacy digest calls', () => {
+    const value = { nested: { score: 1 } }, before = capacityDigest(value);
+    expect(createCapacityDigest()(value)).toBe(before);
+    value.nested.score = 2;
+    expect(capacityDigest(value)).not.toBe(before);
+    expect(createCapacityDigest()(value)).toBe(capacityDigest(value));
+    value.nested.score = Infinity;
+    expect(() => capacityDigest(value)).toThrow('nonfinite JSON value');
+    expect(() => createCapacityDigest()(value)).toThrow('nonfinite JSON value');
   });
   it('permits only predeclared native-category substitutions with a source reason', () => {
     const plan = createCapacityPlan('substitution', [{ leagueKey: 'league-01', sourceEvidenceRef: 'retained-no-native-category' }]);
@@ -111,13 +139,16 @@ describe('CP26 supplied source binding', () => {
     if (mutation === 'last-good-hash') lane.lastGood[0].payloadSha256 = '0'.repeat(64);
     expect(() => bindCapacityManifest(plan, source, events, lane)).toThrow();
   });
-  it('retains additional native periods as explicit unqualified gaps and freezes outage/backlog separately', () => {
+  it('retains additional native periods as explicit unqualified gaps in an outage manifest', () => {
     const { source, events } = fixture(plan); source.leagues[0].nativePeriods.push('19'); source.leagues[0].extraPeriodCoverageGaps.push('19');
     const manifest = bindCapacityManifest(plan, source, events, { kind: 'outage', startOffsetMs: 1_800_000,
       durationMs: 1_800_000, backlog: [{ id: 'declared-backlog-1', pairId: plan.pairs[0].id, reader: events[0].expectedReader }],
       lastGood: source.initialReaders.map(row => ({ pairId: row.pairId, reader: row.reader, payloadSha256: events.find(event => event.id === row.pairId + '/event-1')!.before.sha256 })), dependency: 'provider' });
     expect(manifest.source.leagues[0].extraPeriodCoverageGaps).toEqual(['19']);
-    expect(() => bindCapacityManifest(plan, source, events, { ...manifest.lane, kind: 'outage', startOffsetMs: 9_000_000,
+  });
+  it('rejects an outage extending beyond the planned observation horizon', () => {
+    const { source, events } = fixture(plan); source.leagues[0].nativePeriods.push('19'); source.leagues[0].extraPeriodCoverageGaps.push('19');
+    expect(() => bindCapacityManifest(plan, source, events, { kind: 'outage', startOffsetMs: 9_000_000,
       durationMs: 1_800_000, backlog: [], lastGood: [], dependency: 'provider' })).toThrow();
   });
 });
@@ -165,12 +196,24 @@ describe('strict complete native inventory and format bindings', () => {
 });
 
 beforeAll(()=>{fixtureCache.set('unit-policy',createCapacityFleetFixture('unit-policy'));},30_000);
-it('freezes an explicit DATA-only request policy without changing historical omitted-policy manifests',()=>{
- const plan=createCapacityPlan('unit-policy'),{source,events}=fixture(plan);
- expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBeUndefined();
- source.requestBudgetPolicy='cp1-data-with-separate-existing-owners-v1';
- expect(()=>bindCapacityManifest(plan,source,events,{kind:'healthy'})).toThrow();
- source.requestOwners=['data-refresh','independent-measurement','primary-projection','administration-maintenance'];
- expect(bindCapacityManifest(plan,source,events,{kind:'healthy'}).source.requestBudgetPolicy).toBe(source.requestBudgetPolicy);
- expect(()=>bindCapacityManifest(plan,{...source,requestBudgetPolicy:'combined' as never},events,{kind:'healthy'})).toThrow();
+it('preserves omitted request policies in historical manifests', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  expect(bindCapacityManifest(plan, source, events, { kind: 'healthy' }).source.requestBudgetPolicy).toBeUndefined();
+});
+it('rejects an explicit DATA-only request policy without separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  expect(() => bindCapacityManifest(plan, source, events, { kind: 'healthy' })).toThrow();
+});
+it('freezes an explicit DATA-only request policy with separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  source.requestOwners = ['data-refresh', 'independent-measurement', 'primary-projection', 'administration-maintenance'];
+  expect(bindCapacityManifest(plan, source, events, { kind: 'healthy' }).source.requestBudgetPolicy).toBe(source.requestBudgetPolicy);
+});
+it('rejects an unknown request policy with separate existing owners', () => {
+  const plan = createCapacityPlan('unit-policy'), { source, events } = fixture(plan);
+  source.requestBudgetPolicy = 'cp1-data-with-separate-existing-owners-v1';
+  source.requestOwners = ['data-refresh', 'independent-measurement', 'primary-projection', 'administration-maintenance'];
+  expect(() => bindCapacityManifest(plan, { ...source, requestBudgetPolicy: 'combined' as never }, events, { kind: 'healthy' })).toThrow();
 });

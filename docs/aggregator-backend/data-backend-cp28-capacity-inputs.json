@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 1,
+  "kind": "cp28-complete-conditional-capacity-inputs",
+  "qualification": "UNQUALIFIED",
+  "budgetBytes": 10737418240,
+  "benchmarkUniqueLeagues": 16,
+  "horizon": {
+    "start": "2026-01-01",
+    "endExclusive": "2028-04-01",
+    "days": 821,
+    "activeDays": 126,
+    "inactiveDays": 695,
+    "activeHoursPerDay": 24
+  },
+  "cadence": {
+    "primaryActiveMinutes": 5,
+    "sourceDueSensitivityMinutes": 4,
+    "inactivePerDay": 1,
+    "earlierPeriodsPerDailySweep": 17,
+    "resultActiveMinutes": 15,
+    "catalogAttemptsPerDay": 1
+  },
+  "officialFamilies": [
+    "leagueSettingsSeasons",
+    "teamsManagersCoowners",
+    "rostersPlayerIdentities",
+    "lineupsMatchups",
+    "officialScoresResultsStandings",
+    "transactionsWaiversFaab",
+    "draftsPicks",
+    "schedulesPlayoffsHistory"
+  ],
+  "workloads": [
+    {
+      "id": "core",
+      "coverageRefs": [
+        "leagueSettingsSeasons",
+        "teamsManagersCoowners",
+        "rostersPlayerIdentities",
+        "officialScoresResultsStandings"
+      ]
+    },
+    {
+      "id": "exactMatchups",
+      "coverageRefs": [
+        "lineupsMatchups",
+        "officialScoresResultsStandings",
+        "schedulesPlayoffsHistory"
+      ]
+    },
+    {
+      "id": "transactions",
+      "coverageRefs": [
+        "transactionsWaiversFaab"
+      ]
+    },
+    {
+      "id": "brackets",
+      "coverageRefs": [
+        "officialScoresResultsStandings",
+        "schedulesPlayoffsHistory"
+      ]
+    },
+    {
+      "id": "reports",
+      "coverageRefs": [
+        "officialScoresResultsStandings",
+        "schedulesPlayoffsHistory"
+      ]
+    },
+    {
+      "id": "drafts",
+      "coverageRefs": [
+        "draftsPicks"
+      ]
+    },
+    {
+      "id": "managerDirectory",
+      "coverageRefs": [
+        "teamsManagersCoowners"
+      ]
+    },
+    {
+      "id": "playerCatalog",
+      "coverageRefs": [
+        "rostersPlayerIdentities"
+      ]
+    }
+  ],
+  "terms": [
+    {
+      "id": "coreChangeAndEpochPremium",
+      "workload": "core",
+      "volume": "coreEvents",
+      "eventUnit": "fresh core",
+      "boundary": "Additional DATA beyond the warmed unchanged core for distinct corrections, mapping changes and directory-version epochs, including new A content. Do not add the whole corrected core again.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "exactCurrent",
+      "workload": "exactMatchups",
+      "volume": "coreEvents",
+      "eventUnit": "current exact-period event",
+      "boundary": "DATA incremental to core, including its own observations/receipts; shared tables attributed only to these events.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "exactEarlier",
+      "workload": "exactMatchups",
+      "volume": "earlierEvents",
+      "eventUnit": "earlier exact-period event",
+      "boundary": "Daily 17-earlier-period assumption; excludes current period.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "transactionsCurrent",
+      "workload": "transactions",
+      "volume": "coreEvents",
+      "eventUnit": "current transaction-period event",
+      "boundary": "Includes events, corrections, removals and provenance; excludes ordinary scheduler controls.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "transactionsEarlier",
+      "workload": "transactions",
+      "volume": "earlierEvents",
+      "eventUnit": "earlier transaction-period event",
+      "boundary": "Daily 17-earlier-period assumption; excludes current period.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "brackets",
+      "workload": "brackets",
+      "volume": "resultEvents",
+      "eventUnit": "bracket refresh",
+      "boundary": "Both obtainable bracket resources and their typed evidence; no additional full shared table totals.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "reports",
+      "workload": "reports",
+      "volume": "resultEvents",
+      "eventUnit": "result-report cycle",
+      "boundary": "All source-exposed required reports for the declared period inventory, not an assumed single row.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "drafts",
+      "workload": "drafts",
+      "volume": "dailyLeagueEvents",
+      "eventUnit": "complete draft refresh cycle",
+      "boundary": "All source-exposed 2026 drafts/picks/traded-pick references in one league cycle; historical one-draft/20-pick fixture is not a source bound.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "managerDirectory",
+      "workload": "managerDirectory",
+      "volume": "dailyLeagueEvents",
+      "eventUnit": "manager-directory refresh",
+      "boundary": "Independent user-directory observations; core manager facts already priced in core.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "catalogRecurring",
+      "workload": "playerCatalog",
+      "volume": "catalogEvents",
+      "eventUnit": "shared catalog attempt",
+      "boundary": "Once per fleet; includes failed/unchanged attempts, captures/slices/versions, and whole distinct catalog content versions. Excludes separately priced initial hosted catalog delta.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "ordinaryControlsAndFailures",
+      "workload": "all",
+      "volume": "one",
+      "eventUnit": "whole horizon",
+      "boundary": "Ordinary scheduler/intake/dispatch/job controls and failed/retried work not already in family DATA terms; replaces synthetic-control sensitivity, never adds both.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "startupAndOnboarding",
+      "workload": "all",
+      "volume": "one",
+      "eventUnit": "whole horizon",
+      "boundary": "Migrated DATA allocation, actual 16-league onboarding and all other startup, excluding the once-only historical catalog proxy and recurring events.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "otherSharedAndMaintenance",
+      "workload": "all",
+      "volume": "one",
+      "eventUnit": "whole horizon",
+      "boundary": "Additional shared identities/configurations and physical maintenance/MVCC allocation not already attributed to any event term. WAL/backups/billing are separate operational gaps.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "beyondAssumedPeriodInventory",
+      "workload": "all",
+      "volume": "one",
+      "eventUnit": "whole horizon",
+      "boundary": "Additional native 2026 periods and source-exposed shapes beyond the explicit 17-earlier-period and event inventory; never silently omitted.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    },
+    {
+      "id": "benchmarkGeometryAdjustment",
+      "workload": "all",
+      "volume": "one",
+      "eventUnit": "whole horizon",
+      "boundary": "Effect of the real up-to-20-team benchmark and declared held-player distribution versus measured 10-team/80-held core; no linear whole-core scaling is asserted.",
+      "rate": {
+        "status": "unmeasured",
+        "bytesPerEvent": null,
+        "provenance": "No accepted combined recurring allocation measurement for this disjoint term."
+      }
+    }
+  ],
+  "provenance": {
+    "contract": "docs/aggregator-backend/data-backend-readiness-contract.md",
+    "historicalAssumptions": "docs/aggregator-backend/data-backend-cp28-assumptions.json",
+    "sourceDue": "apps/site/migrations/059_public_data_resource_schedule.sql",
+    "status": "Explicit planning assumptions, not observed scheduling or an exhaustive source-period bound."
+  },
+  "interpretation": [
+    "The 821-day horizon and activity mix are preserved planning assumptions; all events are additional exposure, not reconstructed calendar history.",
+    "Whole combined core DATA replaces overlapping historical core/raw/proof/standings/link terms. Independent A and B1 savings are never added.",
+    "Each family rate is event-conditioned incremental DATA; generic shared receipt/attempt/observation tables cannot be assigned wholesale to multiple families.",
+    "The historical full-catalog first-load DATA delta is counted once as a startup proxy; local catalog startup and the old seed are not added.",
+    "Missing rates remain null in U. Explicit supplied numeric rates must be labeled assumed and sourced; a conditional numeric total does not establish capacity qualification.",
+    "The fixed 10 GiB contract and complete retained provenance/history remain unchanged. An over-budget sensitivity requires reviewed further lossless design or an explicit user-approved contract change, not lower cadence or deleted history."
+  ]
+}

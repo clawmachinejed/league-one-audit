@@ -13,6 +13,10 @@ import type { BracketFamily } from '../aggregator/playoff-brackets';
 import type { RosterAttempt, RosterPopulationEvidence } from '../aggregator/current-roster';
 import { isCalculationSourceCapture, type CalculationSourceCapture, type CalculationSourceAssociation } from './calculation-capture';
 import { assertOriginalPublicCapture, type PublicCaptureWitness } from './public-capture-witness';
+import { buildLegacyAdministrationInput } from './legacy-administration-input';
+import { buildSleeperCanonicalStandingsDelivery } from './sleeper-canonical-standings';
+import type { CanonicalSourceMappingV1 } from './canonical-source-contracts';
+import type { CanonicalResourceAttempt, CanonicalStandingsPolicy, CanonicalObservationWriteResult } from './canonical-standings-contracts';
 
 /** Called by existing enrolled collectors before loading any roster document. */
 export async function captureAdministrationSourceMapping(externalLeagueId: string,
@@ -34,7 +38,8 @@ export type AdministrationCalculationContext = Readonly<{
 }>;
 export type AdministrationCaptureResult = Readonly<{
   status: 'stored' | 'disabled' | 'unavailable';
-  results: readonly Readonly<{ family: AdministrationFamily; result: AdministrationWriteResult }>[];
+  results: readonly Readonly<{ family: AdministrationFamily; result: AdministrationWriteResult;
+    canonicalStandings?: CanonicalObservationWriteResult }>[];
   context?: AdministrationCalculationContext;
   /** The same run may collect later periods after its independently observed league document. */
   population?: RosterPopulationEvidence;
@@ -47,6 +52,9 @@ export async function recordCapturedAdministration(
   options: Readonly<{ store?: LeagueAdministrationStore; now?: () => Date; fence?: AdministrationWriteFence;
     signal?: AbortSignal; expectedRosterCount?: number; mapping?: AdministrationSourceMapping | null;
     rosterAttempt?: RosterAttempt;
+    /** Deployment-selected companion reserved before the original native players attempt. */
+    canonicalStandings?: Readonly<{ mapping: CanonicalSourceMappingV1; policy: CanonicalStandingsPolicy;
+      attempt: CanonicalResourceAttempt; captureId: string }>;
     managerAttempt?: RosterAttempt;
     /** Explicit sibling evidence; primary-complete v1 remains independently reserved. */
     managerEvidenceVersion?: 'v2';
@@ -98,7 +106,7 @@ export async function recordCapturedAdministration(
     || documents.filter(document => document.family === 'matchups' && document.week === options.calculationCapture!.week).length !== 1)) {
     throw new Error('Calculation source capture requires an exact league and matchup input.');
   }
-  const results: { family: AdministrationFamily; result: AdministrationWriteResult }[] = [];
+  const results: { family: AdministrationFamily; result: AdministrationWriteResult; canonicalStandings?: CanonicalObservationWriteResult }[] = [];
   let context: AdministrationCalculationContext | undefined;
   let sourceChangedDuringVerification = false;
   let captureInputReplaced = false;
@@ -161,7 +169,24 @@ export async function recordCapturedAdministration(
       && normalized.envelope.completeness === 'complete' && leaguePayload
       && leaguePayload.sport === 'nfl' && leaguePayload.season_type === 'regular'
       ? validateSleeperCalendarEvidence(options.calendarEvidence, String(scope.season)) ?? undefined : undefined;
-    const write = () => draftAttempt
+    let canonicalResult: CanonicalObservationWriteResult | undefined;
+    const write = async (): Promise<AdministrationWriteResult> => {
+      if (options.canonicalStandings && document.family === 'rosters') {
+        if (!store.recordCanonicalObservation || !options.fence || !mapping || !attempt || origin !== 'network'
+          || options.expectedAcquisition?.work.kind !== 'core') throw new Error('Canonical standings requires the original core capture.');
+        const selected = options.canonicalStandings;
+        const legacyInput = buildLegacyAdministrationInput(normalized, options.fence, mapping,
+          { attempt, ...(population ? { population } : {}) },
+          managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
+          undefined, undefined, undefined, undefined, undefined,
+          managerEvidenceAttempt ? { attempt: managerEvidenceAttempt, ...(population ? { population } : {}) } : undefined);
+        const delivery = buildSleeperCanonicalStandingsDelivery({ normalized, mapping: selected.mapping, policy: selected.policy,
+          attempt: selected.attempt, fence: options.fence, captureId: selected.captureId, normalizedAt: now().toISOString(), legacyInput });
+        canonicalResult = await store.recordCanonicalObservation(delivery, selected.mapping, selected.attempt, options.fence);
+        if (!canonicalResult.legacyResult) throw new Error('Canonical bridge omitted its original native result.');
+        return canonicalResult.legacyResult;
+      }
+      return draftAttempt
       ? store.recordObservation(normalized, options.fence, mapping, undefined, undefined, undefined,
         undefined, undefined, undefined, undefined, undefined, undefined, undefined,
         draftAttempt.kind === 'metadata' ? { attempt: draftAttempt.attempt } : undefined,
@@ -201,6 +226,7 @@ export async function recordCapturedAdministration(
         managerAttempt ? { attempt: managerAttempt, ...(population ? { population } : {}) } : undefined,
         leagueSettingsAttempt ? { attempt: leagueSettingsAttempt } : undefined)
         : store.recordObservation(normalized, options.fence, document.family === 'rosters' ? mapping : undefined);
+    };
     let result: AdministrationWriteResult;
     try { result = await write(); }
     catch (error) {
@@ -267,7 +293,7 @@ export async function recordCapturedAdministration(
       // evidence, but never label that older calculation with the newer version.
       sourceChangedDuringVerification ||= normalized.contentHash !== originalContentHash;
     }
-    results.push({ family: document.family, result });
+    results.push({ family: document.family, result, ...(canonicalResult ? { canonicalStandings: canonicalResult } : {}) });
     if (calculationCapture && ['changed', 'unchanged', 'replayed'].includes(result.status) && result.calculationInput) {
       if (document.family === 'league') leagueInputId = result.calculationInput.id;
       if (document.family === 'matchups') matchupInputId = result.calculationInput.id;

@@ -19,6 +19,12 @@ export type { LeagueAdministrationStore, LeagueAdministrationStoreRead } from '.
 export function createLeagueAdministrationStore(database: Database): LeagueAdministrationStore {
   if (!database.enabled) return {
     enabled: false,
+    registerCanonicalLeagueSeason: async () => { throw new Error('Administration persistence disabled.'); },
+    readCanonicalSourceMapping: async () => ({ status: 'disabled', reason: 'persistence_disabled' }),
+    beginCanonicalResourceAttempt: async () => { throw new Error('Administration persistence disabled.'); },
+    recordCanonicalObservation: async () => { throw new Error('Administration persistence disabled.'); },
+    readCanonicalOfficialStandings: async (_mapping, selection) => ({ status: 'disabled', representation: selection.representation,
+      reason: 'persistence_disabled', attemptId: null, receiptId: null }),
     beginPlayerDirectoryAttempt: async () => { throw new Error('Administration persistence disabled.'); },
     recordPlayerDirectoryCapture: async () => { throw new Error('Administration persistence disabled.'); },
     readAcceptedPlayerDirectory: async () => ({ status: 'disabled' }),

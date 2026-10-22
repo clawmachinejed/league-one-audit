@@ -9,6 +9,7 @@ on:
         default: full
         options:
           - full
+          - data-canonical-standings-v1
           - data-official-results-v1
           - data-official-results-played-v1
           - data-fresh-install-v1
@@ -106,6 +107,9 @@ jobs:
               ;;
             workflow_dispatch:data-fresh-install-v1)
               pnpm test:integration --profile=data-fresh-install-v1
+              ;;
+            workflow_dispatch:data-canonical-standings-v1)
+              pnpm test:integration --profile=data-canonical-standings-v1
               ;;
             workflow_dispatch:data-backend-controls-v1)
               pnpm test:integration --profile=data-backend-controls-v1

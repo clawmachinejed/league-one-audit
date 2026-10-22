@@ -15,6 +15,7 @@ import type { PublicDataRefreshOutcome, PublicDataRefreshSelected, PublicDataRef
 import { PUBLIC_INTAKE_JOB, type PublicIntakeOutcome, type PublicIntakeStore, type PublicDataBatchOutcome, type PublicDataBatchOwner } from './public-intake-contracts';
 import { assertOriginalPublicCapture, validateRequestedPublicCaptureWitness, type PublicCaptureWitness } from './public-capture-witness';
 import type { AdministrationSourceMapping } from './source-mapping';
+import { selectCanonicalStandingsCapture, parseRegisteredProviderKey, legacyStandingsMapping } from './canonical-standings-policy';
 
 type PublicIntakeCleanup = Readonly<{ intake: Pick<PublicIntakeStore, 'fail'>; jobs: Pick<ProjectionStore, 'failJob'>;
   refresh?: Pick<PublicDataRefreshStore, 'recordSelectionFailure' | 'recordResourceSelectionFailure'> }>;
@@ -462,6 +463,21 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
         await intake.completeExactPeriod(work, mapping, { observations: { league: league.observationId, matchups: matchup.observationId },
           receipts: { settings: league.leagueSettingsAcceptance.receiptId, matchups: matchup.matchupAcceptance.receiptId } }, fence);
       } else if (work.kind === 'core') {
+        const canonicalPolicy = selectCanonicalStandingsCapture(mapping, work);
+        let canonicalStandings: NonNullable<Parameters<typeof recordCapturedAdministration>[2]>['canonicalStandings'];
+        if (canonicalPolicy) {
+          if (!administration.readCanonicalSourceMapping || !administration.beginCanonicalResourceAttempt
+            || !administration.recordCanonicalObservation || !intake.captureWitness) throw new Error('Canonical standings capability unavailable.');
+          const candidate = { ...mapping, scope: { ...mapping.scope, nativeNamespace: 'nfl' }, sourceNamespace: `nfl:${mapping.scope.season}` };
+          const provider = parseRegisteredProviderKey(mapping.scope.provider, candidate, canonicalPolicy);
+          const selected = await administration.readCanonicalSourceMapping({ sourceLeague: { provider, resourceKind: 'league',
+            nativeNamespace: 'nfl', nativeId: mapping.scope.externalLeagueId }, leagueSeasonId: mapping.leagueSeasonId });
+          if (selected.status !== 'available' || compatibleRevision(legacyStandingsMapping(selected.mapping)) !== compatibleRevision(mapping)) {
+            throw new Error('Canonical standings mapping differs from native capture.');
+          }
+          const attempt = await administration.beginCanonicalResourceAttempt(selected.mapping, randomUUID(), canonicalPolicy, fence);
+          canonicalStandings = { mapping: selected.mapping, policy: canonicalPolicy, attempt, captureId: randomUUID() };
+        }
         const attempts = await administration.beginRosterCapture(mapping, randomUUID(), randomUUID(), fence);
         const settings = await administration.beginLeagueSettingsAttempt(mapping, randomUUID(), fence);
         let managerEvidenceAttempt;
@@ -480,7 +496,7 @@ async function runClaimedPublicIntakeStep(requestId: string | undefined,
         const documents = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
         const captured = await recordCapturedAdministration(mapping.scope, documents, { store: administration,
           signal, fence, mapping, rosterAttempt: attempts.players, managerAttempt: attempts.managers,
-          leagueSettingsAttempt: settings, now, expectedAcquisition: witness,
+          leagueSettingsAttempt: settings, now, expectedAcquisition: witness, ...(canonicalStandings ? { canonicalStandings } : {}),
           ...(witness && work.season === 2026 ? { retainIndependentCoreCaptures: true } : {}),
           ...(managerEvidenceAttempt ? { managerEvidenceVersion: 'v2', managerEvidenceAttempt } : {}) });
         const league = captured.results.find(entry => entry.family === 'league')?.result;

@@ -30,8 +30,8 @@ export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-st
   WITH selected AS (
     SELECT scope.id AS scope_id,scope.identity,scope.league_season_id,attempt.id AS attempt_id,
       attempt.ordinal,attempt.source_mapping,attempt.capture_nonce,attempt.write_fence,attempt.reserved_at,
-      receipt.id AS receipt_id,receipt.content_id,receipt.legacy_observation_id,receipt.provenance,
-      receipt.configuration_content_id,receipt.population_evidence,receipt.expected_team_count
+      receipt.id AS receipt_id,receipt.content_id,receipt.legacy_observation_id,public.roster_capture_provenance(receipt) AS provenance,
+      receipt.configuration_content_id,public.roster_capture_population_evidence(receipt) AS population_evidence,receipt.expected_team_count
     FROM public.league_roster_resource_scopes scope
     JOIN public.league_source_connections connection ON connection.id=scope.connection_id
       AND connection.league_season_id=scope.league_season_id
@@ -70,6 +70,18 @@ export const OFFICIAL_STANDINGS_SQL = `/* league-administration:read-official-st
   LEFT JOIN public.league_official_standings_captures qualification ON qualification.receipt_id=selected.receipt_id
   LEFT JOIN public.league_official_standings_contents header ON header.content_id=selected.content_id
   LEFT JOIN public.league_roster_capture_receipts first_receipt ON first_receipt.id=header.first_receipt_id`;
+
+/** Only the explicit canonical API historical branch uses this bounded immutable-revision selector.
+ * The original current/legacy API above retains its existing current-mapping requirement. */
+export const HISTORICAL_OFFICIAL_STANDINGS_SQL = OFFICIAL_STANDINGS_SQL
+  .replace('league-administration:read-official-standings', 'league-administration:read-historical-legacy-standings')
+  .replace(`connection.current_mapping_revision_id=$2::uuid
+      AND connection.mapping_generation=$3`, `EXISTS (SELECT 1 FROM public.league_source_mapping_revisions revision
+        WHERE revision.id=$2::uuid AND revision.connection_id=scope.connection_id
+          AND revision.league_season_id=scope.league_season_id AND revision.generation=$3
+          AND revision.provider='sleeper' AND revision.native_namespace='nfl'
+          AND revision.external_league_id=attempt.source_mapping->'scope'->>'externalLeagueId'
+          AND revision.source_namespace='nfl:2026')`);
 
 function object(value: unknown): Record<string, unknown> {
   if (typeof value === 'string') return object(JSON.parse(value));

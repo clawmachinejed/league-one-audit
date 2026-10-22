@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { assertCapacityManifest, CAPACITY_EXTERNAL_GAPS, CAPACITY_LIMITS, capacityDigest, capacityTime,
+import { assertCapacityManifest, CAPACITY_EXTERNAL_GAPS, CAPACITY_LIMITS, capacityDigest, createCapacityDigest, capacityTime,
   type CapacityManifest, type CapacityRequestBudgetPolicy, type ReaderExpectation } from './freshness-capacity-manifest';
 
 /** Infinity is serialized explicitly; JSON.stringify(Infinity) would silently turn failure into null. */
@@ -157,6 +157,8 @@ export type CapacityEvidence = { manifestDigest: string; startedAt: number; ende
 
 /** Offline reconciliation only. It cannot attest SQL, clock truth, completeness of external journals or authority. */
 export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: CapacityEvidence) {
+  const digestFrozen = createCapacityDigest();
+  const expectedDigest = (value: unknown) => Object.isFrozen(value) ? digestFrozen(value) : capacityDigest(value);
   assertCapacityManifest(manifest); assert.equal(evidence.manifestDigest, manifest.digest, 'source/manifest drift');
   const { plan } = manifest; const start = capacityTime(evidence.startedAt), end = capacityTime(evidence.endedAt); assert(end >= start);
   const pairIds = plan.pairs.map(row => row.id);
@@ -228,7 +230,7 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
     const expected = manifest.source.initialReaders.find(row => row.pairId === pair.id)!.reader;
     const firstEvent = boundEvents.get(plan.events.find(row => row.pairId === pair.id)!.id)!;
     if (first.read.at !== first.at || age(pair.id, first.read, first.at) === 'infinity'
-      || capacityDigest(first.reader) !== capacityDigest(expected) || first.read.version !== expected.version
+      || capacityDigest(first.reader) !== expectedDigest(expected) || first.read.version !== expected.version
       || first.read.payloadSha256 !== firstEvent.before.sha256) {
       errors.push(`unproved first acceptance: ${pair.id}`); continue;
     }
@@ -272,8 +274,8 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
         && origins.get(row.read.originObservationId)!.observedAt >= row.publishedAt
         && attempts.get(origins.get(row.read.originObservationId)!.attemptId)!.at >= row.publishedAt
         && row.read.version === expected.after.version && row.read.payloadSha256 === expected.after.sha256
-        && capacityDigest(row.reader) === capacityDigest(expected.expectedReader)
-        && capacityDigest(row.retainedHistory) === capacityDigest(expected.retainedHistory);
+        && capacityDigest(row.reader) === expectedDigest(expected.expectedReader)
+        && capacityDigest(row.retainedHistory) === expectedDigest(expected.retainedHistory);
       if (!correct) { incorrectEvents.push(event.id); return 'infinity' as const; }
       return row.read!.at - row.publishedAt;
     });
@@ -330,14 +332,14 @@ export function evaluateCapacityEvidence(manifest: CapacityManifest, evidence: C
         return item.before.read.at < row.startedAt && item.during.read.at >= row.startedAt && item.during.read.at < restoredAt
           && [item.before, item.during].every(witness => age(expected.pairId, witness.read, witness.read.at) !== 'infinity'
             && witness.read.version === expected.reader.version && witness.read.payloadSha256 === expected.payloadSha256
-            && capacityDigest(witness.reader) === capacityDigest(expected.reader));
+            && capacityDigest(witness.reader) === expectedDigest(expected.reader));
       });
       const backlog = indexed(row.backlog, item => item.id, manifest.lane.backlog.map(item => item.id));
       const backlogTimes = manifest.lane.backlog.map(expected => {
         const item = backlog.get(expected.id); if (!item) return 'infinity' as const; capacityTime(item.queuedAt);
         if (item.queuedAt > restoredAt || !item.read || item.read.at < Math.max(item.queuedAt, restoredAt)
           || age(expected.pairId, item.read, item.read.at) === 'infinity'
-          || item.read.version !== expected.reader.version || capacityDigest(item.reader) !== capacityDigest(expected.reader)) return 'infinity' as const;
+          || item.read.version !== expected.reader.version || capacityDigest(item.reader) !== expectedDigest(expected.reader)) return 'infinity' as const;
         return item.read.at - restoredAt;
       });
       const recoveryMs = summarizeCapacity(recoveryTimes).maxMs, backlogMs = summarizeCapacity(backlogTimes).maxMs;

@@ -215,6 +215,9 @@ describe('independent stored official standings', () => {
     expect(query).toHaveBeenCalledExactlyOnceWith(OFFICIAL_STANDINGS_SQL,
       [JSON.stringify({ scope: currentRosterScope(mapping), policy: CURRENT_ROSTER_POLICY }), id(3), 1, id(5)]);
     expect(OFFICIAL_STANDINGS_SQL).toContain('attempt.ordinal=head.latest_ordinal');
+    expect(OFFICIAL_STANDINGS_SQL).toContain('public.roster_capture_population_evidence(receipt) AS population_evidence');
+    expect(OFFICIAL_STANDINGS_SQL).not.toContain('receipt.configuration_content_id,receipt.population_evidence');
+    expect(OFFICIAL_STANDINGS_SQL).toContain('LIMIT 2');
     expect(OFFICIAL_STANDINGS_SQL).not.toMatch(/league_roster_resource_acceptances|content.accepted|\b(?:UPDATE|INSERT|DELETE|fetch)\b/u);
     await methods.readOfficialStandings({ ...mapping, scope: { ...mapping.scope, season: 2025 } }); expect(query).toHaveBeenCalledOnce();
     expect(await officialStandingsMethods(database(() => { throw Error('offline'); })).readOfficialStandings(mapping)).toMatchObject({ status: 'unavailable' });
@@ -225,9 +228,48 @@ describe('independent stored official standings', () => {
       .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
     expect(query).toHaveBeenCalledOnce();
   });
+  it.each(['SQL NULL', 'unproved configuration'] as const)('preserves %s population evidence without inventing coverage', async kind => {
+    const original = fixture().row;
+    const row = { ...original, population_evidence: kind === 'SQL NULL' ? null : fixture(undefined, 1).row.population_evidence };
+    const query = vi.fn(() => [row]);
+    const result = await officialStandingsMethods(database(query)).readOfficialStandings(mapping);
+    expect(result).toMatchObject({ status: 'available', capture: { configurationContentId: null, expectedTeamCount: null },
+      coverage: { population: 'unproved', entitySet: 'unknown' }, teams: [{ pointsFor: { value: '512.37' } }] });
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it('preserves the latest missing-capture result when the accessor returns SQL NULL', async () => {
+    const query = vi.fn(() => [{ ...fixture().row, receipt_id: null, population_evidence: null, population_after_reservation: false }]);
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping))
+      .toEqual({ status: 'unavailable', reason: 'latest_roster_attempt_has_no_capture' });
+    expect(query).toHaveBeenCalledOnce();
+  });
+  it('does not retry or borrow inline evidence after a shared population binding error', async () => {
+    const query = vi.fn(() => { throw Error('Invalid shared roster population binding.'); });
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping, { rosterReceiptId: id(5) }))
+      .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
+  });
   it('keeps disabled facade inert', async () => {
     const hostile = Object.defineProperty({}, 'scope', { get: () => { throw Error('must not inspect'); } });
     expect(await createLeagueAdministrationStore({ enabled: false, reason: 'missing-database-url' }).readOfficialStandings!(hostile as never))
       .toEqual({ status: 'disabled' });
+  });
+});
+
+describe('official standings logical provenance projection', () => {
+  it('preserves the original witness and clocks in the selected receipt', async () => {
+    const { row } = fixture();
+    const query = vi.fn(() => [row]);
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping, { rosterReceiptId: id(5) }))
+      .toMatchObject({ status: 'available', capture: { provenance: row.provenance } });
+    expect(query).toHaveBeenCalledOnce();
+    expect(OFFICIAL_STANDINGS_SQL).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(OFFICIAL_STANDINGS_SQL).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not retry after shared provenance reconstruction fails', async () => {
+    const query = vi.fn(() => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await officialStandingsMethods(database(query)).readOfficialStandings(mapping, { rosterReceiptId: id(5) }))
+      .toEqual({ status: 'unavailable', reason: 'official_standings_evidence_unavailable' });
+    expect(query).toHaveBeenCalledOnce();
   });
 });

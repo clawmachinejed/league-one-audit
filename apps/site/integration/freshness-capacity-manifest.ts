@@ -32,7 +32,8 @@ export type CapacityPlan = { kind: 'cp26-planning-inventory-v1'; seed: string;
   categorySubstitutions: { leagueKey: string; sourceEvidenceRef: string }[];
   leagues: PlannedLeague[]; pairs: PlannedPair[]; events: PlannedEvent[]; samples: PlannedSample[];
   intakeStartOffsetMs: number; observationHorizonMs: number; sampleDispatchLatenessMs: number; sampleTimeoutMs: number; limits: typeof CAPACITY_LIMITS; digest: string };
-export function capacityDigest(value: unknown): string {
+/** Reuse only within one synchronous operation whose input objects do not change. */
+export function createCapacityDigest(): (value: unknown) => string {
   const memo = new WeakMap<object, string>();
   const canonical = (item: unknown): string => {
     if (item === null || typeof item === 'string' || typeof item === 'boolean') return JSON.stringify(item);
@@ -43,7 +44,10 @@ export function capacityDigest(value: unknown): string {
       : '{' + Object.keys(item).sort().map(key => JSON.stringify(key) + ':' + canonical((item as Record<string, unknown>)[key])).join(',') + '}';
     memo.set(item, result); return result;
   };
-  return createHash('sha256').update(canonical(value)).digest('hex');
+  return value => createHash('sha256').update(canonical(value)).digest('hex');
+}
+export function capacityDigest(value: unknown): string {
+  return createCapacityDigest()(value);
 }
 export function freezeCapacityValue<T>(value: T): T {
   const visited = new WeakSet<object>();

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { bindCapacityManifest, type CapacitySource, type CapacityLane } from './freshness-capacity-manifest';
+import { bindCapacityManifest, capacityDigest, type CapacitySource, type CapacityLane } from './freshness-capacity-manifest';
 import { assertCapacityHttpEndpoint, evaluateCapacityEvidence, evaluateRequestEnvelope, summarizeCapacity, type CapacityEvidence,
   type HttpAttempt, type OriginObservation, type ResourceRead } from './freshness-capacity-evidence';
 
@@ -66,6 +66,26 @@ function reportPost(attempt: HttpAttempt): HttpAttempt {
   return { ...attempt, method: 'POST', path: '/graphql', report: { family: 'weekly_report', externalLeagueId, nativeWeek,
     bodySha256: createHash('sha256').update(body).digest('hex') } };
 }
+
+// Complete report hashes were captured from unchanged 364cc854455c02aa2009fe9f3e8946d19c145bd9.
+// Offline repair receipts additionally compare every old/new report field for shared and parsed inputs.
+describe('invocation-scoped capacity evidence digests', () => {
+  it('preserves the complete healthy report for shared evidence', () => {
+    const { manifest, evidence } = fresh();
+    const report = evaluateCapacityEvidence(manifest, evidence);
+    expect(report.errors).toEqual([]);
+    expect(report.evidenceDigest).toBe('968d06a312609e0966884e46f00b1b201b33a73c5d6cb9e186414c014da47ca1');
+    expect(capacityDigest(report)).toBe('36cc9c06d3ae46e49c6e7416e3ce8a0fdcc0cd136d9a63b697dd7ee41eb04938');
+  });
+  it('preserves the complete shifted-anchor report for shared evidence', () => {
+    const { manifest, evidence } = fresh();
+    evidence.firstAcceptances[32].at--;
+    const report = evaluateCapacityEvidence(manifest, evidence);
+    expect(report.errors).toEqual(['unproved first acceptance: league-09/rosters']);
+    expect(report.evidenceDigest).toBe('63ab64ca24181deb483ca2ba02e3bc7be0a1c7dc4f7cebde1abea5484b6f330c');
+    expect(capacityDigest(report)).toBe('9878447743361cae43bc2e5ee5926f90349fa76fe25483ce0b9d9012c1b5072b');
+  });
+});
 
 describe('CP26 planned intake dispatch and actual SLA clocks', () => {
   it.each([-1, 0, 1, 1_000, 1_001])('retains planned dispatch and measures actual lateness of %i ms', offset => {

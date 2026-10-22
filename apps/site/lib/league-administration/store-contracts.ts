@@ -1,4 +1,9 @@
+import type { AdministrationWriteResult } from './administration-write-result';
 import type { TradedPicksResource, TradedPicksSelection, TradedPicksRead } from '../aggregator/traded-picks';
+import type { CanonicalLeagueSeasonInput, CanonicalRegistrationAuthorization, CanonicalLeagueSeasonReference,
+  CanonicalSourceMappingSelection, CanonicalSourceMappingRead, CanonicalSourceMappingV1 } from './canonical-source-contracts';
+import type { CanonicalResourceAttempt, CanonicalStandingsPolicy, CanonicalStandingsDelivery, CanonicalObservationWriteResult,
+  CanonicalStandingsSelection, CanonicalOfficialStandingsRead } from './canonical-standings-contracts';
 import type { OfficialStandingsRead, OfficialStandingsSelection } from '../aggregator/official-standings';
 import type { DraftMetadataResource, DraftMetadataSelection, DraftMetadataRead } from '../aggregator/draft-metadata';
 import type { DraftSelectionsResource, DraftSelectionsSelection, DraftSelectionsRead } from '../aggregator/draft-selections';
@@ -20,7 +25,7 @@ import type { AcceptedExactMatchupsRead } from '../aggregator/exact-matchups';
 import type { ExactPeriodContextRead, ExactPeriodContextSelection } from '../aggregator/exact-period-context';
 import type { ExactMatchupValuesRead, ExactMatchupValuesSelection } from '../aggregator/exact-matchup-values';
 import type { AcceptedCurrentRosterRead, CurrentRosterPolicy, RosterAcceptanceInput,
-  RosterAcceptanceResult, RosterAttempt } from '../aggregator/current-roster';
+  RosterAttempt } from '../aggregator/current-roster';
 import type { CurrentRosterReadOptions } from '../aggregator/current-roster-metadata';
 import type { RetainedMatchupRead, RetainedMatchupSelection } from './retained-matchups-contracts';
 import type { AcceptedTransactionsRead, RetainedTransactionRead, RetainedTransactionSelection, TransactionReceiptSelection } from './transaction-capture-contracts';
@@ -37,24 +42,7 @@ export type LeagueAdministrationStoreRead =
     /** Internal comparison only; never a v2 accepted head or a public DTO. */
     commonRoster?: RetainedRosterProjection }>
   | Readonly<{ status: 'missing' | 'disabled' | 'conflict' | 'unavailable'; reason?: string }>;
-export type AdministrationWriteResult = Readonly<{
-  status: 'changed' | 'unchanged' | 'replayed' | 'stale' | 'rejected' | 'disabled';
-  observationId?: string; versionId?: string | null; generation?: number; leagueSeasonId?: string;
-  reason?: string;
-  rosterAcceptance?: RosterAcceptanceResult;
-  teamManagerAcceptance?: RosterAcceptanceResult;
-  teamManagerEvidenceAcceptance?: RosterAcceptanceResult;
-  leagueSettingsAcceptance?: RosterAcceptanceResult;
-  matchupAcceptance?: RosterAcceptanceResult;
-  transactionAcceptance?: RosterAcceptanceResult;
-  bracketAcceptance?: RosterAcceptanceResult;
-  weeklyReportAcceptance?: RosterAcceptanceResult;
-  draftMetadataAcceptance?: RosterAcceptanceResult;
-  draftSelectionsAcceptance?: RosterAcceptanceResult;
-  tradedPicksAcceptance?: RosterAcceptanceResult;
-  calendarEvidence?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
-  calculationInput?: Readonly<{ id: string; status: 'retained' | 'replayed' }>;
-}>;
+export type { AdministrationWriteResult } from './administration-write-result';
 export type AdministrationEnrollment = Readonly<{
   leagueId: string; leagueSeasonId: string; leagueKey: string; displayName: string;
   season: number; provider: 'sleeper'; externalLeagueId: string; scoringProfileId: string;
@@ -73,6 +61,14 @@ export type AdministrationEnrollmentSelector = Readonly<{ leagueKey: string }>
 export type { AdministrationWriteFence } from './contracts';
 export type LeagueAdministrationStore = Readonly<{
   enabled: boolean;
+  /** Explicit capabilities; older store implementations remain native-only. */
+  registerCanonicalLeagueSeason?: (input: CanonicalLeagueSeasonInput, authorization: CanonicalRegistrationAuthorization) => Promise<CanonicalLeagueSeasonReference>;
+  readCanonicalSourceMapping?: (selection: CanonicalSourceMappingSelection) => Promise<CanonicalSourceMappingRead>;
+  beginCanonicalResourceAttempt?: (mapping: CanonicalSourceMappingV1, id: string, policy: CanonicalStandingsPolicy,
+    fence: AdministrationWriteFence) => Promise<CanonicalResourceAttempt>;
+  recordCanonicalObservation?: (delivery: CanonicalStandingsDelivery, mapping: CanonicalSourceMappingV1,
+    attempt: CanonicalResourceAttempt, fence: AdministrationWriteFence) => Promise<CanonicalObservationWriteResult>;
+  readCanonicalOfficialStandings?: (mapping: CanonicalSourceMappingV1, selection: CanonicalStandingsSelection) => Promise<CanonicalOfficialStandingsRead>;
   beginPlayerDirectoryAttempt: (id: string, fence: AdministrationWriteFence) => Promise<PlayerDirectoryReservation>;
   recordPlayerDirectoryCapture: (attempt: PlayerDirectoryAttempt, capture: PlayerDirectoryCapture,
     fence: AdministrationWriteFence) => Promise<PlayerDirectoryWriteResult>;

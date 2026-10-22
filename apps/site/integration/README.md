@@ -368,9 +368,17 @@ not evidence of live capacity or fit; only a separately authorized exact-source
 run with verified report and cleanup can qualify the observed catalog.
 
 
-## CP6 roster-player link qualification
+## CP28 shared roster content: current local candidate
 
-The closed `data-roster-player-links-v1` profile selects exactly nine ordered
+The current `data-roster-player-links-v1` inventory contains **15 ordered cases**: the original nine CP6 cases plus six Slice A cases. The original nine bodies and their historical run below remain unchanged. The compatible reader and migration 063 are new executable sources; the earlier CP6/CP26/CP27/CP28 qualifications do not transfer to this candidate.
+
+The bounded local PostgreSQL proof selects only the six Slice A cases through an ignored, owned-loopback adapter. It uses all 63 actual migrations and three provisioners, restores the original legacy trigger after each shared-write proof, and verifies local process/data/credential cleanup. The nine original cases are unselected in that proof. See the [Slice A implementation and local evidence](../../../docs/aggregator-backend/data-backend-cp28-shared-roster-content.md) for results, failed attempts, synthetic absent-catalog setup and measurement limits. This local adapter is not the protected Neon supervisor or hosted qualification.
+
+The six added body allowances total 810 seconds (240/180/120/90/90/90), making the combined 15-case authored body allowance 2,550 seconds (**42.5 minutes**) before hooks. This is an allowance sum, not actual elapsed time or a fit claim. The protected supervisor still enforces the unchanged 30-minute work and 40-minute lifecycle limits. The combined 15-case candidate is not qualified; it needs its own source review, bounded execution authorization and measured fit before any hosted run. No timeout extension, automatic retry or new dispatch authority is introduced.
+
+## CP6 roster-player link qualification (historical nine-case run)
+
+The original closed `data-roster-player-links-v1` profile selected exactly nine ordered
 cases in `integration/roster-player-links.integration-case.ts`, with one shared
 setup/teardown pair. Its fixed supervisor command is
 `pnpm test:integration --profile=data-roster-player-links-v1`. The same protected
@@ -820,7 +828,7 @@ unresolved source-evidence obligations. Record tested database version, source,
 duration, actual results and remaining gaps in the
 [DATA evidence ledger](../../../docs/aggregator-backend/data-backend-evidence.md).
 
-## CP13 retained-source and ordinary recovery candidate
+## CP13 retained-source and ordinary recovery candidate (historical)
 
 The earlier eight-case profile subsequently passed at `29be8bc` in run
 [38266572033](https://github.com/clawmachinejed/league-one-audit/actions/runs/38266572033),
@@ -1251,3 +1259,26 @@ The local repair shares the exact baseline/control oracle between the live case 
 The existing guarded native PostgreSQL regression verifies all62 migration checksums, the actual four seed values and native fingerprint, and the shared baseline oracle on the full154-relation snapshot. Independent counter mutations and deletion must fail inside a transaction that is rolled back; the second complete snapshot must restore the original row/schema digests and history. Rehashed offline companion fixtures separately test missing, extra and changed seed evidence and unrelated control drift. This local proof does not qualify the hosted two-league workload or authorize another hosted run.
 
 Final local validation passed 358 tests across four focused files with zero failures or skips, including all three guarded PostgreSQL 18.6 cases. The native baseline contained exactly 62 migration-ledger rows and the one unchanged migration059 seed across 154 tables. All three counter mutations and seed deletion were rejected for their intended reasons; rollback restored the complete row/schema digests and independent post-test inspection found no additional rows or client sessions. The owned local process, listener, data and ephemeral credentials were removed; retained evidence passed a generated-secret scan. All 107 current CP28 support pins match, and independent source review found no blockers. This qualifies the local baseline repair only; the hosted two-league workload remains unqualified.
+
+
+## CP28 B1 local population-evidence inventory — October 19, 2026
+
+The current official-results module appends six B1 cases to the eight preserved CP13 cases. Its closed full inventory is fourteen; `data-official-results-played-v1` still selects only original cases 7 and 8, with twelve honestly filtered cases. The earlier CP13 runs above retain their original bytes and acceptance. The current source pin is separately reviewed; updating the inventory supplies no hosted run authority. Historical CP26/CP27/CP28 support pins remain unchanged and reject the changed candidate before provisioning.
+
+The B1 case body budgets are 120/120/120/60/60/300 seconds, totaling thirteen minutes. Combined with the original twenty-five minutes of case bodies and two two-minute hooks, the authored full-module allowance is **42 minutes**, before harness overhead. The protected work cap remains **30 minutes**; the combined profile is not qualified to fit. Local B1-only execution is a separate six-case proof through an owned loopback PostgreSQL adapter, with the original eight cases unselected. See the [B1 implementation report](../../../docs/aggregator-backend/data-backend-cp28-population-evidence.md) for actual results, storage accounting, failed attempts and cleanup.
+
+## CP28 combined A+B local inventory — October 19, 2026
+
+The current official-results module appends three combined cases after the fourteen preserved cases. Its full inventory is seventeen; the played-result selector still selects original cases 7 and 8, with fifteen filtered cases. The new cases cover all four writer modes and immutable historical reads, downstream A-stage deadline/lease rollback after B evidence insertion, actual runtime writer serialization, and matched legacy/combined full-core allocation. Each mode transition uses one pinned owner transaction and restores the original legacy A writer with no B interner bound.
+
+The three new body budgets are 180/120/300 seconds. Full-module bodies and the original two hooks total **52 minutes**, exceeding the unchanged 30-minute protected work limit before overhead. The unchanged B1 resource/core counters also prevent treating the original B1 and combined subsets as one qualified run. No guard is raised or reset to fit the full module. Only the separately bounded three-case local selection is eligible for the proof described in the [combined report](../../../docs/aggregator-backend/data-backend-cp28-combined-storage.md). No new hosted selector or execution authority is introduced; historical CP26/CP27/CP28 pins remain unchanged.
+
+The final combined selection passed all three cases against the 64 real migrations, with fourteen earlier cases unselected. The bounded campaign retained two fixture-observation failures before the passing run, used 428 of 512 cumulative reservations in 19 minutes 11.187 seconds, and verified cleanup for all three owned local instances. The combined report and JSON preserve the source pins, failed attempts, complete allocation attribution and unpriced capacity terms. This establishes the selected local proof; CP28 capacity remains unqualified.
+
+## CP28 B2a local provenance inventory — October 20, 2026
+
+Four B2 provenance cases append to the seventeen preserved cases. The closed inventory is twenty-one; the played selector still selects original cases 7 and 8, with nineteen filtered cases. New body budgets are 180/120/120/300 seconds. Together with prior bodies and two hooks, the authored full-module allowance is **64 minutes** before overhead; the protected work cap stays **30 minutes**, so the full module remains unqualified. No historical CP26/CP27/CP28 support pin or hosted selector is changed.
+
+The new local selection covers exact full-provenance sharing across existing roster storage modes, strict bindings and permissions, original expiry/concurrency behavior, and absolute final-candidate allocation in the same expanded schema. Attempts retain their raw mappings and fences; the interner is temporarily bound only by the owned local test and restored afterward. The [provenance report](../../../docs/aggregator-backend/data-backend-cp28-provenance-storage.md) records the exact source candidate, bounds and preserved failures. Source implementation/review and unit/type/lint checks are complete. Three local attempts failed overall, consumed 133 cumulative reservations and were cleaned up. Semantics/security passed in later attempts; the third passed both deadline probes before a concurrency-fixture timeout. The final concurrency repair has only source validation. No matched B2 allocation or forecast exists; native qualification and CP28 capacity remain incomplete. The original campaign was not reset or extended, and no fourth attempt was prepared.
+
+The consolidated CP28 source prepares one candidate cost cohort at two leagues × 20 teams/160 held players (40 teams/320 held total;160 shared catalog IDs). Removing the optional comparison cohort reduces expected reservations from323 to187, with a193 fixture ceiling; no B2 savings percentage is claimed. Original B1/A+B helper defaults and the first17 case bodies remain unchanged. The existing concurrency proof runs before expiry waits; callback failures release owned blockers before intake failure handling. Allocation refuses to start without at least480 seconds on an acknowledged, unchanged30-minute campaign clock. These are source-only preparation changes: no new native campaign has started. The separate complete accounting manifest now assigns all fifteen terms, source multiplicities, historical price assumptions and explicit residuals. The frozen execution package must bind exact committed source/tree, clean tracked and nonignored state, all helpers and accounting inputs before one separate execution approval. Its offline preflight never bootstraps SQL. The core-only selection cannot replace noncore price uncertainty or turn a complete conditional ledger into capacity qualification.

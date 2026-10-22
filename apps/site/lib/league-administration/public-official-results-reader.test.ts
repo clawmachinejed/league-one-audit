@@ -312,3 +312,22 @@ describe('current CP13 collection versus explicitly retained history', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+describe('public official standings logical provenance projection', () => {
+  it('retains exact acquisition and downstream receipt provenance equality', async () => {
+    const f = fixture(), query = vi.fn(() => [f.row]);
+    expect(await readPublicOfficialStandings(database(query), f.administration, requestId, mapping))
+      .toMatchObject({ resource: f.resource, acquisition: { rosterReceiptId: id(5), attemptId: id(6) } });
+    expect(query).toHaveBeenCalledOnce();
+    expect(f.administration.readOfficialStandings).toHaveBeenCalledExactlyOnceWith(mapping, { rosterReceiptId: id(5) });
+    expect(PUBLIC_OFFICIAL_STANDINGS_SQL).toContain('public.roster_capture_provenance(receipt) AS provenance');
+    expect(PUBLIC_OFFICIAL_STANDINGS_SQL).not.toMatch(/receipt\.provenance/u);
+  });
+  it('does not query downstream standings or retry after shared provenance reconstruction fails', async () => {
+    const f = fixture(), query = vi.fn(() => { throw Error('shared roster provenance binding mismatch'); });
+    expect(await readPublicOfficialStandings(database(query), f.administration, requestId, mapping))
+      .toEqual({ captureBinding: 'intake-dispatch', resource: { status: 'unavailable', reason: 'intake-official-standings-read-failed' }, acquisition: null });
+    expect(query).toHaveBeenCalledOnce();
+    expect(f.administration.readOfficialStandings).not.toHaveBeenCalled();
+  });
+});

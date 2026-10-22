@@ -27,7 +27,7 @@ const componentColumns = EXACT_LINEUP_APPLICABILITY_COLUMNS
           AND activation.season_type='regular' AND configuration_source.configuration_version_id=version.id`)
   .replace("'normalizedValue',configuration_source.normalized_value", `'normalizedValue',configuration_source.normalized_value,
           'content',to_jsonb(configuration_source),'provenance',CASE WHEN source_receipt.content_id=configuration_source.id
-            THEN source_receipt.provenance ELSE source_receipt.population_evidence->'provenance' END`);
+            THEN source_receipt.provenance ELSE public.roster_capture_population_evidence(source_receipt)->'provenance' END`);
 
 // Explicit whole-row syntax avoids the joined content.accepted and configuration.accepted columns.
 export const EXACT_PERIOD_CONTEXT_SQL = `/* league-administration:read-exact-period-context */
